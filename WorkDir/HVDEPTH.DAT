@@ -1,0 +1,31 @@
+N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
+3
+H(m) Alfa(m/s) Beta(m/s) Dens(T/m3)   
+100      50    20        1.5  
+100      50    20        1.5  
+100      50    20        1.5
+8888     50    20        1.5
+DFREC   nFREC   DeltaK   nK     Q   (Original scheme)
+0.01   128      0.0015   256    1000.0
+
+0.01   512      0.001   1024    1000.0  !el que use para los videos
+
+
+0.01   32      0.001   512    1000.0
+
+0.01   254      0.001   1024    1000.0
+
+
+N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
+1
+H(m) Alfa(m/s) Beta(m/s) Dens(T/m3)   
+90       120    60        1.5
+8888     300    120        1.5
+DFREC   nFREC   DeltaK   nKmax     Q   (Original scheme)
+0.01     256    0.0001    1024    1000.0
+
+usar para reproducir lo de mathieu:
+0.2   512    10000.0    60000.0     1000.0
+
+
+Keep calm and carry on the file format
