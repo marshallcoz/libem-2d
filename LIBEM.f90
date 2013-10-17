@@ -125,7 +125,7 @@
       !                     | | ,--- iMec: 1:5  (1:2-G- 3:4:5--T--)
       !                     | | | ,---  xi: 1...NBpts (actuadores)
       ! allpoints           | | | | 
-      complex*16, dimension(:,:,:,:), allocatable :: FKhGre,FKvGre
+      complex*16, dimension(:,:,:,:), allocatable :: FKhGT,FKvGT
       
                                     
       !                     ,--- k: 1...NMAX+1
@@ -133,17 +133,17 @@
       !                     | | ,--- iMec: 1:5  (1:2-G- 3:4:5--T--)
       !                     | | | ,--- x: 1...NPts (receptores)
       ! BouPoints           | | | | 
-      complex*16, dimension(:,:,:,:), allocatable :: FKhTre,FKvTre
+!     complex*16, dimension(:,:,:,:), allocatable :: FKhTre,FKvTre
       
       
        end type Punto   
-      ! bondary elements:     ,--- POINT index
+      ! bondary elements:     ,--- POINT index / x (receptor)
       type (Punto), dimension(:), allocatable, save :: allpoints
       type (Punto), dimension(:), allocatable, save :: inqPoints
       type (Punto), dimension(:), allocatable, save :: moviePoints
       type (Punto), dimension(:), allocatable, save :: BouPoints !xi
             
-      integer, save :: nIpts, nMpts, nBpts, NPts,&
+      integer, save :: nIpts, nMpts, nBpts, nPts,&
                        iPtini,iPtfin,mPtini,mPtfin,bPtini,bPtfin
       
       !                     ,-,--- nBpts x nBpts (considering 1 direction)
@@ -1156,7 +1156,7 @@
       character(LEN=10) :: tt
       character(LEN=9)  :: xAx,yAx
       integer :: dstart,dfinish!,dstep
-      complex*16 :: integralEq14
+!     complex*16 :: integralEq14
       ! output direction
       if (PrintNum /= 6) open(PrintNum,FILE= "GlayerOUT.txt")
       
@@ -1241,19 +1241,28 @@
           'w(',J,')= ',REAL(COME),aimag(COME),'i :: ',FREC,' Hertz :: ',OME,' rad/s'
         end if 
         
-       ! Subsegment the topography if neccesssary
+      ! Subsegment the topography if neccesssary
        call subdivideTopo(J,PrintNum)
 
-       ! Free field solution on the FK plane:
-       !(only at points in the same stratum as the application force)
-       call FreeFieldAtPoints(xfsource,zfsource,efsource,0,J,COME,PrintNum) 
+      ! Free field solution:
+       call FreeField(xfsource, & 
+                      zfsource, & 
+                      efsource, & 
+                      0,J,allpoints,Npts,COME,PrintNum) 
        
       if (workBoundary) then
       do iPxi = 1,nBpts
-       call FreeFieldAtPoints(fixedBouPoints(iPxi)%center(1), & 
-                              fixedBouPoints(iPxi)%center(2), & 
-                              fixedBouPoints(iPxi)%layer, & 
-                              iPxi,J,COME,PrintNum) 
+       ! T(x,xi) entre puntos de la frontera
+       call FreeField(BouPoints(iPxi)%center(1), & 
+                      BouPoints(iPxi)%center(2), & 
+                      BouPoints(iPxi)%layer, & 
+                      iPxi,J,BouPoints,NBpts,COME,PrintNum) 
+                      
+       ! G(x,xi) entre todos los puntos interesantes
+       call FreeField(BouPoints(iPxi)%center(1), & 
+                      BouPoints(iPxi)%center(2), & 
+                      BouPoints(iPxi)%layer, & 
+                      iPxi,J,allpoints,Npts,COME,PrintNum) 
       end do
       end if
         ! for the discrete wave number
@@ -1302,10 +1311,10 @@
        ! de colocacion xi y el resto de los puntos, incluso ellos mismos.
         if (workBoundary) then
         do iP = 1,nBpts ! xi (punto de aplicacion de fuerza virtual)
-        call vectorB_force(fixedBouPoints(ip)%center(1), & 
-                           fixedBouPoints(ip)%center(2), & 
-                           fixedBouPoints(ip)%layer, & 
-                           fixedBouPoints(ip)%isOnInterface, & 
+        call vectorB_force(BouPoints(ip)%center(1), & 
+                           BouPoints(ip)%center(2), & 
+                           BouPoints(ip)%layer, & 
+                           BouPoints(ip)%isOnInterface, & 
                            direction,cOME,k)
         Bk = B
         Ak = A
@@ -1777,14 +1786,14 @@
       integer, intent(in) :: outpf
       logical :: lexist
       real, dimension(:), allocatable :: auxVector
-      real :: nuevoPx,deltaX,deltaZ,maxLen,leniXI
-      integer :: iXI,iX,e,indice, AllocateStatus,idx
+      real :: nuevoPx,deltaX,deltaZ!,maxLen!,leniXI
+      integer :: iXI,iX,e,indice!,idx!, AllocateStatus
       real :: XIx, XIy
       character(LEN=100) :: txt
       real     :: errT = 0.001
       logical, dimension(:), allocatable  :: isOnIF
-      real, dimension(2) :: midiXI
-      logical :: smallEnough, huboCambios
+!     real, dimension(2) :: midiXI
+      logical :: huboCambios!, smallEnough
       real, dimension(:), allocatable :: auxA,auxB
       
       ! min wavelenght = beta / maxFrec
@@ -2062,14 +2071,14 @@
       BouPoints(:)%isBoundary = .true.
       BouPoints(:)%isOnInterface = isOnIF
       
-      do iXI=1,nBpts !      xi                                  x
-        allocate(BouPoints(iXI)%FKhTre(nmax+1,Nfrec+1,imecMax,Npts))
-        allocate(BouPoints(iXI)%FKvTre(nmax+1,Nfrec+1,imecMax,Npts))
+      do iXI=1,nBpts !      x                                  xi
+        allocate(BouPoints(iXI)%FKhGT(nmax+1,Nfrec+1,imecMax,nBpts))
+        allocate(BouPoints(iXI)%FKvGT(nmax+1,Nfrec+1,imecMax,nBpts))
       end do
 !     
       do iX=1,nPts !        x                                  xi
-        allocate(allpoints(iX)%FKhGre(nmax+1,Nfrec+1,imecMax,NBpts))
-        allocate(allpoints(iX)%FKvGre(nmax+1,Nfrec+1,imecMax,NBpts))
+        allocate(allpoints(iX)%FKhGT(nmax+1,Nfrec+1,imecMax,nBpts))
+        allocate(allpoints(iX)%FKvGT(nmax+1,Nfrec+1,imecMax,nBpts))
       end do
       
       end subroutine getTopography
@@ -2086,12 +2095,12 @@
       use ploteo10pesos
       implicit none
       integer, intent(in) :: outpf,iJ
-      logical :: lexist
-      real, dimension(:), allocatable :: auxVector
-      real :: nuevoPx,deltaX,deltaZ,maxLen,leniXI
-      integer :: J,iXI,e,indice, AllocateStatus,idx
-      real :: XIx, XIy
-      character(LEN=100) :: txt
+!     logical :: lexist
+!     real, dimension(:), allocatable :: auxVector
+      real :: deltaX,deltaZ,maxLen,leniXI!,nuevoPx
+      integer :: J,iXI,iX,e,indice, AllocateStatus,idx
+!     real :: XIx, XIy
+!     character(LEN=100) :: txt
       real     :: errT = 0.001
       logical, dimension(:), allocatable  :: isOnIF
       real :: maxFrec
@@ -2396,16 +2405,16 @@
       BouPoints(:)%isBoundary = .true.
       BouPoints(:)%isOnInterface = isOnIF
       
-      do iXI=1,nBpts !      xi                                  x
-        allocate(BouPoints(iXI)%FKhTre(nmax+1,Nfrec+1,imecMax,Npts))
-        allocate(BouPoints(iXI)%FKvTre(nmax+1,Nfrec+1,imecMax,Npts))
+      do iXI=1,nBpts !      x                                  xi
+        allocate(BouPoints(iXI)%FKhGT(nmax+1,Nfrec+1,imecMax,nBpts))
+        allocate(BouPoints(iXI)%FKvGT(nmax+1,Nfrec+1,imecMax,nBpts))
       end do
 !     
       do iX=1,nPts 
-        deallocate(allpoints(ix)%FKhGre,allpoints(ix)%FKvGre)
+        deallocate(allpoints(ix)%FKhGT,allpoints(ix)%FKvGT)
                    !        x                                  xi
-        allocate(allpoints(iX)%FKhGre(nmax+1,Nfrec+1,imecMax,NBpts))
-        allocate(allpoints(iX)%FKvGre(nmax+1,Nfrec+1,imecMax,NBpts))
+        allocate(allpoints(iX)%FKhGT(nmax+1,Nfrec+1,imecMax,nBpts))
+        allocate(allpoints(iX)%FKvGT(nmax+1,Nfrec+1,imecMax,nBpts))
       end do
       
       end if ! huboCambios
@@ -2521,9 +2530,9 @@
        write(outpf,'(A,I4)') ' Ricker(w) signal size is :',size(Uo)
       end if
       end subroutine waveAmplitude
-      subroutine FreeFieldAtPoints(x_f,z_f,e,iP_xi,nJ,cOME,outpf)
-      use soilVars !                           `--- (0): allpoints
-      use gloVars  !                            (iP_xi): fixedBouPoints
+      subroutine FreeField(x_f,z_f,e_f,iP_xi,nJ,P,Nputos_X,cOME,outpf)
+      use soilVars !                      `--- (0): allpoints (no se usa)
+      use gloVars  !                       (iP_xi): BouPoints (fuente)
       use waveNumVars, only : NFREC,NMAX,DK
       use resultvars
 !     use sourceVars, only : x_f => xfsource, & 
@@ -2531,21 +2540,18 @@
 !                            e => efsource
       
       implicit none
-      integer,    intent(in)     :: e,iP_xi
+      integer,    intent(in)     :: e_f,iP_xi,Npuntos_X
       real,       intent(in)     :: x_f,z_f
       integer,    intent(in)     :: nJ,outpf
       complex*16, intent(in)     :: cOME
+      type Punto, dimension(Npuntos_X), intent(inout)  :: P
       
       integer                    :: ik,iP
       real                       :: k
-      real, dimension(NPts)      :: x_i,z_i,SGNz
-!     real                       :: p,q
-!     complex*16                 :: k
-!     complex*16, dimension(3,2) :: subMatSB
-      
-      complex*16, dimension(NMAX+1,NPts) :: G11,G33,G31, & 
+      real, dimension(Npuntos_X) :: x_i,z_i,SGNz
+      complex*16, dimension(NMAX+1,Npuntos_X) :: G11,G33,G31, & 
                                           S333,S313,S113,s331,s131,s111
-      complex*16, dimension(NPts) :: egamz,enuz
+      complex*16, dimension(Npuntos_X) :: egamz,enuz
       real                       :: L2M
       complex*16                 :: gamma,nu,DEN
       complex*16                 :: omeAlf,omeBet
@@ -2554,23 +2560,22 @@
       S333=0;S313=0;S113=0;s331=0;s131=0;s111=0
       egamz=0;enuz=0;x_i=0;z_i=0;SGNz=0
       
+           
+      DEN = 4.0*PI*RHO(e_f)*cOME**2.0
+      omeAlf = cOME**2/ALFA(e_f)**2.0
+      omeBet = cOME**2/BETA(e_f)**2.0
+      L2M = LAMBDA(e_f) + 2.0*AMU(e_f)
+           
+      where (P(:)%layer .eq. e_f)  
+        x_i = P(:)%center(1) - x_f
+        z_i = P(:)%center(2) - z_f
+      end where !solo trabajamos con los puntos en el mismo estrato que 
       
-      ! expressions for stress and displacement acknowledge the
-      ! futile integration of an odd function.      
-      DEN = 4.0*PI*RHO(e)*cOME**2.0
-      omeAlf = cOME**2/ALFA(e)**2.0
-      omeBet = cOME**2/BETA(e)**2.0
-      L2M = LAMBDA(e) + 2.0*AMU(e)
-      
-      where (allpoints(:)%layer .eq. e)  
-        x_i = allpoints(:)%center(1) - x_f
-        z_i = allpoints(:)%center(2) - z_f
-      end where!
       where (z_i .ne. 0)
         SGNz = z_i / ABS(z_i)
       end where!
       
-      !loop en k llenando FK
+      !loop en k para llenar el plano FK
       do ik =1,nmax+1
          k = real(ik-1,8) * dK
          if (ik .eq. 1) k = dk * 0.001
@@ -2579,8 +2584,8 @@
         nu = sqrt(omeBet - k**2.0)
         if(aimag(gamma).gt.0.0)gamma = -gamma
         if(aimag(nu).gt.0.0)nu=-nu
-                 
-        where (allpoints(:)%layer .eq. e) 
+        
+        where (P(:)%layer .eq. e) 
           egamz = exp(-UI*gamma*ABS(z_i))
           enuz = exp(-UI*nu*ABS(z_i)) 
           
@@ -2614,54 +2619,58 @@
                     ) !
         end where
       end do !ik
-      
+     
       if (iP_xi .eq. 0) then !the case when we the source is the source 
-       do iP = 1,Npts
-        if(imecMax >= 1) allpoints(iP)%FKv(:,nJ,1) = G33(:,iP)
-        if(imecMax >= 2) allpoints(iP)%FKv(:,nJ,2) = G31(:,iP)
-        if(imecMax >= 3) allpoints(iP)%FKv(:,nJ,3) = S333(:,iP)
-        if(imecMax >= 4) allpoints(iP)%FKv(:,nJ,4) = S313(:,iP)
-        if(imecMax >= 5) allpoints(iP)%FKv(:,nJ,5) = S113(:,iP)
+       do iP = 1,Npuntos_X !Npts
+        if(imecMax >= 1) P(iP)%FKv(:,nJ,1) = G33(:,iP)
+        if(imecMax >= 2) P(iP)%FKv(:,nJ,2) = G31(:,iP)
+        if(imecMax >= 3) P(iP)%FKv(:,nJ,3) = S333(:,iP)
+        if(imecMax >= 4) P(iP)%FKv(:,nJ,4) = S313(:,iP)
+        if(imecMax >= 5) P(iP)%FKv(:,nJ,5) = S113(:,iP)
         
-        if(imecMax >= 1) allpoints(iP)%FKh(:,nJ,1) = G31(:,iP)
-        if(imecMax >= 2) allpoints(iP)%FKh(:,nJ,2) = G11(:,iP)
-        if(imecMax >= 3) allpoints(iP)%FKh(:,nJ,3) = S331(:,iP)
-        if(imecMax >= 4) allpoints(iP)%FKh(:,nJ,4) = S131(:,iP)
-        if(imecMax >= 5) allpoints(iP)%FKh(:,nJ,5) = S111(:,iP)
+        if(imecMax >= 1) P(iP)%FKh(:,nJ,1) = G31(:,iP)
+        if(imecMax >= 2) P(iP)%FKh(:,nJ,2) = G11(:,iP)
+        if(imecMax >= 3) P(iP)%FKh(:,nJ,3) = S331(:,iP)
+        if(imecMax >= 4) P(iP)%FKh(:,nJ,4) = S131(:,iP)
+        if(imecMax >= 5) P(iP)%FKh(:,nJ,5) = S111(:,iP)
        end do
       else ! the case when the source is at some point iP_xi 
-       do iP = 1,Npts !to solve the ibem matrix
-        if(imecMax >= 1) BouPoints(iP)%FKvTre(:,nJ,1,iP_xi) = G33(:,iP)
-        if(imecMax >= 2) BouPoints(iP)%FKvTre(:,nJ,2,iP_xi) = G31(:,iP)
-        if(imecMax >= 3) BouPoints(iP)%FKvTre(:,nJ,3,iP_xi) = S333(:,iP)
-        if(imecMax >= 4) BouPoints(iP)%FKvTre(:,nJ,4,iP_xi) = S313(:,iP)
-        if(imecMax >= 5) BouPoints(iP)%FKvTre(:,nJ,5,iP_xi) = S113(:,iP)
+       do iP = 1,Npuntos_X
+                !NBpts/Npts to solve the ibem matrix/solve the diff field
+        if(imecMax >= 1) P(iP)%FKvGT(:,nJ,1,iP_xi) = G33(:,iP)
+        if(imecMax >= 2) P(iP)%FKvGT(:,nJ,2,iP_xi) = G31(:,iP)
+        if(imecMax >= 3) P(iP)%FKvGT(:,nJ,3,iP_xi) = S333(:,iP)
+        if(imecMax >= 4) P(iP)%FKvGT(:,nJ,4,iP_xi) = S313(:,iP)
+        if(imecMax >= 5) P(iP)%FKvGT(:,nJ,5,iP_xi) = S113(:,iP)
         
-        if(imecMax >= 1) BouPoints(iP)%FKhTre(:,nJ,1,iP_xi) = G31(:,iP)
-        if(imecMax >= 2) BouPoints(iP)%FKhTre(:,nJ,2,iP_xi) = G11(:,iP)
-        if(imecMax >= 3) BouPoints(iP)%FKhTre(:,nJ,3,iP_xi) = S331(:,iP)
-        if(imecMax >= 4) BouPoints(iP)%FKhTre(:,nJ,4,iP_xi) = S131(:,iP)
-        if(imecMax >= 5) BouPoints(iP)%FKhTre(:,nJ,5,iP_xi) = S111(:,iP)
+        if(imecMax >= 1) P(iP)%FKhGT(:,nJ,1,iP_xi) = G31(:,iP)
+        if(imecMax >= 2) P(iP)%FKhGT(:,nJ,2,iP_xi) = G11(:,iP)
+        if(imecMax >= 3) P(iP)%FKhGT(:,nJ,3,iP_xi) = S331(:,iP)
+        if(imecMax >= 4) P(iP)%FKhGT(:,nJ,4,iP_xi) = S131(:,iP)
+        if(imecMax >= 5) P(iP)%FKhGT(:,nJ,5,iP_xi) = S111(:,iP)
        end do
-       
-       do iP = 1,Npts !to solve the response at other points
-        if(imecMax >= 1) allpoints(iP)%FKvGre(:,nJ,1,iP_xi) = G33(:,iP)
-        if(imecMax >= 2) allpoints(iP)%FKvGre(:,nJ,2,iP_xi) = G31(:,iP)
-        if(imecMax >= 3) allpoints(iP)%FKvGre(:,nJ,3,iP_xi) = S333(:,iP)
-        if(imecMax >= 4) allpoints(iP)%FKvGre(:,nJ,4,iP_xi) = S313(:,iP)
-        if(imecMax >= 5) allpoints(iP)%FKvGre(:,nJ,5,iP_xi) = S113(:,iP)
-        
-        if(imecMax >= 1) allpoints(iP)%FKhGre(:,nJ,1,iP_xi) = G31(:,iP)
-        if(imecMax >= 2) allpoints(iP)%FKhGre(:,nJ,2,iP_xi) = G11(:,iP)
-        if(imecMax >= 3) allpoints(iP)%FKhGre(:,nJ,3,iP_xi) = S331(:,iP)
-        if(imecMax >= 4) allpoints(iP)%FKhGre(:,nJ,4,iP_xi) = S131(:,iP)
-        if(imecMax >= 5) allpoints(iP)%FKhGre(:,nJ,5,iP_xi) = S111(:,iP)
-       end do
-       
       end if!
+      
+!     if (iP_xi .ne. 0) then
+!     
+!     do iP = 1,Npts !to solve the response at other points
+!       if(imecMax >= 1) allpoints(iP)%FKvGre(:,nJ,1,iP_xi) = G33(:,iP)
+!       if(imecMax >= 2) allpoints(iP)%FKvGre(:,nJ,2,iP_xi) = G31(:,iP)
+!       if(imecMax >= 3) allpoints(iP)%FKvGre(:,nJ,3,iP_xi) = S333(:,iP)
+!       if(imecMax >= 4) allpoints(iP)%FKvGre(:,nJ,4,iP_xi) = S313(:,iP)
+!       if(imecMax >= 5) allpoints(iP)%FKvGre(:,nJ,5,iP_xi) = S113(:,iP)
+!       
+!       if(imecMax >= 1) allpoints(iP)%FKhGre(:,nJ,1,iP_xi) = G31(:,iP)
+!       if(imecMax >= 2) allpoints(iP)%FKhGre(:,nJ,2,iP_xi) = G11(:,iP)
+!       if(imecMax >= 3) allpoints(iP)%FKhGre(:,nJ,3,iP_xi) = S331(:,iP)
+!       if(imecMax >= 4) allpoints(iP)%FKhGre(:,nJ,4,iP_xi) = S131(:,iP)
+!       if(imecMax >= 5) allpoints(iP)%FKhGre(:,nJ,5,iP_xi) = S111(:,iP)
+!      end do
+!      
+!     end if!
       if(verbose>=2) write(outpf,'(a)')"did got the incidence field"
       
-      end subroutine FreeFieldAtPoints
+      end subroutine FreeField
       
       ! P plana incidente
 !     print*,"Zstart= ",Zstart
@@ -2713,6 +2722,191 @@
 !     end do
       
       
+      subroutine FreeFieldAtPoints(x_f,z_f,e,iP_xi,nJ,Npuntos,cOME,outpf)
+      use soilVars !                           `--- (0): allpoints
+      use gloVars  !                            (iP_xi): BouPoints
+      use waveNumVars, only : NFREC,NMAX,DK
+      use resultvars
+!     use sourceVars, only : x_f => xfsource, & 
+!                            z_f => zfsource, & 
+!                            e => efsource
+      
+      implicit none
+      integer,    intent(in)     :: e,iP_xi,Npuntos
+      real,       intent(in)     :: x_f,z_f
+      integer,    intent(in)     :: nJ,outpf
+      complex*16, intent(in)     :: cOME
+      
+      integer                    :: ik,iP
+      real                       :: k
+      real, dimension(Npuntos)      :: x_i,z_i,SGNz
+      complex*16, dimension(NMAX+1,Npuntos) :: G11,G33,G31, & 
+                                          S333,S313,S113,s331,s131,s111
+      complex*16, dimension(Npuntos) :: egamz,enuz
+      real                       :: L2M
+      complex*16                 :: gamma,nu,DEN
+      complex*16                 :: omeAlf,omeBet
+      
+      G11=0;G31=0;G33=0
+      S333=0;S313=0;S113=0;s331=0;s131=0;s111=0
+      egamz=0;enuz=0;x_i=0;z_i=0;SGNz=0
+      
+           
+      DEN = 4.0*PI*RHO(e)*cOME**2.0
+      omeAlf = cOME**2/ALFA(e)**2.0
+      omeBet = cOME**2/BETA(e)**2.0
+      L2M = LAMBDA(e) + 2.0*AMU(e)
+      
+      if (iP_xi .eq. 0) then
+       where (allpoints(:)%layer .eq. e)  
+        x_i = allpoints(:)%center(1) - x_f
+        z_i = allpoints(:)%center(2) - z_f
+       end where
+      else
+       where (BouPoints(:)%layer .eq. e)  
+        x_i = BouPoints(:)%center(1) - x_f
+        z_i = BouPoints(:)%center(2) - z_f
+       end where
+      end if
+      
+      where (z_i .ne. 0)
+        SGNz = z_i / ABS(z_i)
+      end where!
+      
+      !loop en k llenando FK
+      do ik =1,nmax+1
+         k = real(ik-1,8) * dK
+         if (ik .eq. 1) k = dk * 0.001
+      
+        gamma = sqrt(omeAlf - k**2.0)
+        nu = sqrt(omeBet - k**2.0)
+        if(aimag(gamma).gt.0.0)gamma = -gamma
+        if(aimag(nu).gt.0.0)nu=-nu
+        
+        if (iP_xi .eq. 0) then
+        where (allpoints(:)%layer .eq. e) 
+          egamz = exp(-UI*gamma*ABS(z_i))
+          enuz = exp(-UI*nu*ABS(z_i)) 
+          
+          G11(ik,:) = -UI/DEN * (k**2.0/gamma*egamz + nu*enuz)
+          G33(ik,:) = -UI/DEN * (gamma*egamz + k**2.0/nu*enuz)
+          G31(ik,:) = -UI/DEN * SGNz*k*(egamz - enuz) 
+         S333(ik,:) = -UR/DEN * SGNz*( &
+                    (gamma**2.0*L2M + k**2.0*lambda(e))* egamz &
+                  + (2.0*amu(e)*k**2.0)* enuz &
+                    ) !
+         S313(ik,:) = -UR/DEN * amu(e) * ( &
+                    (2.0*k*gamma)* egamz &
+                  - (k/nu*(nu**2.0-k**2.0))* enuz &
+                    ) !
+         S113(ik,:) = -UR/DEN * SGNz * ( &
+                    (k**2.0*L2M + gamma**2.0*lambda(e))* egamz &
+                  + (-2.0*amu(e)*k**2.0)* enuz &
+                    ) !
+         !s331=0;s131=0;s111=0
+         s331(ik,:) = -UR/DEN * ( &
+                    (k*gamma*L2M + lambda(e)*k**3.0/gamma)* egamz &
+                  + (-2.0*amu(e)*k*nu)* enuz &
+                    ) !
+         s131(ik,:) = -UR/DEN * amu(e)*SGNz * ( &             
+                    (2.0*k**2.0)* egamz &
+                    + (nu**2.0-k**2.0)* enuz &
+                    ) !
+         s111(ik,:) = -UR/DEN * ( & 
+                    (k*gamma*lambda(e)+L2M*k**3.0/gamma)* egamz &
+                    + (2.0*amu(e)*k*nu)* enuz & 
+                    ) !
+        end where
+        else
+        where (BouPoints(:)%layer .eq. e) 
+          egamz = exp(-UI*gamma*ABS(z_i))
+          enuz = exp(-UI*nu*ABS(z_i)) 
+          
+          G11(ik,:) = -UI/DEN * (k**2.0/gamma*egamz + nu*enuz)
+          G33(ik,:) = -UI/DEN * (gamma*egamz + k**2.0/nu*enuz)
+          G31(ik,:) = -UI/DEN * SGNz*k*(egamz - enuz) 
+         S333(ik,:) = -UR/DEN * SGNz*( &
+                    (gamma**2.0*L2M + k**2.0*lambda(e))* egamz &
+                  + (2.0*amu(e)*k**2.0)* enuz &
+                    ) !
+         S313(ik,:) = -UR/DEN * amu(e) * ( &
+                    (2.0*k*gamma)* egamz &
+                  - (k/nu*(nu**2.0-k**2.0))* enuz &
+                    ) !
+         S113(ik,:) = -UR/DEN * SGNz * ( &
+                    (k**2.0*L2M + gamma**2.0*lambda(e))* egamz &
+                  + (-2.0*amu(e)*k**2.0)* enuz &
+                    ) !
+         !s331=0;s131=0;s111=0
+         s331(ik,:) = -UR/DEN * ( &
+                    (k*gamma*L2M + lambda(e)*k**3.0/gamma)* egamz &
+                  + (-2.0*amu(e)*k*nu)* enuz &
+                    ) !
+         s131(ik,:) = -UR/DEN * amu(e)*SGNz * ( &             
+                    (2.0*k**2.0)* egamz &
+                    + (nu**2.0-k**2.0)* enuz &
+                    ) !
+         s111(ik,:) = -UR/DEN * ( & 
+                    (k*gamma*lambda(e)+L2M*k**3.0/gamma)* egamz &
+                    + (2.0*amu(e)*k*nu)* enuz & 
+                    ) !
+        end where
+        end if
+      end do !ik
+     
+      if (iP_xi .eq. 0) then !the case when we the source is the source 
+       do iP = 1,Npts
+        if(imecMax >= 1) allpoints(iP)%FKv(:,nJ,1) = G33(:,iP)
+        if(imecMax >= 2) allpoints(iP)%FKv(:,nJ,2) = G31(:,iP)
+        if(imecMax >= 3) allpoints(iP)%FKv(:,nJ,3) = S333(:,iP)
+        if(imecMax >= 4) allpoints(iP)%FKv(:,nJ,4) = S313(:,iP)
+        if(imecMax >= 5) allpoints(iP)%FKv(:,nJ,5) = S113(:,iP)
+        
+        if(imecMax >= 1) allpoints(iP)%FKh(:,nJ,1) = G31(:,iP)
+        if(imecMax >= 2) allpoints(iP)%FKh(:,nJ,2) = G11(:,iP)
+        if(imecMax >= 3) allpoints(iP)%FKh(:,nJ,3) = S331(:,iP)
+        if(imecMax >= 4) allpoints(iP)%FKh(:,nJ,4) = S131(:,iP)
+        if(imecMax >= 5) allpoints(iP)%FKh(:,nJ,5) = S111(:,iP)
+       end do
+      else ! the case when the source is at some point iP_xi 
+       do iP = 1,NBpts !to solve the ibem matrix
+        if(imecMax >= 1) BouPoints(iP)%FKvTre(:,nJ,1,iP_xi) = G33(:,iP)
+        if(imecMax >= 2) BouPoints(iP)%FKvTre(:,nJ,2,iP_xi) = G31(:,iP)
+        if(imecMax >= 3) BouPoints(iP)%FKvTre(:,nJ,3,iP_xi) = S333(:,iP)
+        if(imecMax >= 4) BouPoints(iP)%FKvTre(:,nJ,4,iP_xi) = S313(:,iP)
+        if(imecMax >= 5) BouPoints(iP)%FKvTre(:,nJ,5,iP_xi) = S113(:,iP)
+        
+        if(imecMax >= 1) BouPoints(iP)%FKhTre(:,nJ,1,iP_xi) = G31(:,iP)
+        if(imecMax >= 2) BouPoints(iP)%FKhTre(:,nJ,2,iP_xi) = G11(:,iP)
+        if(imecMax >= 3) BouPoints(iP)%FKhTre(:,nJ,3,iP_xi) = S331(:,iP)
+        if(imecMax >= 4) BouPoints(iP)%FKhTre(:,nJ,4,iP_xi) = S131(:,iP)
+        if(imecMax >= 5) BouPoints(iP)%FKhTre(:,nJ,5,iP_xi) = S111(:,iP)
+       end do
+      end if!
+      
+      if (iP_xi .ne. 0) then
+      
+      do iP = 1,Npts !to solve the response at other points
+        if(imecMax >= 1) allpoints(iP)%FKvGre(:,nJ,1,iP_xi) = G33(:,iP)
+        if(imecMax >= 2) allpoints(iP)%FKvGre(:,nJ,2,iP_xi) = G31(:,iP)
+        if(imecMax >= 3) allpoints(iP)%FKvGre(:,nJ,3,iP_xi) = S333(:,iP)
+        if(imecMax >= 4) allpoints(iP)%FKvGre(:,nJ,4,iP_xi) = S313(:,iP)
+        if(imecMax >= 5) allpoints(iP)%FKvGre(:,nJ,5,iP_xi) = S113(:,iP)
+        
+        if(imecMax >= 1) allpoints(iP)%FKhGre(:,nJ,1,iP_xi) = G31(:,iP)
+        if(imecMax >= 2) allpoints(iP)%FKhGre(:,nJ,2,iP_xi) = G11(:,iP)
+        if(imecMax >= 3) allpoints(iP)%FKhGre(:,nJ,3,iP_xi) = S331(:,iP)
+        if(imecMax >= 4) allpoints(iP)%FKhGre(:,nJ,4,iP_xi) = S131(:,iP)
+        if(imecMax >= 5) allpoints(iP)%FKhGre(:,nJ,5,iP_xi) = S111(:,iP)
+       end do
+       
+      end if!
+      if(verbose>=2) write(outpf,'(a)')"did got the incidence field"
+      
+      end subroutine FreeFieldAtPoints
+      
+      
+            
       subroutine matrixA_borderCond(k,cOME_i,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
       use gloVars, only : verbose,UI,UR,PI!,dp
@@ -3063,7 +3257,7 @@
 
       subroutine getResultsOnBoundary(iP_xi,direction,nJ,cOME_i,iik,outpf)
       use gloVars, only : imecMax
-      use resultVars, only : MecaElem,allpoints,BouPoints,NPts
+      use resultVars, only : MecaElem,BouPoints,nBpts
       
       implicit none
       integer, intent(in)          :: iP_xi,direction,nJ,iik,outpf
@@ -3072,20 +3266,20 @@
       real                         :: x_i, z_i
       integer                      :: iP,e
       
-      ! ya estamos dentro de un loop en puntos xi
-      do iP=1,NPts ! punto x (receptor)
-        x_i = allpoints(iP)%center(1)
-        z_i = allpoints(iP)%center(2)
-          e = allpoints(iP)%layer
+      ! ya estamos dentro de un loop en puntos xi (fuentes)
+      do iP=1,nBpts ! punto X (receptor)
+        x_i = BouPoints(iP)%center(1)
+        z_i = BouPoints(iP)%center(2)
+          e = BouPoints(iP)%layer
         this_Meca = calcMecaAt_xi_zi(iP,x_i,z_i,e,cOME_i,outpf)
         
         if (direction .eq. 1) then !x
-          BouPoints(iP_xi)%FKhGre(iik,nJ,1:imecMax,iP) = &
-          BouPoints(iP_xi)%FKhGre(iik,nJ,1:imecMax,iP) + & 
+          BouPoints(iP_xi)%FKhGT(iik,nJ,1:imecMax,iP) = &
+          BouPoints(iP_xi)%FKhGT(iik,nJ,1:imecMax,iP) + & 
           this_Meca%Rw(1:imecMax)
         elseif (direction .eq. 2) then !z
-          BouPoints(iP_xi)%FKvGre(iik,nJ,1:imecMax,iP) = &
-          BouPoints(iP_xi)%FKvGre(iik,nJ,1:imecMax,iP) + & 
+          BouPoints(iP_xi)%FKvGT(iik,nJ,1:imecMax,iP) = &
+          BouPoints(iP_xi)%FKvGT(iik,nJ,1:imecMax,iP) + & 
           this_Meca%Rw(1:imecMax)
         end if
 !       fixedBouPoints(iP_xi)%GT(1:imecMax,direction,iP,nJ,iik) = &
