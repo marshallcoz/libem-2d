@@ -124,10 +124,10 @@
       !                     ,--- k: 1...NMAX+1
       !                     | ,--- f: 1...NFREC+1
       !                     | | ,--- iMec: 1:5  (1:2-G- 3:4:5--T--)
-      !                     | | | ,---  xi: 1...NBpts (actuadores)
+      !                     | | | ,---  xi: 1...NBpts (actuadores en BouPoints)
       ! allpoints           | | | | 
       complex*16, dimension(:,:,:,:), allocatable :: FKhGT,FKvGT
-      
+      complex*16, dimension  (:,:,:), allocatable :: FhGT,FvGT
                                     
       !                     ,--- k: 1...NMAX+1
       !                     | ,--- f: 1...NFREC+1
@@ -160,6 +160,7 @@
       !                                          | | ,--- iMec
       !                                          | | | ,--- foto{2*Nfrec}
       complex*16, allocatable, save :: Sismogram(:,:,:,:)
+      complex*16, dimension(:), allocatable :: auxKvect
       
       end module resultVars
               
@@ -1144,6 +1145,7 @@
       use GeometryVars!, only : numberOffixedBoundaryPoints
       use ploteo10pesos
       use sourceVars
+      use wavelets
       
       implicit none
       ! output direction   6 : screen      101: log file
@@ -1157,6 +1159,7 @@
       character(LEN=10) :: tt
       character(LEN=9)  :: xAx,yAx
       integer :: dstart,dfinish!,dstep
+      real :: factor
       
 !     complex*16 :: integralEq14
       ! output direction
@@ -1190,7 +1193,10 @@
       ALLOCATE (A(4*N+2,4*N+2)); A=cmplx(0,0,8)
       allocate (Ak(4*N+2,4*N+2)); Ak=cmplx(0,0,8)
       allocate (this_B(4*N+2))
+      ALLOCATE (B (4*N+2, NPts))
+      ALLOCATE (IPIV(4*N+2, NPts)) ! pivote
       allocate(allpoints(Npts))
+      allocate (auxKvect(2*Nmax))
       
       if (getInquirePointsSol) allpoints(iPtini:iPtfin) = inqPoints
       if (makeVideo) allpoints(mPtini:mPtfin) = moviePoints
@@ -1245,7 +1251,7 @@
         
       ! Subsegment the topography if neccesssary
        call subdivideTopo(J,PrintNum)
-
+   
       ! Free field solution:
        call FreeField(xfsource, & 
                       zfsource, & 
@@ -1276,9 +1282,7 @@
 !     NMAX=(OME/minval(BETA))/DK+1                   !EMPIRICAL (improve)
 !     NMAX=2*NMAX+100                                !EMPIRICAL (improve)
       
-      ! vector de terminos independientes
-      ALLOCATE    (B (4*N+2, NPts))
-      ALLOCATE  (IPIV(4*N+2, NPts)) ! pivote 
+       
 !        call vectorB_incidence(J,cOME,DK,NMAX,PrintNum)      
       Do ik=1,nmax+1 !WAVE NUMBER LOOP-
          k = real(ik-1,8) * dK
@@ -1345,18 +1349,23 @@
        call getTheWaves(Npts,allpoints,B,iPxi,direction,J,cOME,ik,PrintNum) 
         
         end do !iPxi
-        end if
+        end if !workboundary
       end do ! direction
       END DO ! wavenumber loop
-       
       
-      deallocate(B);deallocate(Bb);deallocate(IPIV);deallocate(IPIVb)
+      if (workBoundary) then 
+      deallocate(Bb);deallocate(IPIVb)
+      end if
+      
       END DO ! frequency loop
+      deALLOCATE (A);deallocate (Ak);deallocate (this_B)
+      deallocate(B);deallocate(IPIV)
       if(verbose >= 1) write(PrintNum,*)"DWN done"
+! crepa K
       if (verbose >= 1) write(PrintNum,*)& 
       "frec loop done. Mixing components and doing the K creppe"
       ! summ the FK horizontal and vertical commponents 
-      do i = 1,Npts
+      do i = 1,Npts ! (X) 
         allocate(allpoints(i)%FK(2*NMAX,NFREC+1,imecMax))
       
       !    1 2 3 ... NMAX NMAX+1 0 0 0 0 0 2*NMAX     
@@ -1374,7 +1383,7 @@
                            ! s33            impar           par
                            ! s31             par           impar
                            ! s11            impar            par
-                           !          notice we never said conjugate 
+                           !     notice we never said conjugate 
       ! W
       allpoints(i)%FK(nmax+1:nmax*2,:,1) = & 
                 -1 * allpoints(i)%FKh(nmax+1:2:-1,:,1) * nxfsource &
@@ -1399,7 +1408,188 @@
                 
       deallocate(allpoints(i)%FKv)
       deallocate(allpoints(i)%FKh)
-      end do
+      
+      if (workboundary) then
+      factor = sqrt(2.*NMAX*2)
+!     complex*16, dimension  (:,:,:), allocatable :: FhGT,FvGT
+      allocate(allpoints(i)%FhGT(nfrec+1,imecMax,nBpts))
+      allocate(allpoints(i)%FvGT(nfrec+1,imecMax,nBpts)) 
+      
+      do J = 1,Nfrec+1
+      do iPxi = 1,nBpts !(XI)
+      !W
+      auxKvect(1:nmax)       =     allpoints(i)%FKhGT(1:nmax,     J,1,iPxi)
+      auxKvect(nmax+1:2*nmax)= -1* allpoints(i)%FKhGT(nmax+1:2:-1,J,1,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      allpoints(i)%FhGT(J,1,iPxi) = auxKvect(1)
+      
+      auxKvect(1:nmax)        =      allpoints(i)%FKvGT(1:nmax,J,1,iPxi)
+      auxKvect(nmax+1:2*nmax) = +1 * allpoints(i)%FKvGT(nmax+1:2:-1,J,1,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      allpoints(i)%FvGT(J,1,iPxi) = auxKvect(1)
+      
+      !U
+      auxKvect(1:nmax)       =     allpoints(i)%FKhGT(1:nmax,J,2,iPxi)
+      auxKvect(nmax+1:2*nmax)= +1* allpoints(i)%FKhGT(nmax+1:2:-1,J,2,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      allpoints(i)%FhGT(J,2,iPxi) = auxKvect(1)
+      
+      auxKvect(1:nmax)        =      allpoints(i)%FKvGT(1:nmax,J,2,iPxi)
+      auxKvect(nmax+1:2*nmax) = -1 * allpoints(i)%FKvGT(nmax+1:2:-1,J,2,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      allpoints(i)%FvGT(J,2,iPxi) = auxKvect(1)
+      
+      !S33
+      auxKvect(1:nmax)       =     allpoints(i)%FKhGT(1:nmax,J,3,iPxi)
+      auxKvect(nmax+1:2*nmax)= -1* allpoints(i)%FKhGT(nmax+1:2:-1,J,3,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      allpoints(i)%FhGT(J,3,iPxi) = auxKvect(1)
+      
+      auxKvect(1:nmax)        =      allpoints(i)%FKvGT(1:nmax,J,3,iPxi)
+      auxKvect(nmax+1:2*nmax) = +1 * allpoints(i)%FKvGT(nmax+1:2:-1,J,3,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      allpoints(i)%FvGT(J,3,iPxi) = auxKvect(1)
+      
+      !S31
+      auxKvect(1:nmax)       =     allpoints(i)%FKhGT(1:nmax,J,4,iPxi)
+      auxKvect(nmax+1:2*nmax)= +1* allpoints(i)%FKhGT(nmax+1:2:-1,J,4,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      allpoints(i)%FhGT(J,4,iPxi) = auxKvect(1)
+      
+      auxKvect(1:nmax)        =      allpoints(i)%FKvGT(1:nmax,J,4,iPxi)
+      auxKvect(nmax+1:2*nmax) = -1 * allpoints(i)%FKvGT(nmax+1:2:-1,J,4,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      allpoints(i)%FvGT(J,4,iPxi) = auxKvect(1)
+      
+      !S11
+      auxKvect(1:nmax)       =     allpoints(i)%FKhGT(1:nmax,J,5,iPxi)
+      auxKvect(nmax+1:2*nmax)= -1* allpoints(i)%FKhGT(nmax+1:2:-1,J,5,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      allpoints(i)%FhGT(J,5,iPxi) = auxKvect(1)
+      
+      auxKvect(1:nmax)        =      allpoints(i)%FKvGT(1:nmax,J,5,iPxi)
+      auxKvect(nmax+1:2*nmax) = +1 * allpoints(i)%FKvGT(nmax+1:2:-1,J,5,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      allpoints(i)%FvGT(J,5,iPxi) = auxKvect(1)
+      
+      
+      end do !ipxi
+      end do !J
+      deallocate (allpoints(i)%FKhGT); deallocate(allpoints(i)%FKvGT)
+      
+      end if !workboundary
+      end do ! [1:Npts] 
+      
+      if (workboundary) then
+      factor = sqrt(2.*NMAX*2)
+      do iP_x = 1,nBpts
+      allocate(BouPoints(iP_x)%FhGT(nfrec+1,imecMax,nBpts))
+      allocate(BouPoints(iP_x)%FvGT(nfrec+1,imecMax,nBpts))
+      do J = 1,Nfrec+1
+      do iPxi = 1,nBpts
+      !W
+      auxKvect(1:nmax)       =     BouPoints(iP_x)%FKhGT(1:nmax,J,1,iPxi)
+      auxKvect(nmax+1:2*nmax)= -1* BouPoints(iP_x)%FKhGT(nmax+1:2:-1,J,1,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      BouPoints(iP_x)%FhGT(J,1,iPxi) = auxKvect(1)
+      
+      auxKvect(1:nmax)        =      BouPoints(iP_x)%FKvGT(1:nmax,J,1,iPxi)
+      auxKvect(nmax+1:2*nmax) = +1 * BouPoints(iP_x)%FKvGT(nmax+1:2:-1,J,1,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      BouPoints(iP_x)%FvGT(J,1,iPxi) = auxKvect(1)
+      
+      !U
+      auxKvect(1:nmax)       =     BouPoints(iP_x)%FKhGT(1:nmax,J,2,iPxi)
+      auxKvect(nmax+1:2*nmax)= +1* BouPoints(iP_x)%FKhGT(nmax+1:2:-1,J,2,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      BouPoints(iP_x)%FhGT(J,2,iPxi) = auxKvect(1)
+      
+      auxKvect(1:nmax)        =      BouPoints(iP_x)%FKvGT(1:nmax,J,2,iPxi)
+      auxKvect(nmax+1:2*nmax) = -1 * BouPoints(iP_x)%FKvGT(nmax+1:2:-1,J,2,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      BouPoints(iP_x)%FvGT(J,2,iPxi) = auxKvect(1)
+      
+      !S33
+      auxKvect(1:nmax)       =     BouPoints(iP_x)%FKhGT(1:nmax,J,3,iPxi)
+      auxKvect(nmax+1:2*nmax)= -1* BouPoints(iP_x)%FKhGT(nmax+1:2:-1,J,3,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      BouPoints(iP_x)%FhGT(J,3,iPxi) = auxKvect(1)
+      
+      auxKvect(1:nmax)        =      BouPoints(iP_x)%FKvGT(1:nmax,J,3,iPxi)
+      auxKvect(nmax+1:2*nmax) = +1 * BouPoints(iP_x)%FKvGT(nmax+1:2:-1,J,3,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      BouPoints(iP_x)%FvGT(J,3,iPxi) = auxKvect(1)
+      
+      !S31
+      auxKvect(1:nmax)       =     BouPoints(iP_x)%FKhGT(1:nmax,J,4,iPxi)
+      auxKvect(nmax+1:2*nmax)= +1* BouPoints(iP_x)%FKhGT(nmax+1:2:-1,J,4,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      BouPoints(iP_x)%FhGT(J,4,iPxi) = auxKvect(1)
+      
+      auxKvect(1:nmax)        =      BouPoints(iP_x)%FKvGT(1:nmax,J,4,iPxi)
+      auxKvect(nmax+1:2*nmax) = -1 * BouPoints(iP_x)%FKvGT(nmax+1:2:-1,J,4,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      BouPoints(iP_x)%FvGT(J,4,iPxi) = auxKvect(1)
+      
+      !S11
+      auxKvect(1:nmax)       =     BouPoints(iP_x)%FKhGT(1:nmax,J,5,iPxi)
+      auxKvect(nmax+1:2*nmax)= -1* BouPoints(iP_x)%FKhGT(nmax+1:2:-1,J,5,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      BouPoints(iP_x)%FhGT(J,5,iPxi) = auxKvect(1)
+      
+      auxKvect(1:nmax)        =      BouPoints(iP_x)%FKvGT(1:nmax,J,5,iPxi)
+      auxKvect(nmax+1:2*nmax) = +1 * BouPoints(iP_x)%FKvGT(nmax+1:2:-1,J,5,iPxi)
+      auxKvect = auxKvect * factor
+      call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
+      auxKvect = auxKvect / factor
+      BouPoints(iP_x)%FvGT(J,5,iPxi) = auxKvect(1)
+      end do!iPxi
+      end do !J
+      deallocate (BouPoints(iP_x)%FKhGT); deallocate(BouPoints(iP_x)%FKvGT)
+      end do !iP_x
+      end if !workbou
+      
+      if (verbose >= 1) write(PrintNum,*)"Creppe done"
+
+! Fortran code...
       
  ! IBEM
       go to 911
@@ -1503,7 +1693,7 @@
       if (getInquirePointsSol) call FXtoT0(iPtini,iPtfin,tt,PrintNum)
 !     write(tt,'(a)')"(m)"
 !     if (makeVideo) call FXtoT0(mPtini,mPtfin,tt,PrintNum)
-      write(tt,'(a)')"(b)"
+!     write(tt,'(a)')"(b)"
 !     if (workBoundary) call FXtoT0(bPtini,bPtfin,tt,PrintNum)
       
       if (makeVideo) call Hollywood(PrintNum)
