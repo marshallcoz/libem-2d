@@ -6,7 +6,7 @@
       !         = 2   ! 1 + counters in loops and subfunctions
       !         = 3   ! 2 + matrix values
       integer, parameter    :: verbose = 1
-      logical, parameter    :: makeVideo = .false.
+      logical, parameter    :: makeVideo = .true.
       logical, parameter    :: getInquirePointsSol = .true.!dont change
       logical, parameter    :: workBoundary = .true. 
       logical, parameter    :: plotFKS = .false.
@@ -119,23 +119,23 @@
       !                       | | | 
         complex*16, dimension(:,:,:), allocatable :: FK,FKh,FKv
       
-      !  G_{i,m} (x,xi)  cuado este punto es xi: 
+      !  G_{i,m} (x,xi) / T_{i,m} (x,xi)  cuado este punto es x: 
       
       !                     ,--- k: 1...NMAX+1
       !                     | ,--- f: 1...NFREC+1
       !                     | | ,--- iMec: 1:5  (1:2-G- 3:4:5--T--)
       !                     | | | ,---  xi: 1...NBpts (actuadores en BouPoints)
-      ! allpoints           | | | | 
+      ! allpoints/boupoints | | | | 
       complex*16, dimension(:,:,:,:), allocatable :: FKhGT,FKvGT
       complex*16, dimension  (:,:,:), allocatable :: FhGT,FvGT
-                                    
-      !                     ,--- k: 1...NMAX+1
+        
+                                   
+      !                     ,--- xXx: -3dx -2dx -1dx 0 +1dx +2dx +3dx
       !                     | ,--- f: 1...NFREC+1
       !                     | | ,--- iMec: 1:5  (1:2-G- 3:4:5--T--)
-      !                     | | | ,--- x: 1...NPts (receptores)
-      ! BouPoints           | | | | 
-!     complex*16, dimension(:,:,:,:), allocatable :: FKhTre,FKvTre
-      
+      !                     | | | ,---  xi: 1...NBpts (actuadores en BouPoints)
+      ! allpoints (movie)   | | | |
+      complex*16, dimension(:,:,:,:), allocatable :: FxXxhGT,FxXxvGT
       
        end type Punto   
       ! bondary elements:     ,--- POINT index / x (receptor)
@@ -144,7 +144,7 @@
       type (Punto), dimension(:), allocatable, save :: moviePoints
       type (Punto), dimension(:), allocatable, save :: BouPoints !xi
             
-      integer, save :: nIpts, nMpts, nBpts, nPts,&
+      integer, save :: nIpts, nMpts, NxXxMpts, nBpts, nPts,&
                        iPtini,iPtfin,mPtini,mPtfin,bPtini,bPtfin
       
       !                     ,-,--- nBpts x nBpts (considering 1 direction)
@@ -161,7 +161,9 @@
       !                                          | | | ,--- foto{2*Nfrec}
       complex*16, allocatable, save :: Sismogram(:,:,:,:)
       complex*16, dimension(:), allocatable :: auxKvect
-      
+!     real*8,dimension(NFREC+1) :: Hf
+!     real*8,dimension(NMAX*2) :: Hk
+      real*8,dimension(:), allocatable :: Hf,Hk !filtros 
       end module resultVars
               
       module meshVars
@@ -1146,13 +1148,14 @@
       use ploteo10pesos
       use sourceVars
       use wavelets
+      use MeshVars
       
       implicit none
       ! output direction   6 : screen      101: log file
       integer, parameter :: PrintNum = 6
       !Loop Counters
       integer :: J  ! frequency loop
-      integer :: I,m,iP,iPxi,iP_x,direction !small loop counter
+      integer :: I,l,m,iP,iPxi,iP_x,direction,iMec !small loop counter
       integer :: status
       integer :: IK ! wavenumber loop   
       CHARACTER(len=400) :: path
@@ -1201,12 +1204,22 @@
       if (getInquirePointsSol) allpoints(iPtini:iPtfin) = inqPoints
       if (makeVideo) allpoints(mPtini:mPtfin) = moviePoints
 !     if (workBoundary) allpoints(bPtini:bPtfin) = BouPoints
-      do iP=1,Npts !        x                                  xi
-        allocate(allpoints(iP)%FKhGT(nmax+1,Nfrec+1,imecMax,nBpts))
-        allocate(allpoints(iP)%FKvGT(nmax+1,Nfrec+1,imecMax,nBpts))
+      do iP=1,Npts !        x                                  
         allocate(allpoints(iP)%FKh(NMAX+1,NFREC+1,imecMax))
         allocate(allpoints(iP)%FKv(NMAX+1,NFREC+1,imecMax))
       end do
+      if (workBoundary) then
+       do iP=1,Npts !        x                                xi
+        allocate(allpoints(iP)%FKhGT(nmax+1,Nfrec+1,imecMax,nBpts))
+        allocate(allpoints(iP)%FKvGT(nmax+1,Nfrec+1,imecMax,nBpts))
+       end do
+       if (makeVideo) then
+       do iP=mPtini,mPtfin
+         allocate(allpoints(iP)%FxXxhGT(NxXxMpts,Nfrec+1,imecMax,nBpts))
+         allocate(allpoints(iP)%FxXxvGT(NxXxMpts,Nfrec+1,imecMax,nBpts))
+       end do
+       end if
+      end if!
       
       if (getInquirePointsSol) deallocate(inqPoints)
       if (makeVideo) deallocate(moviePoints)
@@ -1256,8 +1269,13 @@
        call FreeField(xfsource, & 
                       zfsource, & 
                       efsource, & 
-                      0,J,allpoints,Npts,COME,PrintNum) 
-       
+                      0,J,allpoints,Npts,COME,PrintNum)
+                       
+       call FreeField(xfsource, & 
+                      zfsource, & 
+                      efsource, & 
+                      0,J,BouPoints,nBpts,COME,PrintNum)
+                      
       if (workBoundary) then
       do iPxi = 1,nBpts
        ! T(x,xi) entre puntos de la frontera
@@ -1295,7 +1313,7 @@
        B = 0; this_B = 0 
        call vectorB_force(this_B,zfsource,efsource,intfsource, & 
                           direction,cOME,k)
-       do iP = 1,Npts !(receptores)
+       do iP = 1,Npts !(receptores no en la frontera) (fza real)
           B(:,iP) = this_B * exp( & 
           cmplx(0.,-k * (allpoints(iP)%center(1) - xfsource),8))
        end do!                   x_(point)   -    x_(source)
@@ -1315,6 +1333,23 @@
        ! funciones de Green para las fuerzas aplicadas en los puntos
        ! de colocacion xi y el resto de los puntos, incluso ellos mismos
         if (workBoundary) then
+        Bb = 0; this_B = 0
+        ! this B ya viene bien pero por si las dudas:
+        call vectorB_force(this_B,zfsource,efsource,intfsource, & 
+                          direction,cOME,k)
+        do iP = 1,nBpts !(receptores en la frontera) (fza real)
+          Bb(:,iP) = this_B * exp( & 
+          cmplx(0.,-k * (BouPoints(iP)%center(1) - xfsource),8))
+        end do!                   x_(point)   -    x_(source)
+        Ak = A; IPIVb = 4*N+2
+        call zgesv(4*N+2,nBpts,Ak,4*N+2,IPIVb,Bb,4*N+2,info)   
+        if(info .ne. 0)then
+          write(PrintNum,'(a)')"Problem with the system"
+          write(PrintNum,'(a,I10)')"INfO: ",info
+          stop 0
+        end if
+        ! resultados campo difractado sin irregularidad topografica
+        call getTheWaves(nBpts,BouPoints,Bb,0,direction,J,cOME,ik,PrintNum)
         
         do iPxi = 1,nBpts ! xi (punto de aplicacion de fuerza virtual)
         B = 0; this_B = 0; Bb = 0;
@@ -1361,10 +1396,13 @@
       deALLOCATE (A);deallocate (Ak);deallocate (this_B)
       deallocate(B);deallocate(IPIV)
       if(verbose >= 1) write(PrintNum,*)"DWN done"
-! crepa K
+ ! crepa K
       if (verbose >= 1) write(PrintNum,*)& 
       "frec loop done. Mixing components and doing the K creppe"
       ! summ the FK horizontal and vertical commponents 
+      allocate(Hf(NFREC+1))
+      allocate(Hk(NMAX*2))
+      
       do i = 1,Npts ! (X) 
         allocate(allpoints(i)%FK(2*NMAX,NFREC+1,imecMax))
       
@@ -1383,6 +1421,7 @@
                            ! s33            impar           par
                            ! s31             par           impar
                            ! s11            impar            par
+                           
                            !     notice we never said conjugate 
       ! W
       allpoints(i)%FK(nmax+1:nmax*2,:,1) = & 
@@ -1408,10 +1447,30 @@
                 
       deallocate(allpoints(i)%FKv)
       deallocate(allpoints(i)%FKh)
+      end do ! i [1:Npts]
+      call testfilterFK(.true.,tt,xAx,yAx,PrintNum)
       
+         do i=1,NPts
+         do ik=1,NMAX*2
+         do iMec = 1,imecMax
+      allpoints(i)%FK(ik,:,iMec) = allpoints(i)%FK(ik,:,iMec) * Hf
+         end do
+         end do
+         !
+         do J=1,NFREC+1
+         do iMec = 1,imecMax
+      allpoints(i)%FK(:,J,iMec) = allpoints(i)%FK(:,J,iMec) * HK
+         end do
+         end do
+         end do
+         
+         
+!        allocate(allpoints(iP)%FxXxhGT(NxXxMpts,Nfrec+1,imecMax,nBpts))
+!        allocate(allpoints(iP)%FxXxvGT(NxXxMpts,Nfrec+1,imecMax,nBpts))   
+   !  
       if (workboundary) then
+      do i = 1,Npts ! (X)   !  Gij(x,xi)
       factor = sqrt(2.*NMAX*2)
-!     complex*16, dimension  (:,:,:), allocatable :: FhGT,FvGT
       allocate(allpoints(i)%FhGT(nfrec+1,imecMax,nBpts))
       allocate(allpoints(i)%FvGT(nfrec+1,imecMax,nBpts)) 
       
@@ -1420,87 +1479,107 @@
       !W
       auxKvect(1:nmax)       =     allpoints(i)%FKhGT(1:nmax,     J,1,iPxi)
       auxKvect(nmax+1:2*nmax)= -1* allpoints(i)%FKhGT(nmax+1:2:-1,J,1,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
       allpoints(i)%FhGT(J,1,iPxi) = auxKvect(1)
+      call storemovieKsiblings(auxKvect,J,i,iPxi,1,1)
       
       auxKvect(1:nmax)        =      allpoints(i)%FKvGT(1:nmax,J,1,iPxi)
       auxKvect(nmax+1:2*nmax) = +1 * allpoints(i)%FKvGT(nmax+1:2:-1,J,1,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
       allpoints(i)%FvGT(J,1,iPxi) = auxKvect(1)
+      call storemovieKsiblings(auxKvect,J,i,iPxi,1,3)
       
       !U
       auxKvect(1:nmax)       =     allpoints(i)%FKhGT(1:nmax,J,2,iPxi)
       auxKvect(nmax+1:2*nmax)= +1* allpoints(i)%FKhGT(nmax+1:2:-1,J,2,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
       allpoints(i)%FhGT(J,2,iPxi) = auxKvect(1)
+      call storemovieKsiblings(auxKvect,J,i,iPxi,2,1)
       
       auxKvect(1:nmax)        =      allpoints(i)%FKvGT(1:nmax,J,2,iPxi)
       auxKvect(nmax+1:2*nmax) = -1 * allpoints(i)%FKvGT(nmax+1:2:-1,J,2,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
       allpoints(i)%FvGT(J,2,iPxi) = auxKvect(1)
+      call storemovieKsiblings(auxKvect,J,i,iPxi,2,3)
       
       !S33
       auxKvect(1:nmax)       =     allpoints(i)%FKhGT(1:nmax,J,3,iPxi)
       auxKvect(nmax+1:2*nmax)= -1* allpoints(i)%FKhGT(nmax+1:2:-1,J,3,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
       allpoints(i)%FhGT(J,3,iPxi) = auxKvect(1)
+      call storemovieKsiblings(auxKvect,J,i,iPxi,3,1)
       
       auxKvect(1:nmax)        =      allpoints(i)%FKvGT(1:nmax,J,3,iPxi)
       auxKvect(nmax+1:2*nmax) = +1 * allpoints(i)%FKvGT(nmax+1:2:-1,J,3,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
       allpoints(i)%FvGT(J,3,iPxi) = auxKvect(1)
+      call storemovieKsiblings(auxKvect,J,i,iPxi,3,3)
       
       !S31
       auxKvect(1:nmax)       =     allpoints(i)%FKhGT(1:nmax,J,4,iPxi)
       auxKvect(nmax+1:2*nmax)= +1* allpoints(i)%FKhGT(nmax+1:2:-1,J,4,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
       allpoints(i)%FhGT(J,4,iPxi) = auxKvect(1)
+      call storemovieKsiblings(auxKvect,J,i,iPxi,4,1)
       
       auxKvect(1:nmax)        =      allpoints(i)%FKvGT(1:nmax,J,4,iPxi)
       auxKvect(nmax+1:2*nmax) = -1 * allpoints(i)%FKvGT(nmax+1:2:-1,J,4,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
       allpoints(i)%FvGT(J,4,iPxi) = auxKvect(1)
+      call storemovieKsiblings(auxKvect,J,i,iPxi,4,3)
       
       !S11
       auxKvect(1:nmax)       =     allpoints(i)%FKhGT(1:nmax,J,5,iPxi)
       auxKvect(nmax+1:2*nmax)= -1* allpoints(i)%FKhGT(nmax+1:2:-1,J,5,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
       allpoints(i)%FhGT(J,5,iPxi) = auxKvect(1)
+      call storemovieKsiblings(auxKvect,J,i,iPxi,5,1)
       
       auxKvect(1:nmax)        =      allpoints(i)%FKvGT(1:nmax,J,5,iPxi)
       auxKvect(nmax+1:2*nmax) = +1 * allpoints(i)%FKvGT(nmax+1:2:-1,J,5,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
       allpoints(i)%FvGT(J,5,iPxi) = auxKvect(1)
+      call storemovieKsiblings(auxKvect,J,i,iPxi,5,3)
       
       
       end do !ipxi
       end do !J
       deallocate (allpoints(i)%FKhGT); deallocate(allpoints(i)%FKvGT)
       
+      end do ! i [1:Npts] 
       end if !workboundary
-      end do ! [1:Npts] 
       
-      if (workboundary) then
+      if (workboundary) then !  Tij(x,xi)
       factor = sqrt(2.*NMAX*2)
       do iP_x = 1,nBpts
       allocate(BouPoints(iP_x)%FhGT(nfrec+1,imecMax,nBpts))
@@ -1510,6 +1589,7 @@
       !W
       auxKvect(1:nmax)       =     BouPoints(iP_x)%FKhGT(1:nmax,J,1,iPxi)
       auxKvect(nmax+1:2*nmax)= -1* BouPoints(iP_x)%FKhGT(nmax+1:2:-1,J,1,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
@@ -1517,6 +1597,7 @@
       
       auxKvect(1:nmax)        =      BouPoints(iP_x)%FKvGT(1:nmax,J,1,iPxi)
       auxKvect(nmax+1:2*nmax) = +1 * BouPoints(iP_x)%FKvGT(nmax+1:2:-1,J,1,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
@@ -1525,6 +1606,7 @@
       !U
       auxKvect(1:nmax)       =     BouPoints(iP_x)%FKhGT(1:nmax,J,2,iPxi)
       auxKvect(nmax+1:2*nmax)= +1* BouPoints(iP_x)%FKhGT(nmax+1:2:-1,J,2,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
@@ -1532,6 +1614,7 @@
       
       auxKvect(1:nmax)        =      BouPoints(iP_x)%FKvGT(1:nmax,J,2,iPxi)
       auxKvect(nmax+1:2*nmax) = -1 * BouPoints(iP_x)%FKvGT(nmax+1:2:-1,J,2,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
@@ -1540,6 +1623,7 @@
       !S33
       auxKvect(1:nmax)       =     BouPoints(iP_x)%FKhGT(1:nmax,J,3,iPxi)
       auxKvect(nmax+1:2*nmax)= -1* BouPoints(iP_x)%FKhGT(nmax+1:2:-1,J,3,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
@@ -1547,6 +1631,7 @@
       
       auxKvect(1:nmax)        =      BouPoints(iP_x)%FKvGT(1:nmax,J,3,iPxi)
       auxKvect(nmax+1:2*nmax) = +1 * BouPoints(iP_x)%FKvGT(nmax+1:2:-1,J,3,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
@@ -1555,6 +1640,7 @@
       !S31
       auxKvect(1:nmax)       =     BouPoints(iP_x)%FKhGT(1:nmax,J,4,iPxi)
       auxKvect(nmax+1:2*nmax)= +1* BouPoints(iP_x)%FKhGT(nmax+1:2:-1,J,4,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
@@ -1562,6 +1648,7 @@
       
       auxKvect(1:nmax)        =      BouPoints(iP_x)%FKvGT(1:nmax,J,4,iPxi)
       auxKvect(nmax+1:2*nmax) = -1 * BouPoints(iP_x)%FKvGT(nmax+1:2:-1,J,4,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
@@ -1570,6 +1657,7 @@
       !S11
       auxKvect(1:nmax)       =     BouPoints(iP_x)%FKhGT(1:nmax,J,5,iPxi)
       auxKvect(nmax+1:2*nmax)= -1* BouPoints(iP_x)%FKhGT(nmax+1:2:-1,J,5,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
@@ -1577,6 +1665,7 @@
       
       auxKvect(1:nmax)        =      BouPoints(iP_x)%FKvGT(1:nmax,J,5,iPxi)
       auxKvect(nmax+1:2*nmax) = +1 * BouPoints(iP_x)%FKvGT(nmax+1:2:-1,J,5,iPxi)
+      call filterAuxKvec(auxKvect,J)
       auxKvect = auxKvect * factor
       call fork(2*nmax,auxKvect,+1,verbose,PrintNum)
       auxKvect = auxKvect / factor
@@ -1592,82 +1681,45 @@
 ! Fortran code...
       
  ! IBEM
-      go to 911
-      
-      ! integrar en K las funciones de Green de desplzmts y traccins
-      
-      ! ensamblar la matrix con las de G tracciones
-      ! ensamblar el vector con las tracciones en los puntos
-      
-      
- 
-      ! sistema para encontrar densidades de fuerza en puntos de coloc.
-      if(verbose>=1)write(PrintNum,*)"solving ibem matrices"
-      allocate(IPIVibem(nBpts))
-      allocate(ibemMat(nBpts,nBpts))
-      allocate(trac0vec(nBpts))
-      allocate(ibemPHI(nBpts,2,2))
-      
+      if(verbose>=1)write(PrintNum,*)"forming ibem matrices"
+      allocate(ibemMat(2*nBpts,2*nBpts))
+      allocate(trac0vec(2*nBpts))
+      allocate(IPIVb(2*nBpts,1))
       DO J=1,NFREC+1
-      DO ik=1,nmax+1
-      
- ! fill the matrix by rows
-      ! un renglon para cada receptor
-      ! una columna para cada fuerza puntual 
-      
-      do i=1,2 ! componente de desplazamiento en el receptor
-      do m=1,2 ! componente de fuerza en fuente puntual
-      
-      dO iP_x=1,nBpts !receptor (renglon)
-      dO iPxi=1,nBpts !fuente virtual (columna) 
-         if (iPxi .eq. iP_x) then
-            ibemMat(iP_x,iPxi) = 0.5
+      ! dos sistemas [receptor horz, vert]
+      ! un renglon para cada receptor 
+      ! dos columnas para cada fuerza (horz, vert)
+      ibemMat = 0
+      dO iP_x=1,2*nBpts,2 !receptor (renglon)
+      dO iPxi=1,2*nBpts,2 !fuente virtual (columna) 
+        do l=0,1
+        do m=0,1
+         if (iPxi+l .eq. iP_x+m) then
+            ibemMat(iP_x+l,  iPxi+m) = 0.5 
          else
-         !                            receptor---,       ,--- fuentes
-         !                                    ___|__ ____|_
-!           ibemMat(iP_x,iPxi) = integralEq14(iP_x,i,iPxi,m,J,ik)
+            ibemMat(iP_x+l,  iPxi+m) = f(iP_x,l,iPxi,m)
          end if
+        end do ! m
+        end do ! l
       end dO !iPxi (columna)
-  ! fill vector free field at receptors
-         if (i .eq. 1) then
-            trac0vec(iP_x) = & 
-            (allpoints(iP_x+bPtini-1)%FKh(ik,J,5)* nxfsource + &
-            allpoints(iP_x+bPtini-1)%FKv(ik,J,5)* nzfsource) * &
-            allpoints(iP_x+bPtini-1)%normal(1) + &
-            (allpoints(iP_x+bPtini-1)%FKh(ik,J,4)* nxfsource + &
-            allpoints(iP_x+bPtini-1)%FKv(ik,J,4)* nzfsource) * &
-            allpoints(iP_x+bPtini-1)%normal(2)
-            
-         elseif (i .eq. 2) then
-            trac0vec(iP_x) = & 
-            (allpoints(iP_x+bPtini-1)%FKh(ik,J,4)* nxfsource + &
-            allpoints(iP_x+bPtini-1)%FKv(ik,J,4)* nzfsource) * &
-            allpoints(iP_x+bPtini-1)%normal(1) + &
-            (allpoints(iP_x+bPtini-1)%FKh(ik,J,3)* nxfsource + &
-            allpoints(iP_x+bPtini-1)%FKv(ik,J,3)* nzfsource) * &
-            allpoints(iP_x+bPtini-1)%normal(2)
-            
-         end if
-      end dO !iP_x (renglon)
-  ! system is built, now solve phi for current i,j
-!     ibemPHI(:,i,m)
-      IPIVibem = nBpts
-      call zgesv(nBpts,1,ibemMat,nBpts,IPIVibem,trac0vec,nBpts,info)
-        if(info .ne. 0)then
-          write(PrintNum,'(a)')"Problem with ibem system"
-          write(PrintNum,'(a,I10)')"INfO: ",info
-          stop 0
-        end if
-      ibemPHI(:,i,m) = trac0vec
-      end do ! m
-      end do ! i 
-  ! stuff all the results into an FK plane of diffracted stuff
+      end do !iP_x (renglon)
       
-      end DO !ik
-      end DO !J
+      ! vector de campo incidente
+      
+      
+      ! solución de densidades de fuerza
+      iPIVb = 2*nBpts
+      
+      ! gráfica de densidades de fuerza a lo largo de la frontera
+      
+      ! campo difractado por topografia en el resto de los observadores
+      
+      
+      end do !J
+      
       
 ! FK -> FX -> T 
-  911 write(tt,'(a)')"FK_r_"
+      write(tt,'(a)')"FK_r_"
       write(xAx,'(a)')"K [1/m]"
       write(yAx,'(a)')"frec [Hz]"
 !     call plotFK(allpoints(2)%FK,NMAX*2,1,allpoints(2)%center,tt,xAx,yAx,PrintNum)
@@ -1677,7 +1729,7 @@
 !     call plotFK(allpoints(2)%FK,NMAX*2,3,allpoints(2)%center,tt,xAx,yAx,PrintNum)
 !     stop 0
 
-      call filterFK(.true.,tt,xAx,yAx,PrintNum)
+!     call filterFK(.true.,tt,xAx,yAx,PrintNum)
       call FKtoFX(PrintNum)
       
       if (plotFKS) then 
@@ -1876,6 +1928,7 @@
       use gloVars,only:verbose,workBoundary, getInquirePointsSol,imecMax
       use soilVars, only : Z,N
       use waveNumVars, only : DK,NFREC,NMAX
+      use resultvars, only: NxXxMpts
       implicit none
       integer, intent(in)          :: outpf!,nJ
       logical                      :: isOnIF
@@ -1926,15 +1979,19 @@
           boundingZp = Z(N+1)
           boundingZn = 0. 
 !       end if!
+        NxXxMpts = 2*(nx/MeshDXmultiplo)+1
         
         if (verbose >= 1) then
           Write(outpf,'(a)')"Video bounding box: "
+!         write(outpf,'(a,I0,a)') "nx=(",nx,")"
           write(outpf,'(a,F5.1,a,F5.1,a,F8.3,a,F8.3,a,I0,a)') & 
                         "x :[", - nx * DeltaX," ... ", nx * DeltaX, & 
-                        "] @",MeshDX,"m -> (",DeltaX,"m*[",MeshDXmultiplo,"])"
+                  "] @",MeshDX,"m -> (",DeltaX,"m*[",MeshDXmultiplo,"])"
           write(outpf,'(a,F5.1,a,F5.1,a,F8.3,a,F5.1,a)') & 
                      "z :[",boundingZn," ... ",boundingZp, & 
                      "] @",MeshDZ,"m    (+",MeshOffsetZ,"m offset)"
+          write(outpf,'(a,I0)') "Number of horizontal movie pixels: ", & 
+                              2*(nx/MeshDXmultiplo)+1
         end if
         
         plusCero = 0           
@@ -1952,7 +2009,7 @@
         moviePoints(:)%isOnInterface = .false.
         
         if(verbose>=1)Write(outpf,'(a,I0)') & 
-        "Number of verical movie nodes: ", nMpts
+        "Number of verical movie pixels: ", nMpts
         iP = 1
         do iz = 1,nz
          ! el layer para este z
@@ -1965,7 +2022,7 @@
          currentLayer = e
          do e=1,N+1
             if((Z(e)-errT .lt. real(boundingZn + (iz-1) * MeshDZ)) & 
-            .and. (real(boundingZn + (iz-1) * MeshDZ) .lt. Z(e)+errT)) then
+         .and. (real(boundingZn + (iz-1) * MeshDZ) .lt. Z(e)+errT)) then
             isOnIF = .true.
             end if
          end do
@@ -2286,8 +2343,10 @@
       do iX=1,nBpts !      x                                  xi
         allocate(BouPoints(iX)%FKhGT(nmax+1,Nfrec+1,imecMax,nBpts))
         allocate(BouPoints(iX)%FKvGT(nmax+1,Nfrec+1,imecMax,nBpts))
+        allocate(BouPoints(iP)%FKh(NMAX+1,NFREC+1,imecMax))
+        allocate(BouPoints(iP)%FKv(NMAX+1,NFREC+1,imecMax))
       end do
-!     
+      
       
       
       end subroutine getTopography
@@ -2604,6 +2663,8 @@
       do iXI=1,nBpts !      x                                  xi
         allocate(BouPoints(iXI)%FKhGT(nmax+1,Nfrec+1,imecMax,nBpts))
         allocate(BouPoints(iXI)%FKvGT(nmax+1,Nfrec+1,imecMax,nBpts))
+        allocate(BouPoints(iP)%FKh(NMAX+1,NFREC+1,imecMax))
+        allocate(BouPoints(iP)%FKv(NMAX+1,NFREC+1,imecMax))
       end do
 !     
       do iX=1,nPts 
@@ -3679,11 +3740,11 @@
 !     end if
 !     !     stop 0
 !     end subroutine vectorB_incidence
-      subroutine filterFK(preguntar,tt,xAx,yAx,outpf)
+      subroutine testfilterFK(preguntar,tt,xAx,yAx,outpf)
       use DISLIN
       use waveNumVars, only : NFREC,NMAX,DFREC,DK
       use glovars
-      use resultvars!, only: allpoints,NPts
+      use resultvars!, only: allpoints,NPts,Hf,Hk
       use ploteo10pesos
       implicit none
       logical, intent(in) :: preguntar
@@ -3696,8 +3757,8 @@
 !     complex*16,dimension(NMAX,NFREC+1,imecMax) :: testFK
       type(Punto),dimension(1) :: testPt
       
-      real*8,dimension(NFREC+1) :: Hf
-      real*8,dimension(NMAX*2) :: Hk
+!     real*8,dimension(NFREC+1) :: Hf
+!     real*8,dimension(NMAX*2) :: Hk
       integer :: Npol = 20
       real :: cutoff_fracFmax = 0.7
       
@@ -3778,24 +3839,78 @@
          end if
       end do !satisfied  
       end if
+      end subroutine testfilterFK
       
-      ! We are pleased apply to the rest of the points
-         
-         do iP=1,NPts
-         do ik=1,NMAX*2
-         do iMec = 1,imecMax
-      allpoints(iP)%FK(ik,:,iMec) = allpoints(iP)%FK(ik,:,iMec) * Hf
-         end do
-         end do
-         !
-         do ifr=1,NFREC+1
-         do iMec = 1,imecMax
-      allpoints(iP)%FK(:,ifr,iMec) = allpoints(iP)%FK(:,ifr,iMec) * HK
-         end do
-         end do
-         end do
-       
-      end subroutine filterFK
+!     subroutine filterFK
+!     use resultvars, only: Hf,Hk
+!     ! We are pleased apply to the rest of the points
+!        
+!        do iP=1,NPts
+!        do ik=1,NMAX*2
+!        do iMec = 1,imecMax
+!     allpoints(iP)%FK(ik,:,iMec) = allpoints(iP)%FK(ik,:,iMec) * Hf
+!        end do
+!        end do
+!        !
+!        do ifr=1,NFREC+1
+!        do iMec = 1,imecMax
+!     allpoints(iP)%FK(:,ifr,iMec) = allpoints(iP)%FK(:,ifr,iMec) * HK
+!        end do
+!        end do
+!        end do
+!      
+!     end subroutine filterFK
+      subroutine filterAuxKvec(kvect,iJ)
+      use resultvars, only : Hf,Hk
+      use waveNumVars, only: nmax
+      implicit none
+      complex*16, dimension(2*nmax), intent(inout) :: kvect
+      integer, intent(in) :: iJ
+      
+      !  (1:2*nmax)
+      kvect = kvect * Hk
+      
+      kvect = kvect * Hf(iJ)
+      
+      end subroutine filterAuxKvec
+      subroutine storemovieKsiblings(Kvect,iJ,iP_x,iPxi,iMec,direction)
+      ! cuando se pasa de K a X se guardan los renglones de pixeles 
+      ! cuando se está en una pelicula
+      use resultvars, only: allpoints,mPtini,mPtfin
+      use waveNumVars, only: nmax
+      use meshVars, only: MeshDXmultiplo,nx
+      implicit none
+      complex*16, dimension(2*nmax), intent(inout) :: Kvect
+      integer, intent(in) :: iJ,iP_x,iPxi,direction,iMec
+      integer :: i,ixXx
+      
+      if (mPtini .le. iP_x .and. iP_x .le. mPtfin) then
+      
+      
+            !                     ,--- xXx: -3dx -2dx -1dx 0 +1dx +2dx +3dx
+      !                     | ,--- f: 1...NFREC+1
+      !                     | | ,--- iMec: 1:5  (1:2-G- 3:4:5--T--)
+      !                     | | | ,---  xi: 1...NBpts (actuadores en BouPoints)
+      ! allpoints (movie)   | | | |
+!     complex*16, dimension(:,:,:,:), allocatable :: FxXxhGT,FxXxvGT
+      
+      ! (1) reordenar creapa exitente en X para encontrarlos más facil
+        Kvect = cshift(Kvect,SHIFT=nmax+1,DIM=1)
+      ! (2) guardar solo los puntos interesantes
+       ixXx=1
+       if(direction .eq. 1) then
+        do i=nMax-nx,nMax+nx,MeshDXmultiplo
+          allpoints(iP_x)%FxXxhGT(ixXx,iJ,iMec,iPxi) = Kvect(i)
+          ixXx = ixXx + 1
+        end do
+        else
+        do i=nMax-nx,nMax+nx,MeshDXmultiplo
+          allpoints(iP_x)%FxXxvGT(ixXx,iJ,iMec,iPxi) = Kvect(i)
+          ixXx = ixXx + 1
+        end do
+        end if
+      end if
+      end subroutine storemovieKsiblings
       subroutine FKtoFX(outpf)
       use waveNumVars, only : NFREC,NMAX,DFREC,DK
       use wavelets ! FORK(LX,CX,SIGNI,verbose,outpf)
