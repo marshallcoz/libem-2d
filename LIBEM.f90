@@ -1228,7 +1228,7 @@
       ALLOCATE (A(4*N+2,4*N+2)); A=cmplx(0,0,8)
       allocate (Ak(4*N+2,4*N+2)); Ak=cmplx(0,0,8)
       allocate (this_B(4*N+2))
-      ALLOCATE (B (4*N+2, NPts))
+      ALLOCATE (B (4*N+2,Npts)) ! una sola fuente
       ALLOCATE (IPIV(4*N+2, NPts)) ! pivote
       allocate(allpoints(Npts))
       allocate (auxKvect(2*Nmax))
@@ -1352,68 +1352,51 @@
         B = 0; this_B = 0 
         call vectorB_force(this_B,zfsource,efsource,intfsource, & 
                           direction,cOME,k)
-        do iP = 1,Npts !(receptores no en la frontera) (fza real)
-          B(:,iP) = this_B * exp( & 
-          cmplx(0.,-k * (allpoints(iP)%center(1) - xfsource),8))
-        end do!                   x_(point)   -    x_(source)
+        ! xi es la fuente (una sola)
+        this_B = this_B * exp( cmplx(0.0, k * xfsource,8))
         Ak = A; IPIV = 4*N+2
-        call zgesv(4*N+2,NPts,Ak,4*N+2,IPIV,B,4*N+2,info)   
+        call zgesv(4*N+2,1,Ak,4*N+2,IPIV(:,1),this_B,4*N+2,info)   
         if(info .ne. 0)then
            write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
+        do iP = 1,Npts !(receptores no en la frontera)
+          B(:,iP) = this_B * exp(cmplx(0.,-k*allpoints(iP)%center(1),8))
+        end do
         call getTheWaves(Npts,allpoints,B,0,direction,J,cOME,ik,PrintNum) 
-        
-       
-      if (workBoundary) then
+        if (workBoundary) then
       ! + campo difractado por estratos. (x:Bou xi:fuente)
-        Bb = 0; this_B = 0
-        ! this_B ya viene bien pero por si las dudas:
-!       call vectorB_force(this_B,zfsource,efsource,intfsource, & 
-!                         direction,cOME,k)
+        Bb = 0  
         do iP = 1,nBpts 
-          Bb(:,iP) = this_B * exp( & 
-          cmplx(0.,-k * (BouPoints(iP)%center(1) - xfsource),8))
-        end do!                   x_(point)   -    x_(source)
-        Ak = A; IPIVb = 4*N+2
-        call zgesv(4*N+2,nBpts,Ak,4*N+2,IPIVb,Bb,4*N+2,info)   
-        if(info .ne. 0)then
-           write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if 
+          Bb(:,iP) = this_B * exp(cmplx(0.,-k*BouPoints(iP)%center(1),8))
+        end do
         call getTheWaves(nBpts,BouPoints,Bb,0,direction,1,cOME,ik,PrintNum)
+        end if
        
       ! + funcion de Green. (x:todos xi:Bou)
-      !                     (x:Bou   xi:Bou) 
-        do iPxi = 1,nBpts
+      !                     (x:Bou   xi:Bou)
+      if (workBoundary) then
+        do iPxi = 1,nBpts ! xi (varias fuentes)
           B = 0; this_B = 0; Bb = 0;
           call vectorB_force(this_B, & 
                            BouPoints(iPxi)%center(2), & 
                            BouPoints(iPxi)%layer, & 
                            BouPoints(iPxi)%isOnInterface, & 
                            direction,cOME,k)
-                           
-          do iP_x = 1,Npts !(receptores)
-            B(:,iP_x) = this_B * exp(cmplx & 
-      (0.,-k* (allpoints(iP_x)%center(1)- BouPoints(iPxi)%center(1)),8))
-          end do!              x_(point)    -       x_(source)
-          do iP_x = 1,nBpts !(receptores)
-            Bb(:,iP_x) = this_B * exp(cmplx & 
-      (0.,-k* (BouPoints(iP_x)%center(1)- BouPoints(iPxi)%center(1)),8))
-          end do!              x_(point)    -       x_(source)
-           
-        ! encontramos las ondas que suben y bajan en los estratos
+          this_B = this_B * exp(cmplx(0.,k*BouPoints(iPxi)%center(1),8))
           Ak = A; IPIV = 4*N+2
-          call zgesv(4*N+2,NPts,Ak,4*N+2,IPIV,B,4*N+2,info)   
-          Ak = A; IPIVb = 4*N+2
-          call zgesv(4*N+2,nBpts,Ak,4*N+2,IPIVb,Bb,4*N+2,info) 
-          if(info .ne. 0)then
-              write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
-              
-        ! campo difractado por fuerza en xi
-       call getTheWaves(Npts,allpoints,B,iPxi,direction,J,cOME,ik,PrintNum) 
-       call getTheWaves(nBpts,BouPoints,Bb,iPxi,direction,J,cOME,ik,PrintNum)
-       
-       
-       
+          call zgesv(4*N+2,1,Ak,4*N+2,IPIV(:,1),this_B,4*N+2,info)   
+           if(info .ne. 0)then
+           write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
+         do iP = 1,Npts !(receptores no en la frontera)
+          B(:,iP) = this_B * exp(cmplx(0.,-k*allpoints(iP)%center(1),8))
+         end do!
+         do iP = 1,nBpts !(receptores en la frontera)
+          Bb(:,iP) = this_B * exp(cmplx(0.,-k*BouPoints(iP)%center(1),8))
+         end do
+          call getTheWaves(Npts,allpoints,B,iPxi,direction,J,cOME,ik,PrintNum) 
+          call getTheWaves(nBpts,BouPoints,Bb,iPxi,direction,J,cOME,ik,PrintNum)
         end do !iPxi
-      end if !workboundary
+      end if
+      
       end do ! direction
       END DO ! wavenumber loop
       
@@ -3256,6 +3239,30 @@
       end do
       end subroutine getTheWaves
       
+      
+      subroutine getTheWavesAtLegendreZeros(iP_xi,theseIPs_B,direction,cOME_i,iik,outpf)
+      use gloVars, only : imecMax
+      use resultVars, only : MecaElem,Boupoints,nBpts
+      use Gquadrature, only: Gquad_n
+      use soilVars, only : N
+      
+      integer,    intent(in)       :: iP_xi,direction,iik,outpf
+      complex*16, intent(in)       :: cOME_i
+      complex*16, dimension(4*N+2,nBpts),intent(in) :: theseIPs_B
+      type(MecaElem)               :: calcMecaAt_xi_zi, this_Meca
+      real                         :: x_i, z_i
+      integer                      :: iP,iX,e
+      
+      do iP = 1,nBpts
+        e = BouPoints(iP)%layer
+      do iX = 1,Gquad_n
+        x_i = BouPoints(iP)%Gq_xXx_coords(iX,1)
+        z_i = BouPoints(iP)%Gq_xXx_coords(iX,2)
+        
+      end do ! iX
+      end do ! iP
+      
+      end  subroutine getTheWavesAtLegendreZeros      
       
       function calcMecaAt_xi_zi(thisIP_B,x_i,z_i,e,cOME_i,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
