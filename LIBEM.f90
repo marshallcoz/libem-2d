@@ -15,11 +15,33 @@
       real, dimension(2), parameter :: fixedNormal = (/0.0,1.0/)
       complex*16, parameter :: UI = cmplx(0.0,1.0,8), &
                                UR = cmplx(1.0,0.0,8)
-      !complex :: ZER
-!     integer, parameter :: dp = selected_real_kind(15, 307)
       real*8, parameter :: PI = real(4.0*ATAN(1.0),8)
       integer, parameter :: Hplot = 700 , Wplot = 1200 
       end module gloVars
+      
+      module Gquadrature
+      integer, parameter :: Gquad_n = 8 ! número par
+      real, parameter, dimension(8) :: Gqu_t_8 = & 
+      (/ -0.96028986, &
+         -0.79666648, &
+         -0.52553242, &
+         -0.18343464, &
+         +0.18343464, &
+         +0.52553242, &
+         +0.79666648, &
+         +0.96028986 /)
+      
+      real, parameter, dimension(8) :: Gqu_A_8 = &
+      (/ 0.10122854, &
+         0.22238104, &
+         0.31370664, &
+         0.36268378, &
+         0.36268378, &
+         0.31370664, &
+         0.22238104, &
+         0.10122854 /)
+         
+      end module Gquadrature 
       
       module soilVars
 !     use gloVars, only: dp
@@ -135,6 +157,18 @@
       !                     | | ,---  xi: 1...NBpts (actuadores en BouPoints)
       ! allpoints (movie)   | | | 
       complex*16, dimension(:,:,:), allocatable :: xXxhGT,xXxvGT
+      
+      ! para integración Gaussiana de un segmento consigo mismo
+      !                       ,--- xXx (indice punto integracion Gaussiana)
+      !                k ---, | ,--- iMec
+      !                     | | | 
+      complex*16, dimension(:,:,:), allocatable :: Gq_xXx
+      
+      !               ,--- xXx (indice punto integracion Gaussiana)
+      !               | ,--- (1,2) -> (y,z)
+      !               | |
+      real, dimension(:,:), allocatable :: Gq_xXx_coords
+      real, dimension(:), allocatable :: Gq_xXx_C
       
        end type Punto   
       ! bondary elements:     ,--- POINT index / x (receptor)
@@ -1218,6 +1252,8 @@
          ! (Green)           x                        xi
          allocate(allpoints(iP_x)%KhGT(nmax+1,imecMax,nBpts))
          allocate(allpoints(iP_x)%KvGT(nmax+1,imecMax,nBpts))
+         allocate(allpoints(iP_x)%hGT(imecMax,nBpts))
+         allocate(allpoints(iP_x)%vGT(imecMax,nBpts))
        end do
        if (makeVideo) then
          do iP_x = mPtini,mPtfin
@@ -1352,25 +1388,29 @@
                            BouPoints(iPxi)%layer, & 
                            BouPoints(iPxi)%isOnInterface, & 
                            direction,cOME,k)
-          do iP_x = 1,nBpts !(receptores)
-            Bb(:,iP_x) = this_B * exp(cmplx & 
-      (0.,-k* (BouPoints(iP_x)%center(1)- BouPoints(iPxi)%center(1)),8))
-          end do!              x_(point)    -       x_(source)
+                           
           do iP_x = 1,Npts !(receptores)
             B(:,iP_x) = this_B * exp(cmplx & 
       (0.,-k* (allpoints(iP_x)%center(1)- BouPoints(iPxi)%center(1)),8))
           end do!              x_(point)    -       x_(source)
+          do iP_x = 1,nBpts !(receptores)
+            Bb(:,iP_x) = this_B * exp(cmplx & 
+      (0.,-k* (BouPoints(iP_x)%center(1)- BouPoints(iPxi)%center(1)),8))
+          end do!              x_(point)    -       x_(source)
            
         ! encontramos las ondas que suben y bajan en los estratos
-          Ak = A; IPIVb = 4*N+2
-          call zgesv(4*N+2,nBpts,Ak,4*N+2,IPIVb,Bb,4*N+2,info) 
           Ak = A; IPIV = 4*N+2
           call zgesv(4*N+2,NPts,Ak,4*N+2,IPIV,B,4*N+2,info)   
+          Ak = A; IPIVb = 4*N+2
+          call zgesv(4*N+2,nBpts,Ak,4*N+2,IPIVb,Bb,4*N+2,info) 
           if(info .ne. 0)then
               write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
-        ! campo difractado por fuerza en iP : fixedBouPoints(iP_xi)%GT
+              
+        ! campo difractado por fuerza en xi
        call getTheWaves(Npts,allpoints,B,iPxi,direction,J,cOME,ik,PrintNum) 
        call getTheWaves(nBpts,BouPoints,Bb,iPxi,direction,J,cOME,ik,PrintNum)
+       
+       
        
         end do !iPxi
       end if !workboundary
@@ -1380,10 +1420,13 @@
       if (workboundary) then
       !K -> X  (en cada frecuencia/no se guarda)
       ! para la solución de campo libre
+      print*,"KtoX libre"
       call crepa_taper_vectsum_KtoX(BouPoints,nBpts,1,5,.true.,PrintNum)
       
       ! para las funciones de Green
+      print*,"G allpoints"
       call crepa_taper_KtoX_GT(J,allpoints,nPts,nBpts,.true.,PrintNum)
+      print*,"G bou"
       call crepa_taper_KtoX_GT(J,BouPoints,nBpts,nBpts,.false.,PrintNum) 
       
       ! ibem
@@ -1395,10 +1438,11 @@
       END DO ! frequency loop
       
       if (workBoundary) then; deallocate(Bb);deallocate(IPIVb); end if
-      deALLOCATE (A);deallocate (Ak);deallocate (this_B)
+      deALLOCATE(A);deallocate(Ak);deallocate(this_B)
       deallocate(B);deallocate(IPIV)
-      
-      
+      do iP_x = 1,nPts
+        allocate(allpoints(iP_x)%FK(2*nmax,nfrec+1,iMecMax))
+      end do
       
       call crepa_taper_vectsum_KtoX(allpoints,nPts,Nfrec+1,5,.false.,PrintNum)
       
@@ -1770,14 +1814,18 @@
       !Read coordinates of collocation points and fix if there are
       !intersections with inferfaces. Also find normal vectors of segments.
       use GeometryVars
-      use gloVars!, only : verbose, makeVideo, getInquirePointsSol
+      use gloVars
       use fitting
       use soilVars, only : Z,N,BETA
       use waveNumVars, only : NFREC,DFREC,NMAX
       use ploteo10pesos
       use resultVars, only : BouPoints, nBpts, & 
-                             mPtfin,bPtini,bPtfin,iPtfin
+                             mPtfin,bPtini,bPtfin,iPtfin!, &
+!                            allpoints,nPts,mPtini,mPtfin
       use refSolMatrixVars, only: Bb,IPIVb
+      use Gquadrature, only: Gqu_n => Gquad_n, & 
+                             Gqu_t => Gqu_t_8, & 
+                             Gqu_A => Gqu_A_8
       
       implicit none
       integer, intent(in) :: outpf
@@ -1792,6 +1840,12 @@
 !     real, dimension(2) :: midiXI
       logical :: huboCambios!, smallEnough
       real, dimension(:), allocatable :: auxA,auxB
+      
+      real, dimension(2) :: norm_comp
+      real, dimension(2) :: ABp !x or y coords of points A and B
+      integer :: i,xory,xoryOtro
+      real :: xA,yA,xB,yB
+      real :: interpol
       
       ! min wavelenght = beta / maxFrec
       huboCambios = .false.
@@ -2071,10 +2125,62 @@
         ! (Green)           x                        xi
         allocate(BouPoints(iX)%KhGT(nmax+1,imecMax,nBpts))
         allocate(BouPoints(iX)%KvGT(nmax+1,imecMax,nBpts))
+        allocate(BouPoints(iX)%hGT(imecMax,nBpts))
+        allocate(BouPoints(iX)%vGT(imecMax,nBpts))
         ! (campo incidente) x
         allocate(BouPoints(iX)%FKh(NMAX+1,1,imecMax))
         allocate(BouPoints(iX)%FKv(NMAX+1,1,imecMax))
-      end do
+        
+        allocate(BouPoints(iX)%FK(2*NMAX,Nfrec+1,iMecMax))
+        
+        allocate(BouPoints(iX)%Gq_xXx_coords(Gqu_n,2))
+        allocate(BouPoints(iX)%Gq_xXx(nmax+1,Gqu_n,imecMax))
+        allocate(BouPoints(iX)%Gq_xXx_C(Gqu_n))
+       
+      ! Coordenadas de los puntos de integración Gaussiana.
+        norm_comp(1)=(BouPoints(iX)%bord_B(1)-BouPoints(iX)%bord_A(1)) & 
+                      / BouPoints(iX)%length
+        norm_comp(2)=(BouPoints(iX)%bord_B(2)-BouPoints(iX)%bord_A(2)) & 
+                      / BouPoints(iX)%length
+        
+        if (norm_comp(2) > norm_comp(1)) then
+!           print*," la pendiente es mayormente vertical "
+            xory = 2 ! la pendiente es mayormente vertical
+            xoryOtro = 1
+        else 
+!           print*," la pendiente es mayormente horizontal "
+            xory = 1 ! la pendiente es mayormente horizontal
+            xoryOtro = 2
+        end if
+        ABp(1) = BouPoints(iX)%bord_A(xory)
+        ABp(2) = BouPoints(iX)%bord_B(xory)
+        
+        do i = 1,Gqu_n !ceros de Legendre (una coordenada):
+          BouPoints(iX)%Gq_xXx_coords(i,xory) = (ABp(2)+ABp(1))/2 + &
+                                           (ABp(2)-ABp(1))/2 * Gqu_t(i)
+          BouPoints(iX)%Gq_xXx_C(i) = (ABp(2)-ABp(1))/2 * Gqu_A(i)
+        end do
+        
+        ! la otra coordenada:
+        xA = ABp(1)
+        yA = BouPoints(iX)%bord_A(xoryOtro)
+        xB = ABp(2)
+        yB = BouPoints(iX)%bord_B(xoryOtro)
+        do i = 1,Gqu_n
+      BouPoints(iX)%Gq_xXx_coords(i,xoryOtro) = interpol(xA,yA,xB,yB, &
+                                 BouPoints(iX)%Gq_xXx_coords(i,xory))
+        end do
+        
+        if (verbose .ge. 2) then
+        print*,"{",xA,",",yA,"}-{",xB,",",yB,"}"
+        do i = 1,Gqu_n
+          print*,"[",BouPoints(iX)%Gq_xXx_coords(i,xory), " , ", &
+          BouPoints(iX)%Gq_xXx_coords(i,xoryOtro), "]"
+        end do
+        print*,""
+        end if
+      end do !iX
+      
       
       allocate(Bb(4*N+2, nBpts))
       ALLOCATE(IPIVb(4*N+2, nBpts)) ! pivote
@@ -2088,10 +2194,15 @@
       use fitting
       use soilVars, only : Z,N,BETA
       use waveNumVars, only : NFREC,DFREC,NMAX
-      use resultVars, only : BouPoints, allpoints, nBpts, & 
-                             mPtfin,bPtini,bPtfin,iPtfin,Npts
+      use resultVars, only : BouPoints, nBpts, & 
+                             bPtini,bPtfin,iPtfin, &
+                             allpoints,nPts,mPtini,mPtfin,NxXxMpts
       use refSolMatrixVars, only: Bb,IPIVb
       use ploteo10pesos
+      use Gquadrature, only: Gqu_n => Gquad_n, & 
+                             Gqu_t => Gqu_t_8, & 
+                             Gqu_A => Gqu_A_8
+
       implicit none
       integer, intent(in) :: outpf,iJ
 !     logical :: lexist
@@ -2106,6 +2217,12 @@
       real, dimension(2) :: midiXI
       logical :: smallEnough, huboCambios
       real, dimension(:), allocatable :: auxA,auxB
+      
+      real, dimension(2) :: norm_comp
+      real, dimension(2) :: ABp !x or y coords of points A and B
+      integer :: i,xory,xoryOtro
+      real :: xA,yA,xB,yB
+      real :: interpol
       
       ! min wavelenght = beta / maxFrec
       huboCambios = .false.
@@ -2267,6 +2384,7 @@
       
       
       if (huboCambios) then
+      print*,"refinar frontera"
       !-------
       ! encontrar punto centrales de nuevo:
       deallocate(Xcoord)
@@ -2396,18 +2514,81 @@
         ! (Green)           x                        xi
         allocate(BouPoints(iX)%KhGT(nmax+1,imecMax,nBpts))
         allocate(BouPoints(iX)%KvGT(nmax+1,imecMax,nBpts))
+        allocate(BouPoints(iX)%hGT(imecMax,nBpts))
+        allocate(BouPoints(iX)%vGT(imecMax,nBpts))
         ! (campo incidente) x
         allocate(BouPoints(iX)%FKh(NMAX+1,1,imecMax))
         allocate(BouPoints(iX)%FKv(NMAX+1,1,imecMax))
-      end do
+        
+        allocate(BouPoints(iX)%FK(2*NMAX,Nfrec+1,iMecMax))
+        
+        allocate(BouPoints(iX)%Gq_xXx_coords(Gqu_n,2))
+        allocate(BouPoints(iX)%Gq_xXx(nmax+1,Gqu_n,imecMax))
+        allocate(BouPoints(iX)%Gq_xXx_C(Gqu_n))
+       
+      ! Coordenadas de los puntos de integración Gaussiana.
+        norm_comp(1)=(BouPoints(iX)%bord_B(1)-BouPoints(iX)%bord_A(1)) & 
+                      / BouPoints(iX)%length
+        norm_comp(2)=(BouPoints(iX)%bord_B(2)-BouPoints(iX)%bord_A(2)) & 
+                      / BouPoints(iX)%length
+        
+        if (norm_comp(2) > norm_comp(1)) then
+!           print*," la pendiente es mayormente vertical "
+            xory = 2 ! la pendiente es mayormente vertical
+            xoryOtro = 1
+        else 
+!           print*," la pendiente es mayormente horizontal "
+            xory = 1 ! la pendiente es mayormente horizontal
+            xoryOtro = 2
+        end if
+        ABp(1) = BouPoints(iX)%bord_A(xory)
+        ABp(2) = BouPoints(iX)%bord_B(xory)
+        
+        do i = 1,Gqu_n !ceros de Legendre (una coordenada):
+          BouPoints(iX)%Gq_xXx_coords(i,xory) = (ABp(2)+ABp(1))/2 + &
+                                           (ABp(2)-ABp(1))/2 * Gqu_t(i)
+          BouPoints(iX)%Gq_xXx_C(i) = (ABp(2)-ABp(1))/2 * Gqu_A(i)
+        end do
+        
+        ! la otra coordenada:
+        xA = ABp(1)
+        yA = BouPoints(iX)%bord_A(xoryOtro)
+        xB = ABp(2)
+        yB = BouPoints(iX)%bord_B(xoryOtro)
+        do i = 1,Gqu_n
+      BouPoints(iX)%Gq_xXx_coords(i,xoryOtro) = interpol(xA,yA,xB,yB, &
+                                 BouPoints(iX)%Gq_xXx_coords(i,xory))
+        end do
+        
+        if (verbose .ge. 2) then
+        print*,"{",xA,",",yA,"}-{",xB,",",yB,"}"
+        do i = 1,Gqu_n
+          print*,"[",BouPoints(iX)%Gq_xXx_coords(i,xory), " , ", &
+          BouPoints(iX)%Gq_xXx_coords(i,xoryOtro), "]"
+        end do
+        print*,""
+        end if
+      end do !iX
       
       ! G para resolver el campo difractado por topografía
       do iX=1,nPts 
         deallocate(allpoints(iX)%KhGT,allpoints(ix)%KvGT)
+        deallocate(allpoints(iX)%hGT, allpoints(iX)%vGT)
         ! (Green)           x                        xi
         allocate(allpoints(iX)%KhGT(nmax+1,imecMax,nBpts))
         allocate(allpoints(iX)%KvGT(nmax+1,imecMax,nBpts))
+        allocate(allpoints(iX)%hGT(imecMax,nBpts))
+        allocate(allpoints(iX)%vGT(imecMax,nBpts))
+        
       end do
+      
+      if (makeVideo) then
+        do iX = mPtini,mPtfin
+          deallocate(allpoints(ix)%xXxhGt,allpoints(ix)%xXxvGt)
+          allocate(allpoints(iX)%xXxhGT(NxXxMpts,imecMax,nBpts))          
+          allocate(allpoints(iX)%xXxvGT(NxXxMpts,imecMax,nBpts))
+        end do
+      end if
       
       !también en necesario actulizar el tamaño del vector
       !de términos independientes
@@ -2417,6 +2598,15 @@
       
       end if ! huboCambios
       end subroutine subdivideTopo
+      function interpol(xA,yA,xB,yB,x)
+      implicit none
+      real :: interpol
+      real, intent(in) :: xA,yA,xB,yB,x
+      real :: m
+      !interpolación lineal de la ordenada de x que está entre A y B
+      m = (yB-yA) / (xB-xA)
+      interpol = yA + m * (x-xA)
+      end  function interpol
       
       subroutine waveAmplitude(outpf)                                   !    FIX NFREC
       use wavelets !las funciones: ricker, fork
@@ -3207,7 +3397,7 @@
       factor = sqrt(2.*NMAX*2)
       
       do iP_x = 1,Npuntos_X
-       allocate(P(iP_x)%FK(2*NMAX,Nfrecs,iMecMX))
+!      allocate(P(iP_x)%FK(2*NMAX,Nfrecs,iMecMX))
        
       !    1 2 3 ... NMAX NMAX+1 0 0 0 0 0 2*NMAX     
       ! k= 0 1 2 ... N/2-1     0 0 0 0 0 0 0 
@@ -3231,8 +3421,6 @@
       signv(iMec)* P(iP_x)%FKv(nmax+1:2:-1,1:Nfrecs,iMec)* nzfsource      
       end do !iMec 
       
-!     deallocate(P(iP_x)%FKv); deallocate(P(iP_x)%FKh)
-      
       !filter
       do i=1,Nfrecs
       do iMec = 1,iMecMX
@@ -3252,7 +3440,6 @@
       end if !KtoX
       end do !iP_x
       end subroutine crepa_taper_vectsum_KtoX
-      
       subroutine crepa_taper_KtoX_GT(J,P,Npuntos_X,Npuntos_XI,siblings,outpf)
       use waveNumVars, only : NFREC,NMAX
       use resultvars, only: Punto,Hf,Hk,mPtini,mPtfin
@@ -3278,8 +3465,8 @@
       signh(5) = -1 ; signv(5) = 1  !s11
       
       do iP_x = 1,Npuntos_X
-        allocate(P(iP_x)%hGT(imecMax,Npuntos_XI))
-        allocate(P(iP_x)%vGT(imecMax,Npuntos_XI))
+!       allocate(P(iP_x)%hGT(imecMax,Npuntos_XI))
+!       allocate(P(iP_x)%vGT(imecMax,Npuntos_XI))
       do iMec = 1,5
         ! horizontal ------------
         
