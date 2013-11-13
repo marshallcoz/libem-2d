@@ -135,11 +135,20 @@
         integer :: layer
         logical :: isBoundary 
         logical :: isOnInterface
+        logical :: guardarFK
+        logical :: guardarMovieSiblings
+        
       !                       ,--- k: 1...NMAX+1
       !                       | ,--- f: 1...frec+1
       !                       | | ,--- iMec: 1:5
       !                       | | | 
         complex*16, dimension(:,:,:), allocatable :: FK,FKh,FKv
+        ! campo total inquirePoints : 
+        complex*16, dimension  (:,:), allocatable :: W 
+        ! campo total moviePoints : 
+        complex*16, dimension(:,:,:), allocatable :: WmovieSiblings
+      !                       |
+      !                       `--- sibling index
       
       !  G_{i,m} (x,xi) / T_{i,m} (x,xi)  cuado este punto es x: 
       
@@ -149,7 +158,7 @@
       !                     | | ,---  xi: 1...NBpts (actuadores en BouPoints)
       ! allpoints/boupoints | | | 
       complex*16, dimension(:,:,:), allocatable :: KhGT,KvGT
-      complex*16, dimension  (:,:), allocatable ::  hGT, vGT !1 frecuency
+      complex*16, dimension  (:,:), allocatable ::  hGT, vGT !every frecuency
         
                                    
       !                     ,--- xXx: -3dx -2dx -1dx 0 +1dx +2dx +3dx 
@@ -184,10 +193,10 @@
       !                     ,-,--- nBpts x nBpts (considering 1 direction)
       complex*16, dimension(:,:), allocatable :: ibemMat
       complex*16, dimension(:), allocatable :: trac0vec 
-      complex*16, dimension(:,:,:), allocatable :: ibemPHI
+!     complex*16, dimension(:,:,:), allocatable :: ibemPHI
       !                       | `--- m
       !                       `--- i
-      integer, dimension(:), allocatable :: IPIVibem
+      integer, dimension(:), allocatable :: IPIVbem
       
       !                                          ,--- ix
       !                                          | ,--- iz
@@ -1197,11 +1206,11 @@
       character(LEN=9)  :: xAx,yAx
       integer :: dstart,dfinish!,dstep
       real :: factor
+      complex*16 :: integralEq14,freefTraction
       
 !     complex*16 :: integralEq14
       ! output direction
       if (PrintNum /= 6) open(PrintNum,FILE= "GlayerOUT.txt")
-      
       
       CALL getcwd(path)
       write(PrintNum,'(a,/,a)') 'At:',TRIM(path)
@@ -1225,13 +1234,13 @@
       if (makeVideo) call getVideoPoints(PrintNum)
       if (workBoundary) call getTopography(PrintNum)
       NPts = nIpts + nMpts
+      allocate (allpoints(Npts))
       
       ALLOCATE (A(4*N+2,4*N+2)); A=cmplx(0,0,8)
       allocate (Ak(4*N+2,4*N+2)); Ak=cmplx(0,0,8)
       allocate (this_B(4*N+2))
       ALLOCATE (B (4*N+2,Npts)) ! una sola fuente
       ALLOCATE (IPIV(4*N+2, NPts)) ! pivote
-      allocate(allpoints(Npts))
       allocate (auxKvect(2*Nmax))
       factor = sqrt(2.*NMAX*2)
       
@@ -1245,7 +1254,18 @@
       do iP=1,Npts !        x                                  
         allocate(allpoints(iP)%FKh(NMAX+1,NFREC+1,imecMax))
         allocate(allpoints(iP)%FKv(NMAX+1,NFREC+1,imecMax))
+        if (allpoints(iP)%guardarFK)then
+          allocate(allpoints(iP)%FK(2*NMAX,NFREC+1,imecMax))
+        end if
+      end do!
+      do iP=iPtini,iPtfin
+         allocate(allpoints(iP)%W(NFREC+1,imecMax))
       end do
+      if (makeVideo) then
+        do iP=mPtini,mPtfin
+         allocate(allpoints(iP)%WmovieSiblings(NxXxMpts,NFREC+1,imecMax))
+        end do
+      end if!
       
       if (workBoundary) then
       ! G para resolver el campo difractado por topografía
@@ -1403,11 +1423,14 @@
       end do ! direction
       END DO ! wavenumber loop
       
+      ! para la solución de campo difractado por la estratigrafía
+      print*,"KtoX 'libre' allpoints"
+      call crepa_taper_vectsum_KtoX(a 
+      llpoints,nPts,J,5,.true.,.true.,PrintNum)
+      
       if (workboundary) then
-      !K -> X  (en cada frecuencia/no se guarda)
-      ! para la solución de campo libre
-      print*,"KtoX libre"
-      call crepa_taper_vectsum_KtoX(BouPoints,nBpts,1,5,.true.,PrintNum)
+      print*,"KtoX 'libre' boundary"
+      call crepa_taper_vectsum_KtoX(BouPoints,nBpts,1,5,.true.,.false.,PrintNum)
       
       ! para las funciones de Green
       print*,"G allpoints"
@@ -1416,66 +1439,66 @@
       call crepa_taper_KtoX_GT(J,BouPoints,nBpts,nBpts,.false.,PrintNum) 
       print*,"G bou quadr"
       call crepa_taper_KtoX_GT_Gq(J,PrintNum)
-      ! ibem
+
+      ! ibem en cada frecuencia
       ! matriz de coeficientes:
-      
-      
-      
+      if(verbose>=2)write(PrintNum,*)"forming ibem matrices"
+      ibemMat = 0
+      do iP_x = 1, 2*nBpts, 2 !receptor(Big renglón)
+      do iPxi = 1, 2*nBpts, 2 !fuente virtual(Big columna)
+        do l=0,1 !dirección de tracción en el receptor (mini renglón)
+        do m=0,1 !dirección de aplicación de la fuerza (mini columna)
+          if(iP_x .eq. iPxi) then
+            if (l .eq. m) then
+              ibemMat(iP_x + l, iPxi + m) = 0.5 ! <-- problema interior
+            else
+              ibemMat(iP_x + l, iPxi + m) = 0.0
+            end if
+          else 
+            ibemMat(iP_x + l, iPxi + m) = & 
+                     integralEq14(ceiling(iP_x/2.),l,ceiling(iPxi/2.),m)
+          end if
+        end do !m
+        end do !l
+      end do !iPxi
+      ! vector de campo incidente
+        do l=0,1 !dirección de aplicación de la fuerza (mini renglón)
+         trac0vec(iP_x + l) = -1.0 * freefTraction(ceiling(iP_x/2.),l)
+        end do !m
+      end do !iP_x
+     
+      ! solución de densidades de fuerza
+      iPIVbem = 2*nBpts
+      call zgesv(2*nBpts,1,ibemMat,2*nBpts,IPIVbem,trac0vec,2*nBpts,info)
+      if(info .ne. 0)then
+           write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
       ! usar coeficientes para encontrar campo difractado por topografía
+      ! almacenar en cada frecuencia
+      
       
       end if !workbou
-      END DO ! frequency loop
+      END DO ! J: frequency loop
       
       if (workBoundary) then; deallocate(Bb);deallocate(IPIVb); end if
       deALLOCATE(A);deallocate(Ak);deallocate(this_B)
       deallocate(B);deallocate(IPIV)
+      
       do iP_x = 1,nPts
-        allocate(allpoints(iP_x)%FK(2*nmax,nfrec+1,iMecMax))
+        allocate(allpoints(iP_x)%FX(2*nmax,nfrec+1,iMecMax))
       end do
       
-      call crepa_taper_vectsum_KtoX(allpoints,nPts,Nfrec+1,5,.false.,PrintNum)
+      ! la solución del medio estratificado  
+      !           
+      !    no pasar K->X para así tener los siblings de la pelicula -,
+      !                                                              |
+      !                                                              /
+      !                                                             /
+      !                                                            /
+!     call crepa_taper_vectsum_KtoX(allpoints,nPts,1,Nfrec+1,5,.false.,PrintNum)
       
       if(verbose >= 1) write(PrintNum,*)"DWN done"
 
 ! Fortran code...
-      
- ! IBEM
-      if(verbose>=1)write(PrintNum,*)"forming ibem matrices"
-      allocate(ibemMat(2*nBpts,2*nBpts))
-      allocate(trac0vec(2*nBpts))
-      allocate(IPIVb(2*nBpts,1))
-      DO J=1,NFREC+1
-      ! dos sistemas [receptor horz, vert]
-      ! un renglon para cada receptor 
-      ! dos columnas para cada fuerza (horz, vert)
-      ibemMat = 0
-      dO iP_x=1,2*nBpts,2 !receptor (renglon)
-      dO iPxi=1,2*nBpts,2 !fuente virtual (columna) 
-        do l=0,1
-        do m=0,1
-         if (iPxi+l .eq. iP_x+m) then
-            ibemMat(iP_x+l,  iPxi+m) = 0.5 
-         else
-!           ibemMat(iP_x+l,  iPxi+m) = f(iP_x,l,iPxi,m)
-         end if
-        end do ! m
-        end do ! l
-      end dO !iPxi (columna)
-      end do !iP_x (renglon)
-      
-      ! vector de campo incidente
-      
-      
-      ! solución de densidades de fuerza
-      iPIVb = 2*nBpts
-      
-      ! gráfica de densidades de fuerza a lo largo de la frontera
-      
-      ! campo difractado por topografia en el resto de los observadores
-      
-      
-      end do !J
-      
       
 ! FK -> FX -> T 
       write(tt,'(a)')"FK_r_"
@@ -1489,6 +1512,7 @@
 !     stop 0
 
 !     call filterFK(.true.,tt,xAx,yAx,PrintNum)
+      CALL chdir("../WorkDir/outs")
       call FKtoFX(PrintNum)
       
       if (plotFKS) then 
@@ -1621,6 +1645,7 @@
       integer :: i,e
       logical :: lexist
       real ::  errT = 0.001
+      integer :: auxGuardarFK
       
       ! read file
       inquire(file="interestingPoints.txt", exist=lexist)
@@ -1640,18 +1665,19 @@
       allocate(inqPoints(nIpts))
       inqPoints(:)%isOnInterface = .false.
       inqPoints(:)%isBoundary = .false.
-      
+      inqPoints(:)%guardarFK = .false.
+      inqPoints(:)%guardarMovieSiblings = .false.
 !     do j=1,N+1
 !     print*,"z(",j,")=",Z(j)
 !     end do
       
-      READ(7,*) !  X        Z          nx       nz
+      READ(7,*) !  X        Z          nx       nz     guardarFK
       do i=1, nIpts 
 !        allocate(inqPoints(i)%FK(NMAX,NFREC+1,imecMax))
 !        inqPoints(i)%FK = 0
       
          READ(7,*) inqPoints(i)%center(1), inqPoints(i)%center(2), &
-                inqPoints(i)%normal(1), inqPoints(i)%normal(2) 
+                inqPoints(i)%normal(1), inqPoints(i)%normal(2), auxGuardarFK
 !     print*,'[',inquirePoints(i)%center%X,inquirePoints(i)%center%Z,']'
       
       !encontrar el alyer en el que estan o 0 si está sobre la interfaz
@@ -1665,7 +1691,9 @@
            end do
 !          print*,"e=",e," --- z=",nonBoundPoints(1)%center(i,2)
            inqPoints(i)%layer = e
-           
+           if (auxGuardarFK .eq. 1 ) then
+              inqPoints(i)%guardarFK = .true.
+           end if
            
            do e=1,N+1
              if((Z(e)-errT .lt. real(inqPoints(i)%center(2))) & 
@@ -1766,6 +1794,7 @@
         allocate(moviePoints(nMpts))
         moviePoints(:)%isBoundary = .false.
         moviePoints(:)%isOnInterface = .false.
+        moviePoints(:)%guardarMovieSiblings = .true.
         
         if(verbose>=1)Write(outpf,'(a,I0)') & 
         "Number of verical movie pixels: ", nMpts
@@ -1809,7 +1838,8 @@
       use waveNumVars, only : NFREC,DFREC,NMAX
       use ploteo10pesos
       use resultVars, only : BouPoints, nBpts, & 
-                             mPtfin,bPtini,bPtfin,iPtfin!, &
+                             mPtfin,bPtini,bPtfin,iPtfin, &
+                             ibemMat,trac0vec,IPIVbem !, &
 !                            allpoints,nPts,mPtini,mPtfin
       use refSolMatrixVars, only: Bb,IPIVb
       use Gquadrature, only: Gqu_n => Gquad_n, & 
@@ -2109,6 +2139,7 @@
       BouPoints(:)%layer = layerXI
       BouPoints(:)%isBoundary = .true.
       BouPoints(:)%isOnInterface = isOnIF
+      BouPoints(:)%guardarMovieSiblings = .false.
       
       do iX=1,nBpts !van vacías porque esto cuenta para cada frecuencia
         ! (Green)           x                        xi
@@ -2119,8 +2150,7 @@
         ! (campo incidente) x
         allocate(BouPoints(iX)%FKh(NMAX+1,1,imecMax))
         allocate(BouPoints(iX)%FKv(NMAX+1,1,imecMax))
-        
-        allocate(BouPoints(iX)%FK(2*NMAX,Nfrec+1,iMecMax))
+        allocate(BouPoints(iX)%FK(2*NMAX,1,iMecMax)) 
         
         allocate(BouPoints(iX)%Gq_xXx_coords(Gqu_n,2))
         allocate(BouPoints(iX)%Gq_xXx(nBpts,nmax+1,Gqu_n,imecMax,2))
@@ -2175,6 +2205,10 @@
       allocate(Bb(4*N+2, nBpts))
       ALLOCATE(IPIVb(4*N+2, nBpts)) ! pivote
       
+      allocate(ibemMat(2*nBpts,2*nBpts))
+      allocate(trac0vec(2*nBpts))
+      allocate(IPIVbem(2*nBpts))
+      
       end subroutine getTopography
       subroutine subdivideTopo(iJ,outpf)
       !Read coordinates of collocation points and fix if there are
@@ -2186,7 +2220,8 @@
       use waveNumVars, only : NFREC,DFREC,NMAX
       use resultVars, only : BouPoints, nBpts, & 
                              bPtini,bPtfin,iPtfin, &
-                             allpoints,nPts,mPtini,mPtfin,NxXxMpts
+                             allpoints,nPts,mPtini,mPtfin,NxXxMpts, &
+                             ibemMat,trac0vec,IPIVbem
       use refSolMatrixVars, only: Bb,IPIVb
       use ploteo10pesos
       use Gquadrature, only: Gqu_n => Gquad_n, & 
@@ -2485,7 +2520,7 @@
         deallocate(BouPoints(iX)%vGT)
         deallocate(BouPoints(iX)%FKh)
         deallocate(BouPoints(iX)%FKv)
-        deallocate(BouPoints(iX)%FK)
+        deallocate(BouPoints(iX)%FX)
         deallocate(BouPoints(iX)%Gq_xXx_coords)
         deallocate(BouPoints(iX)%Gq_xXx)
         deallocate(BouPoints(iX)%Gq_xXx_C)
@@ -2511,6 +2546,7 @@
       BouPoints(:)%layer = layerXI
       BouPoints(:)%isBoundary = .true.
       BouPoints(:)%isOnInterface = isOnIF
+      BouPoints(:)%guardarMovieSiblings = .false.
       
       ! para resolver las densidades de fuerza IBEM:
       do iX=1,nBpts !van vacías porque esto cuenta para cada frecuencia
@@ -2522,8 +2558,7 @@
         ! (campo incidente) x
         allocate(BouPoints(iX)%FKh(NMAX+1,1,imecMax))
         allocate(BouPoints(iX)%FKv(NMAX+1,1,imecMax))
-        
-        allocate(BouPoints(iX)%FK(2*NMAX,Nfrec+1,iMecMax))
+        allocate(BouPoints(iX)%FK(2*NMAX,1,iMecMax)) 
         
         allocate(BouPoints(iX)%Gq_xXx_coords(Gqu_n,2))
         allocate(BouPoints(iX)%Gq_xXx(nBpts,nmax+1,Gqu_n,imecMax,2))
@@ -2600,6 +2635,10 @@
        allocate(Bb(4*N+2, nBpts))
        ALLOCATE(IPIVb(4*N+2, nBpts)) ! pivote
       
+      deallocate(ibemMat, trac0vec, IPIVbem)
+      allocate(ibemMat(2*nBpts,2*nBpts))
+      allocate(trac0vec(2*nBpts))
+      allocate(IPIVbem(2*nBpts))
       end if ! huboCambios
       end subroutine subdivideTopo
       function interpol(xA,yA,xB,yB,x)
@@ -3439,7 +3478,8 @@
       
 
 !...      
-      subroutine crepa_taper_vectsum_KtoX(P,Npuntos_X,Nfrecs,iMecMX,KtoX,outpf)
+      subroutine crepa_taper_vectsum_KtoX & 
+                            (P,Npuntos_X,iJ,iMecMX,KtoX,guardarFK,outpf)
       use waveNumVars, only : NFREC,NMAX
       use resultvars, only: Punto,Hf,Hk,mPtini,mPtfin
       use glovars, only: verbose,imecMax
@@ -3449,11 +3489,12 @@
       
       implicit none
       type(Punto), dimension(Npuntos_X), intent(inout)  :: P
-      integer, intent(in) :: Npuntos_X,Nfrecs,iMecMX,outpf
-      logical, intent(in) :: KtoX
-      integer :: iP_x,iMec,i
+      integer, intent(in) :: Npuntos_X,iJ,iMecMX,outpf
+      logical, intent(in) :: KtoX,guardarFK
+      integer :: iP_x,iMec,i,xXx
       integer, dimension(5) :: signh,signv
       real :: factor
+      complex*16, dimension(2*nmax,1:imecMax) :: auxFK
       
       !  fza horiz     fza vert
       signh(1) = -1 ; signv(1) = 1  !W
@@ -3468,9 +3509,9 @@
        
       !    1 2 3 ... NMAX NMAX+1 0 0 0 0 0 2*NMAX     
       ! k= 0 1 2 ... N/2-1     0 0 0 0 0 0 0 
-      P(iP_x)%FK(1:NMAX,1:Nfrecs,1:iMecMX) = & 
-                    P(iP_x)%FKh(1:NMAX,1:Nfrecs,1:iMecMX)* nxfsource + & 
-                    P(iP_x)%FKv(1:NMAX,1:Nfrecs,1:iMecMX)* nzfsource
+      auxFK(1:NMAX,1:iMecMX) = & 
+                    P(iP_x)%FKh(1:NMAX,iJ,1:iMecMX)* nxfsource + & 
+                    P(iP_x)%FKv(1:NMAX,iJ,1:iMecMX)* nzfsource
       
       !    1 2 3 ... NMAX NMAX+1 0 0 0 0 0 2*NMAX     
       ! k= 0 1 2 ... N/2-1 -N/2 ... -3 -2 -1
@@ -3483,28 +3524,50 @@
                            ! s11            impar            par
                            !     notice we never said conjugate
       do iMec = 1,iMecMX
-        P(iP_x)%FK(nmax+1:nmax*2,1:Nfrecs,iMec) = &
-      signh(iMec)* P(iP_x)%FKh(nmax+1:2:-1,1:Nfrecs,iMec)* nxfsource + & 
-      signv(iMec)* P(iP_x)%FKv(nmax+1:2:-1,1:Nfrecs,iMec)* nzfsource      
+!       P(iP_x)%FX
+        auxFK(nmax+1:nmax*2,iMec) = &
+      signh(iMec)* P(iP_x)%FKh(nmax+1:2:-1,iJ,iMec)* nxfsource + & 
+      signv(iMec)* P(iP_x)%FKv(nmax+1:2:-1,iJ,iMec)* nzfsource      
       end do !iMec 
       
       !filter
-      do i=1,Nfrecs
+!     do i=ifrec,ffrec
       do iMec = 1,iMecMX
-        P(iP_x)%FK(:,i,iMec) = P(iP_x)%FK(:,i,iMec) * Hk * Hf(i)
+        auxFK(:,iMec) = auxFK(:,iMec) * Hk * Hf(iJ)
       end do !iMec
-      end do !i
+!     end do !i
+      
+      ! guardar el FK si es que es interesante verlo
+      if (guardarFK) then
+        if (P(iP_x)%guardarFK) then
+          P(iP_x)%FK(:,iJ,1:imecMax) = auxFK
+        end if
+      end if! guardarFK
       
       if (KtoX) then
-        P(iP_x)%FK = P(iP_x)%FK * factor
-        do i=1,Nfrecs
+        auxFK = auxFK * factor
+!       do i=ifrec,ffrec
         do iMec = 1,iMecMX
-          call fork(2*nmax,P(iP_x)%FK(:,i,iMec),+1,verbose,outpf)
+          call fork(2*nmax, auxFK(:,iMec),+1,verbose,outpf)
         end do !iMec
-        end do !i
-        P(iP_x)%FK = P(iP_x)%FK / factor
-        ! no guardamos siblings porque estamos solo en el boundary 
+!       end do !i
+        auxFK = auxFK / factor 
       end if !KtoX
+      
+      ! guardar x=0 en W
+      P(iP_x)%W(iJ,1:imecMax) = auxFK(1,1:imecMax)
+      
+      ! guardar los siblings si es un moviepoint
+      if(P(iP_x)%guardarMovieSiblings) then
+      ! debe estar entre mPtini y mPtfin
+      ! (1) reordenar la crepa existente en X
+        auxFK = cshift(auxFK,SHIFT=nmax+1,DIM=1)
+      ! (2) guardar sólo los interesantes
+        xXx = 1
+        do i=nMax-nx,nMax+nx,MeshDXmultiplo
+           P(iP_x)%WmovieSiblings(xXx,iJ,1:imecMax) = auxFK(i,1:imecMax)
+        end do
+      end if
       end do !iP_x
       end subroutine crepa_taper_vectsum_KtoX
       subroutine crepa_taper_KtoX_GT(J,P,Npuntos_X,Npuntos_XI,siblings,outpf)
@@ -3665,28 +3728,76 @@
       
       
       end subroutine makeTaperFuncs      
-!     function integralEq14(iP_x,i,iPxi,m,J,ik)
-!        !                            receptor---,       ,--- fuentes
-!        !                                    ___|__ ____|_
-!        !  ibemMat(iP_x,iPxi) = integralEq14(iP_x,i,iPxi,m,J,ik)
-!     use resultVars, only:fixedBouPoints,nBpts
-!     implicit none
-!     complex*16 :: integralEq14
-!     integer, intent(in) :: iP_x,i,iPxi,m,J,ik
-!     logical :: tooClose
-!     integralEq14 = 0
-!     tooClose = .false.
-!     !si los puntos estan cerca, usar integracion gaussiana
-!     if (tooClose) then
-!     
-!     else ! not too close
-!     integralEq14 = fixedBouPoints(iPxi)%GT(i,m,iP_x,J,ik) * & 
-!                    fixedBouPoints(iPxi)%length
-!     end if
-!     
-!     end function integralEq14
+      function integralEq14(iP_x,l,iPxi,m)
+         !                                receptor---,       ,--- fuente
+         !                                        ___|__ ____|_
+         !  ibemMat(iP_x+l,iPxi+m) = integralEq14(iP_x,l,iPxi,m)
+      use resultVars, only:BouPoints,nBpts
+      use Gquadrature, only: Gquad_n
+      implicit none
+      complex*16 :: integralEq14,trac
+      integer, intent(in) :: iP_x,l,iPxi,m
+      logical :: lejos
+      integer :: xXx
       
-
+      integralEq14 = 0
+      lejos = .false.
+      
+      if (lejos) then
+      ! no usamos integración gaussiana
+       ! En el centro del segmento X
+         ! dada la fuerza en XI
+         ! tracción en la dirección l dada la fuerza en direccion m
+      
+      else ! cerca
+      ! usamos integracion gaussiana
+      
+       ! En cada punto gaussiano del segmento en X
+       do xXx = 1,Gquad_n
+         ! dada la fuerza en XI
+         ! tracción en la dirección l dada la fuerza en direccion m
+         trac = BouPoints(iP_x)%Gq_w_xXx(iPxi,xXx,5-l,m+1) * BouPoints(iP_x)%normal(1) + &
+                BouPoints(iP_x)%Gq_w_xXx(iPxi,xXx,4-l,m+1) * BouPoints(iP_x)%normal(2)
+         ! multiplicar por peso gaussiano
+         trac = trac * BouPoints(iP_x)%Gq_xXx_C(xXx)
+         ! acumular suma
+         integralEq14 = integralEq14 + trac
+       end do !xXx
+      end if !lejos
+      
+      end function integralEq14
+      
+      ! las tracciones:
+      !
+      !   ,--- componente de la tracción : l
+      !   |,--- (1),(3) dirección de la fuerza : m
+      !   ||    ,--- cara
+      !   ||    |,--- fza
+      !  Txx = Sxx1 nx + Szx1 nz  |___ (1) fza horizontal  .
+      !  Tzx = Szx1 nx + Szz1 nz  |                        . 
+      !  Txz = Sxx3 nx + Szx3 nz |___ (3) fza vertical     .
+      !  Tzz = Szx3 nx + Szz3 nz |                         . 
+      !
+      !  T_lm = S_lkm * n_k
+      !       = S_l1m * n_1 + S_l3m * n3
+      !         __|__         __|__
+      !      s11     s31   s13    s33
+      !      s11     s31   s31    s33  (son equivalentes)
+      !       5       4     4      3   (indice en Gq_w_xXx(_,_,i,_) )
+      !       0       1     0      1   (indice de submatriz:  l )
+      
+      function freefTraction(iP_x,l)
+      use resultVars, only:BouPoints,nBpts
+      implicit none
+      complex*16 :: freefTraction
+      integer, intent(in) :: iP_x,l
+      
+      !        en realidad ya es FX ---,
+      !                                |   
+      freefTraction = BouPoints(iP_x)%FK(1,1,5-l) * BouPoints(iP_x)%normal(1) + &
+                      BouPoints(iP_x)%FK(1,1,4-l) * BouPoints(iP_x)%normal(2)
+      
+      end function freefTraction
       
 !     subroutine vectorB_incidence(nJ,cOME,dK,nKmax,outpf)
 !     use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA,RHO
@@ -4195,7 +4306,7 @@
       
       if (verbose >= 1) Write(outpf,'(a)') "Will make a movie..."      
          CALL chdir("..")
-         CALL chdir("../WorkDir/video")
+         CALL chdir("../video")
          CALL getcwd(path)
          write(outpf,'(a)') TRIM(path)
          call system("rm *.png")
