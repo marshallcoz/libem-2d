@@ -79,7 +79,7 @@
       !                                         | ,--- iP
       !                                         | | 
       complex*16, save, allocatable :: A(:,:),B(:,:),Ak(:,:),Bb(:,:)
-      complex*16, dimension(:), allocatable :: this_B
+      complex*16, dimension(:), allocatable :: this_B,this_Bcopy
                                    
       integer, dimension(:,:), allocatable :: IPIV,IPIVb
       integer :: info    
@@ -138,14 +138,31 @@
         logical :: guardarFK
         logical :: guardarMovieSiblings
         
-      !                       ,--- k: 1...NMAX+1
-      !                       | ,--- f: 1...frec+1
+      !                       ,--- f: 1...nfrec+1
+      !                       | ,--- k: 1...NMAX+1 / 2*NMAX
       !                       | | ,--- iMec: 1:5
       !                       | | | 
-        complex*16, dimension(:,:,:), allocatable :: FK,FKh,FKv
-        ! campo total inquirePoints : 
+        complex*16, dimension(:,:,:), allocatable :: FK
+        complex*16, dimension  (:,:), allocatable :: FKh,FKv
+        
+      ! para las funciones de Green:
+      !               (imec) l ---, ,--- m 
+      !                  iGQ ---, | |   ,--- k
+      !                 xi ---, | | |   | 
+      !                       | | | |   | 
+        complex*16, dimension(:,:,:,:,  :), allocatable :: GT_gq_k
+        complex*16, dimension(:,:,:,:)    , allocatable :: GT_gq
+!       complex*16, dimension(:,:,:,:,:,:,:), allocatable :: GT_gq_mov_k
+        complex*16, dimension(:,:,:,:,:)  , allocatable :: GT_gq_mov
+      !                               |
+      !                               '--- iMov
+      
+        
+        ! espectro campo total inquirePoints : 
+      !                         ,--- f: 1...nfrec+1
+      !                         | ,--- iMec: 1:5
         complex*16, dimension  (:,:), allocatable :: W 
-        ! campo total moviePoints : 
+        ! espectro campo total moviePoints : 
         complex*16, dimension(:,:,:), allocatable :: WmovieSiblings
       !                       |
       !                       `--- sibling index
@@ -157,22 +174,22 @@
       !                     | ,--- iMec: 1:5  (1:2-G- 3:4:5--T--)
       !                     | | ,---  xi: 1...NBpts (actuadores en BouPoints)
       ! allpoints/boupoints | | | 
-      complex*16, dimension(:,:,:), allocatable :: KhGT,KvGT
-      complex*16, dimension  (:,:), allocatable ::  hGT, vGT !every frecuency
+!     complex*16, dimension(:,:,:), allocatable :: KhGT,KvGT
+!     complex*16, dimension  (:,:), allocatable ::  hGT, vGT !every frecuency
         
                                    
       !                     ,--- xXx: -3dx -2dx -1dx 0 +1dx +2dx +3dx 
       !                     | ,--- iMec: 1:5  (1:2-G- 3:4:5--T--)
       !                     | | ,---  xi: 1...NBpts (actuadores en BouPoints)
       ! allpoints (movie)   | | | 
-      complex*16, dimension(:,:,:), allocatable :: xXxhGT,xXxvGT
+!     complex*16, dimension(:,:,:), allocatable :: xXxhGT,xXxvGT
       
       ! para integración Gaussiana de un segmento consigo mismo
       !                         ,--- xXx (indice punto integracion Gaussiana)
       !                  k ---, | ,--- iMec
       !    xi: 1...nBpts ---, | | | ,--- (1,2) -> dirección
-      complex*16, dimension(:,:,:,:,:), allocatable :: Gq_xXx
-      complex*16, dimension(:,  :,:,:), allocatable :: Gq_w_xXx
+!     complex*16, dimension(:,:,:,:,:), allocatable :: Gq_xXx
+!     complex*16, dimension(:,  :,:,:), allocatable :: Gq_w_xXx
       
       !               ,--- xXx (indice punto integracion Gaussiana)
       !               | ,--- (1,2) -> (y,z)
@@ -1192,6 +1209,7 @@
       use sourceVars
       use wavelets
       use MeshVars
+      use Gquadrature, only: Gquad_n
       
       implicit none
       ! output direction   6 : screen      101: log file
@@ -1199,7 +1217,7 @@
       !Loop Counters
       integer :: J  ! frequency loop
       integer :: l,m,iP,iPxi,iP_x,direction !small loop counter
-      integer :: status
+      integer :: status,iGq
       integer :: IK ! wavenumber loop   
       CHARACTER(len=400) :: path
       character(LEN=10) :: tt
@@ -1239,6 +1257,7 @@
       ALLOCATE (A(4*N+2,4*N+2)); A=cmplx(0,0,8)
       allocate (Ak(4*N+2,4*N+2)); Ak=cmplx(0,0,8)
       allocate (this_B(4*N+2))
+      allocate (this_Bcopy(4*N+2))
       ALLOCATE (B (4*N+2,Npts)) ! una sola fuente
       ALLOCATE (IPIV(4*N+2, NPts)) ! pivote
       allocate (auxKvect(2*Nmax))
@@ -1252,13 +1271,13 @@
          deallocate(moviePoints); end if
 
       do iP=1,Npts !        x                                  
-        allocate(allpoints(iP)%FKh(NMAX+1,NFREC+1,imecMax))
-        allocate(allpoints(iP)%FKv(NMAX+1,NFREC+1,imecMax))
+        allocate(allpoints(iP)%FKh(NMAX+1,imecMax))
+        allocate(allpoints(iP)%FKv(NMAX+1,imecMax))
         if (allpoints(iP)%guardarFK)then
-          allocate(allpoints(iP)%FK(2*NMAX,NFREC+1,imecMax))
+          allocate(allpoints(iP)%FK(NFREC+1,2*NMAX,imecMax))
         end if
       end do!
-      do iP=iPtini,iPtfin
+      do iP=iPtini,iPtfin !solo inquirepoints:
          allocate(allpoints(iP)%W(NFREC+1,imecMax))
       end do
       if (makeVideo) then
@@ -1270,19 +1289,32 @@
       if (workBoundary) then
       ! G para resolver el campo difractado por topografía
        do iP_x = 1,nPts 
-         ! (Green)           x                        xi
-         allocate(allpoints(iP_x)%KhGT(nmax+1,imecMax,nBpts))
-         allocate(allpoints(iP_x)%KvGT(nmax+1,imecMax,nBpts))
-         allocate(allpoints(iP_x)%hGT(imecMax,nBpts))
-         allocate(allpoints(iP_x)%vGT(imecMax,nBpts))
+         allocate(allpoints(iP_x)%GT_gq_k(nBpts,Gquad_n,5,2,nmax+1))
+       end do!
+       do iP_x = iPtini,iPtfin
+         allocate(allpoints(iP_x)%GT_gq(nBpts,Gquad_n,5,2))
        end do
        if (makeVideo) then
          do iP_x = mPtini,mPtfin
-          allocate(allpoints(iP_x)%xXxhGT(NxXxMpts,imecMax,nBpts))
-          allocate(allpoints(iP_x)%xXxvGT(NxXxMpts,imecMax,nBpts))
+!        allocate(allpoints(iP_x)%GT_gq_mov_k(nBpts,Gquad_n,5,2,NxXxMpts,nmax+1,2))
+           allocate(allpoints(iP_x)%GT_gq_mov(nBpts,Gquad_n,5,2,NxXxMpts))
          end do
        end if
-      end if!
+      end if
+      
+         ! (Green)           x                        xi
+!        allocate(allpoints(iP_x)%KhGT(nmax+1,imecMax,nBpts))
+!        allocate(allpoints(iP_x)%KvGT(nmax+1,imecMax,nBpts))
+!        allocate(allpoints(iP_x)%hGT(imecMax,nBpts))
+!        allocate(allpoints(iP_x)%vGT(imecMax,nBpts))
+!      end do
+!      if (makeVideo) then
+!        do iP_x = mPtini,mPtfin
+!         allocate(allpoints(iP_x)%xXxhGT(NxXxMpts,imecMax,nBpts))
+!         allocate(allpoints(iP_x)%xXxvGT(NxXxMpts,imecMax,nBpts))
+!        end do
+!      end if
+!     end if!
             
       !prepare the incident wave amplitude function Uo
 !     call waveAmplitude(PrintNum) 
@@ -1329,30 +1361,43 @@
       ! Free field solution:
        call FreeField(zfsource, & 
                       efsource, & 
-                      0,J,allpoints,Npts,.false.,COME,PrintNum)
+                      0,0,allpoints,Npts,COME,PrintNum)
                        
       if (workBoundary) then
+       ! fuente real:
        call FreeField(zfsource, & 
                       efsource, & 
-                      0,1,BouPoints,nBpts,.false.,COME,PrintNum)
-                    
-       do iPxi = 1,nBpts
-       ! G(x,xi) entre todos los puntos interesantes
-       call FreeField(BouPoints(iPxi)%center(2), & 
+                      0,0,BouPoints,nBpts,COME,PrintNum)
+       
+       ! fuentes virtuales en cada punto de integración:
+       do iPxi = 1,nBpts !cada segmento XI
+       do iGq = 1,Gquad_n !cada punto de integración
+       ! receptores: inquirepoints y moviepoints
+       call FreeField(BouPoints(iPxi)%Gq_xXx_coords(iGq,2), & 
                       BouPoints(iPxi)%layer, & 
-                      iPxi,J,allpoints,Npts,.false.,COME,PrintNum) 
-                      
-       ! T(x,xi) entre puntos de la frontera
-       call FreeField(BouPoints(iPxi)%center(2), & 
+                      iPxi,iGq,allpoints,Npts,COME,PrintNum) 
+       
+       ! receptores: los puntos de la frontera               
+       call FreeField(BouPoints(iPxi)%Gq_xXx_coords(iGq,2), & 
                       BouPoints(iPxi)%layer, & 
-                      iPxi,J,BouPoints,NBpts,.false.,COME,PrintNum)
-                      
-       ! T(x,xi) entre puntos de integración Gaussiana de la frontera
-       call FreeField(BouPoints(iPxi)%center(2), & 
-                      BouPoints(iPxi)%layer, & 
-                      iPxi,J,BouPoints,NBpts,.true.,COME,PrintNum)
-       end do
-        
+                      iPxi,iGq,boupoints,nBpts,COME,PrintNum)
+       
+!      ! G(x,xi) entre todos los puntos interesantes
+!      call FreeField(BouPoints(iPxi)%center(2), & 
+!                     BouPoints(iPxi)%layer, & 
+!                     iPxi,allpoints,Npts,.false.,COME,PrintNum) 
+!                     
+!      ! T(x,xi) entre puntos de la frontera
+!      call FreeField(BouPoints(iPxi)%center(2), & 
+!                     BouPoints(iPxi)%layer, & 
+!                     iPxi,BouPoints,NBpts,.false.,COME,PrintNum)
+!                     
+!      ! T(x,xi) entre puntos de integración Gaussiana de la frontera
+!      call FreeField(BouPoints(iPxi)%center(2), & 
+!                     BouPoints(iPxi)%layer, & 
+!                     iPxi,BouPoints,NBpts,.true.,COME,PrintNum)
+       end do !iGq
+       end do !iPxi
       end if
         ! for the discrete wave number
 !     LFREC=2000 + L*exp(-PI*(FLOAT(J-1)/NFREC)**2)  !EMPIRICAL (improve)
@@ -1370,12 +1415,13 @@
                    !    1  ,  2
       do direction = dstart,dfinish ! Fuerza horizontal; vertical
       
-      ! + campo difractado por estratos. (x:todos xi:fuente)
+  ! + campo difractado por estratos. (x:todos xi:fuente)
         B = 0; this_B = 0 
         call vectorB_force(this_B,zfsource,efsource,intfsource, & 
                           direction,cOME,k)
-        ! xi es la fuente (una sola)
+        ! xi es la fuente real (una sola)
         this_B = this_B * exp( cmplx(0.0, k * xfsource,8))
+        this_Bcopy = this_B
         Ak = A; IPIV = 4*N+2
         call zgesv(4*N+2,1,Ak,4*N+2,IPIV(:,1),this_B,4*N+2,info)   
         if(info .ne. 0)then
@@ -1383,27 +1429,28 @@
         do iP = 1,Npts !(receptores en el medio)
           B(:,iP) = this_B * exp(cmplx(0.,-k*allpoints(iP)%center(1),8))
         end do
-        call getTheWaves(Npts,allpoints,B,0,direction,J,cOME,ik,PrintNum) 
-        if (workBoundary) then
-      ! + campo difractado por estratos. (x:Bou xi:fuente)
-        Bb = 0  
-        do iP = 1,nBpts 
+        call Add_diffractedField_by_layeredMedia_source(Npts,allpoints,B,direction,cOME,ik,PrintNum) 
+      if (workBoundary) then
+  ! + campo difractado por estratos. (x:Bou xi:fuente) (término indep en ibem)
+        Bb = 0; this_B = this_Bcopy
+        do iP = 1,nBpts !(receptores en la frontera)
           Bb(:,iP) = this_B * exp(cmplx(0.,-k*BouPoints(iP)%center(1),8))
         end do
-        call getTheWaves(nBpts,BouPoints,Bb,0,direction,1,cOME,ik,PrintNum)
-        end if
+        call Add_diffractedField_by_layeredMedia_source(nBpts,BouPoints,Bb,direction,cOME,ik,PrintNum)
+      end if
        
-      ! + funcion de Green. (x:todos xi:Bou)
-      !                     (x:Bou   xi:Bou)
+  ! + funcion de Green. (x:todos xi:Bou_Gqpts)
+  !                     (x:Bou   xi:Bou_Gqpts)
       if (workBoundary) then
-        do iPxi = 1,nBpts ! xi (varias fuentes)
+        do iPxi = 1,nBpts ! cada segmento
+        do iGq = 1,Gquad_n !cada punto de integración en el segmento
           B = 0; this_B = 0; Bb = 0;
           call vectorB_force(this_B, & 
-                           BouPoints(iPxi)%center(2), & 
+                           BouPoints(iPxi)%Gq_xXx_coords(iGq,2), & 
                            BouPoints(iPxi)%layer, & 
                            BouPoints(iPxi)%isOnInterface, & 
                            direction,cOME,k)
-          this_B = this_B * exp(cmplx(0.,k*BouPoints(iPxi)%center(1),8))
+          this_B = this_B * exp(cmplx(0.,k*BouPoints(iPxi)%Gq_xXx_coords(iGq,1),8))
           Ak = A; IPIV = 4*N+2
           call zgesv(4*N+2,1,Ak,4*N+2,IPIV(:,1),this_B,4*N+2,info)   
            if(info .ne. 0)then
@@ -1414,9 +1461,14 @@
          do iP = 1,nBpts !(receptores en la frontera)
           Bb(:,iP) = this_B * exp(cmplx(0.,-k*BouPoints(iP)%center(1),8))
          end do
-          call getTheWaves(Npts,allpoints,B,iPxi,direction,J,cOME,ik,PrintNum) 
-          call getTheWaves(nBpts,BouPoints,Bb,iPxi,direction,J,cOME,ik,PrintNum) 
-          call getTheWavesAtQuadraturePts(iPxi,this_B,k,cOME,direction,ik,PrintNum)
+          call Add_diffractedField_by_layeredMedia_Green & 
+          (Npts,allpoints,B,iPxi,iGq,direction,cOME,ik,PrintNum)
+          call Add_diffractedField_by_layeredMedia_Green & 
+          (nBpts,boupoints,Bb,iPxi,iGq,direction,cOME,ik,PrintNum)
+!         call getTheWaves(Npts,allpoints,B,iPxi,direction,cOME,ik,PrintNum) 
+!         call getTheWaves(nBpts,BouPoints,Bb,iPxi,direction,cOME,ik,PrintNum) 
+!         call getTheWavesAtQuadraturePts(iPxi,this_B,k,cOME,direction,ik,PrintNum)
+        end do !iGq
         end do !iPxi
       end if
       
@@ -1424,21 +1476,22 @@
       END DO ! wavenumber loop
       
       ! para la solución de campo difractado por la estratigrafía
-      print*,"KtoX 'libre' allpoints"
-      call crepa_taper_vectsum_KtoX(a 
-      llpoints,nPts,J,5,.true.,.true.,PrintNum)
+      print*,"KtoX allpoints - source"
+      call crepa_taper_vectsum_KtoX(allpoints,nPts,J,5,PrintNum)
       
       if (workboundary) then
-      print*,"KtoX 'libre' boundary"
-      call crepa_taper_vectsum_KtoX(BouPoints,nBpts,1,5,.true.,.false.,PrintNum)
+      print*,"KtoX boundary - source"
+      call crepa_taper_vectsum_KtoX(BouPoints,nBpts,1,5,PrintNum)
       
       ! para las funciones de Green
       print*,"G allpoints"
       call crepa_taper_KtoX_GT(J,allpoints,nPts,nBpts,.true.,PrintNum)
       print*,"G bou"
       call crepa_taper_KtoX_GT(J,BouPoints,nBpts,nBpts,.false.,PrintNum) 
+      !print*,"G all quadr"
+      !call crepa_taper_KtoX_GT_Gq(J,allpoints,nPts,PrintNum)
       print*,"G bou quadr"
-      call crepa_taper_KtoX_GT_Gq(J,PrintNum)
+      call crepa_taper_KtoX_GT_Gq(J,BouPoints,nBpts,PrintNum)
 
       ! ibem en cada frecuencia
       ! matriz de coeficientes:
@@ -1472,9 +1525,23 @@
       call zgesv(2*nBpts,1,ibemMat,2*nBpts,IPIVbem,trac0vec,2*nBpts,info)
       if(info .ne. 0)then
            write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
+           
       ! usar coeficientes para encontrar campo difractado por topografía
-      ! almacenar en cada frecuencia
+      ! almacenar en cada frecuencia en W (inqpoints) WmovieSi.. (movie)
+      do iP_x = iPtini,iPtfin
+        do l=0,1 !direc. desp. en X
+          do iPxi = 1,2*nBpts,2 !cada fuente virtual (dos direcciones)
+            do m=0,1 !direc. func. Green
+        allpoints(iP_x)%W(J,l+1) = allpoints(iP_x)%W(J,l+1) + &
+        integralEq16(iP_x,l,ceiling(iPxi/2.),m) * trac0vec(iPxi+m)
+            end do !m
+          end do !iPxi
+        end do !il
+      end do !iP_X inqPoints
       
+      do iP_x = mPtini,mPtfin
+        ! 
+      end do !iP_x movies
       
       end if !workbou
       END DO ! J: frequency loop
@@ -1500,7 +1567,7 @@
 
 ! Fortran code...
       
-! FK -> FX -> T 
+! show off 
       write(tt,'(a)')"FK_r_"
       write(xAx,'(a)')"K [1/m]"
       write(yAx,'(a)')"frec [Hz]"
@@ -1794,6 +1861,7 @@
         allocate(moviePoints(nMpts))
         moviePoints(:)%isBoundary = .false.
         moviePoints(:)%isOnInterface = .false.
+        moviePoints(:)%guardarFK = .false.
         moviePoints(:)%guardarMovieSiblings = .true.
         
         if(verbose>=1)Write(outpf,'(a,I0)') & 
@@ -2139,23 +2207,28 @@
       BouPoints(:)%layer = layerXI
       BouPoints(:)%isBoundary = .true.
       BouPoints(:)%isOnInterface = isOnIF
+      BouPoints(:)%guardarFK = .false.
       BouPoints(:)%guardarMovieSiblings = .false.
       
       do iX=1,nBpts !van vacías porque esto cuenta para cada frecuencia
+        allocate(BouPoints(iX)%GT_gq_k(nBpts,Gqu_n,5,2,nmax+1))
+          allocate(BouPoints(iX)%GT_gq(nBpts,Gqu_n,5,2))
+      
         ! (Green)           x                        xi
-        allocate(BouPoints(iX)%KhGT(nmax+1,imecMax,nBpts))
-        allocate(BouPoints(iX)%KvGT(nmax+1,imecMax,nBpts))
-        allocate(BouPoints(iX)%hGT(imecMax,nBpts))
-        allocate(BouPoints(iX)%vGT(imecMax,nBpts))
+!       allocate(BouPoints(iX)%KhGT(nmax+1,imecMax,nBpts))
+!       allocate(BouPoints(iX)%KvGT(nmax+1,imecMax,nBpts))
+!       allocate(BouPoints(iX)%hGT(imecMax,nBpts))
+!       allocate(BouPoints(iX)%vGT(imecMax,nBpts))
         ! (campo incidente) x
-        allocate(BouPoints(iX)%FKh(NMAX+1,1,imecMax))
-        allocate(BouPoints(iX)%FKv(NMAX+1,1,imecMax))
-        allocate(BouPoints(iX)%FK(2*NMAX,1,iMecMax)) 
+        allocate(BouPoints(iX)%FKh(NMAX+1,imecMax))
+        allocate(BouPoints(iX)%FKv(NMAX+1,imecMax))
+        allocate(BouPoints(iX)%FK(1,2*NMAX,iMecMax)) 
+        allocate(BouPoints(iX)%W(1,iMecMax))
         
         allocate(BouPoints(iX)%Gq_xXx_coords(Gqu_n,2))
-        allocate(BouPoints(iX)%Gq_xXx(nBpts,nmax+1,Gqu_n,imecMax,2))
+!       allocate(BouPoints(iX)%Gq_xXx(nBpts,nmax+1,Gqu_n,imecMax,2))
         allocate(BouPoints(iX)%Gq_xXx_C(Gqu_n))
-        allocate(BouPoints(iX)%Gq_w_xXx(nBpts,Gqu_n,imecMax,2))
+!       allocate(BouPoints(iX)%Gq_w_xXx(nBpts,Gqu_n,imecMax,2))
         
       ! Coordenadas de los puntos de integración Gaussiana.
         norm_comp(1)=(BouPoints(iX)%bord_B(1)-BouPoints(iX)%bord_A(1)) & 
@@ -2514,17 +2587,20 @@
       bPtfin = bPtini + nBpts - 1
       !Boundary points array:
       do iX = 1,size(BouPoints) ! para no chorrear memoria
-        deallocate(BouPoints(iX)%KhGT)
-        deallocate(BouPoints(iX)%KvGT)
-        deallocate(BouPoints(iX)%hGT)
-        deallocate(BouPoints(iX)%vGT)
+!       deallocate(BouPoints(iX)%KhGT)
+!       deallocate(BouPoints(iX)%KvGT)
+!       deallocate(BouPoints(iX)%hGT)
+!       deallocate(BouPoints(iX)%vGT)
         deallocate(BouPoints(iX)%FKh)
         deallocate(BouPoints(iX)%FKv)
-        deallocate(BouPoints(iX)%FX)
+        deallocate(BouPoints(iX)%FK)
+        deallocate(BouPoints(iX)%W)
         deallocate(BouPoints(iX)%Gq_xXx_coords)
-        deallocate(BouPoints(iX)%Gq_xXx)
+!       deallocate(BouPoints(iX)%Gq_xXx)
         deallocate(BouPoints(iX)%Gq_xXx_C)
-        deallocate(BouPoints(iX)%Gq_w_xXx)
+!       deallocate(BouPoints(iX)%Gq_w_xXx)
+        deallocate(BouPoints(iX)%GT_gq_k)
+        deallocate(BouPoints(iX)%GT_gq)
       end do
       deallocate(BouPoints)
       allocate(BouPoints(nBpts))
@@ -2546,24 +2622,29 @@
       BouPoints(:)%layer = layerXI
       BouPoints(:)%isBoundary = .true.
       BouPoints(:)%isOnInterface = isOnIF
+      BouPoints(:)%guardarFK = .false.
       BouPoints(:)%guardarMovieSiblings = .false.
       
       ! para resolver las densidades de fuerza IBEM:
       do iX=1,nBpts !van vacías porque esto cuenta para cada frecuencia
+        allocate(BouPoints(iX)%GT_gq_k(nBpts,Gqu_n,5,2,nmax+1))
+          allocate(BouPoints(iX)%GT_gq(nBpts,Gqu_n,5,2))
+          
         ! (Green)           x                        xi
-        allocate(BouPoints(iX)%KhGT(nmax+1,imecMax,nBpts))
-        allocate(BouPoints(iX)%KvGT(nmax+1,imecMax,nBpts))
-        allocate(BouPoints(iX)%hGT(imecMax,nBpts))
-        allocate(BouPoints(iX)%vGT(imecMax,nBpts))
+!       allocate(BouPoints(iX)%KhGT(nmax+1,imecMax,nBpts))
+!       allocate(BouPoints(iX)%KvGT(nmax+1,imecMax,nBpts))
+!       allocate(BouPoints(iX)%hGT(imecMax,nBpts))
+!       allocate(BouPoints(iX)%vGT(imecMax,nBpts))
         ! (campo incidente) x
-        allocate(BouPoints(iX)%FKh(NMAX+1,1,imecMax))
-        allocate(BouPoints(iX)%FKv(NMAX+1,1,imecMax))
-        allocate(BouPoints(iX)%FK(2*NMAX,1,iMecMax)) 
+        allocate(BouPoints(iX)%FKh(NMAX+1,imecMax))
+        allocate(BouPoints(iX)%FKv(NMAX+1,imecMax))
+        allocate(BouPoints(iX)%FK(1,2*NMAX,iMecMax))  
+        allocate(BouPoints(iX)%W(1,iMecMax))
         
         allocate(BouPoints(iX)%Gq_xXx_coords(Gqu_n,2))
-        allocate(BouPoints(iX)%Gq_xXx(nBpts,nmax+1,Gqu_n,imecMax,2))
+!       allocate(BouPoints(iX)%Gq_xXx(nBpts,nmax+1,Gqu_n,imecMax,2))
         allocate(BouPoints(iX)%Gq_xXx_C(Gqu_n))
-        allocate(BouPoints(iX)%Gq_w_xXx(nBpts,Gqu_n,imecMax,2))
+!       allocate(BouPoints(iX)%Gq_w_xXx(nBpts,Gqu_n,imecMax,2))
        
       ! Coordenadas de los puntos de integración Gaussiana.
         norm_comp(1)=(BouPoints(iX)%bord_B(1)-BouPoints(iX)%bord_A(1)) & 
@@ -2611,21 +2692,27 @@
       
       ! G para resolver el campo difractado por topografía
       do iX=1,nPts 
-        deallocate(allpoints(iX)%KhGT,allpoints(ix)%KvGT)
-        deallocate(allpoints(iX)%hGT, allpoints(iX)%vGT)
-        ! (Green)           x                        xi
-        allocate(allpoints(iX)%KhGT(nmax+1,imecMax,nBpts))
-        allocate(allpoints(iX)%KvGT(nmax+1,imecMax,nBpts))
-        allocate(allpoints(iX)%hGT(imecMax,nBpts))
-        allocate(allpoints(iX)%vGT(imecMax,nBpts))
+        deallocate(allpoints(ix)%GT_gq_k,allpoints(ix)%GT_gq)
+         allocate(allpoints(ix)%GT_gq_k(nBpts,Gqu_n,5,2,nmax+1,2))
+           allocate(allpoints(ix)%GT_gq(nBpts,Gqu_n,5,2))
+!       deallocate(allpoints(iX)%KhGT,allpoints(ix)%KvGT)
+!       deallocate(allpoints(iX)%hGT, allpoints(iX)%vGT)
+!       ! (Green)           x                        xi
+!       allocate(allpoints(iX)%KhGT(nmax+1,imecMax,nBpts))
+!       allocate(allpoints(iX)%KvGT(nmax+1,imecMax,nBpts))
+!       allocate(allpoints(iX)%hGT(imecMax,nBpts))
+!       allocate(allpoints(iX)%vGT(imecMax,nBpts))
         
       end do
       
       if (makeVideo) then
         do iX = mPtini,mPtfin
-          deallocate(allpoints(ix)%xXxhGt,allpoints(ix)%xXxvGt)
-          allocate(allpoints(iX)%xXxhGT(NxXxMpts,imecMax,nBpts))          
-          allocate(allpoints(iX)%xXxvGT(NxXxMpts,imecMax,nBpts))
+          deallocate(allpoints(ix)%GT_gq_mov)
+!       allocate(allpoints(ix)%GT_gq_mov_k(nBpts,Gqu_n,5,2,NxXxMpts,nmax+1,2))
+          allocate(allpoints(ix)%GT_gq_mov(nBpts,Gqu_n,5,2,NxXxMpts))
+!         deallocate(allpoints(ix)%xXxhGt,allpoints(ix)%xXxvGt)
+!         allocate(allpoints(iX)%xXxhGT(NxXxMpts,imecMax,nBpts))          
+!         allocate(allpoints(iX)%xXxvGT(NxXxMpts,imecMax,nBpts))
         end do
       end if
       
@@ -2761,7 +2848,8 @@
        write(outpf,'(A,I4)') ' Ricker(w) signal size is :',size(Uo)
       end if
       end subroutine waveAmplitude
-      subroutine FreeField(z_f,e_f,iP_xi,nJ,P,Npuntos_X,LGqPts,cOME,outpf)
+      subroutine FreeField(z_f,e_f,iP_xi,iGq,P,Npuntos_X,cOME,outpf)
+      !                               |
       use soilVars !                  `--- (0): Fuente real
       use gloVars  !                   (iP_xi): Fuente virtual
       use waveNumVars, only : NFREC,NMAX,DK
@@ -2772,14 +2860,14 @@
 !                            e => efsource
       
       implicit none
-      integer,    intent(in)     :: e_f,iP_xi,Npuntos_X
+      integer,    intent(in)     :: e_f,iP_xi,iGq,Npuntos_X
       real,       intent(in)     :: z_f
-      integer,    intent(in)     :: nJ,outpf
+      integer,    intent(in)     :: outpf
       complex*16, intent(in)     :: cOME
       type(Punto), dimension(Npuntos_X), intent(inout)  :: P
-      logical,    intent(in)     :: LGqPts
+      !logical,    intent(in)     :: LGqPts
       
-      integer                    :: ik,iP,iGq,nGq
+      integer                    :: ik,iP!,iGq,nGq
       real                       :: k
       real, dimension(Npuntos_X) :: z_i,SGNz
       complex*16, dimension(NMAX+1,Npuntos_X) :: G11,G33,G31, & 
@@ -2799,23 +2887,23 @@
       omeBet = cOME**2/BETA(e_f)**2.0
       L2M = LAMBDA(e_f) + 2.0*AMU(e_f)
       
-                  nGq = Gquad_n
-      if (LGqPts) nGq = 1
+!                 nGq = Gquad_n
+!     if (LGqPts) nGq = 1
       
-      do iGq = 1,nGq
+!     do iGq = 1,nGq
       
       !solo con los puntos en el mismo estrato que la Fuente
-      if (LGqPts) then
-        do iP = 1,Npuntos_X
-          if(P(iP)%layer .eq. e_f) then
-            z_i(iP) = P(iP)%Gq_xXx_coords(iGq,2) - z_f
-          end if
-        end do
-      else
+!     if (LGqPts) then
+!       do iP = 1,Npuntos_X
+!         if(P(iP)%layer .eq. e_f) then
+!           z_i(iP) = P(iP)%Gq_xXx_coords(iGq,2) - z_f
+!         end if
+!       end do
+!     else
         where (P(:)%layer .eq. e_f)
            z_i = P(:)%center(2) - z_f
         end where
-      end if
+!     end if
       
       where (z_i .ne. 0)
         SGNz = z_i / ABS(z_i)
@@ -2868,52 +2956,63 @@
      
       if (iP_xi .eq. 0) then !the case when we the source is the source 
        do iP = 1,Npuntos_X !Npts
-        if(imecMax >= 1) P(iP)%FKv(:,nJ,1) = G33(:,iP)
-        if(imecMax >= 2) P(iP)%FKv(:,nJ,2) = G31(:,iP)
-        if(imecMax >= 3) P(iP)%FKv(:,nJ,3) = S333(:,iP)
-        if(imecMax >= 4) P(iP)%FKv(:,nJ,4) = S313(:,iP)
-        if(imecMax >= 5) P(iP)%FKv(:,nJ,5) = S113(:,iP)
+        if(imecMax >= 1) P(iP)%FKv(:,1) = G33(:,iP)
+        if(imecMax >= 2) P(iP)%FKv(:,2) = G31(:,iP)
+        if(imecMax >= 3) P(iP)%FKv(:,3) = S333(:,iP)
+        if(imecMax >= 4) P(iP)%FKv(:,4) = S313(:,iP)
+        if(imecMax >= 5) P(iP)%FKv(:,5) = S113(:,iP)
         
-        if(imecMax >= 1) P(iP)%FKh(:,nJ,1) = G31(:,iP)
-        if(imecMax >= 2) P(iP)%FKh(:,nJ,2) = G11(:,iP)
-        if(imecMax >= 3) P(iP)%FKh(:,nJ,3) = S331(:,iP)
-        if(imecMax >= 4) P(iP)%FKh(:,nJ,4) = S131(:,iP)
-        if(imecMax >= 5) P(iP)%FKh(:,nJ,5) = S111(:,iP)
+        if(imecMax >= 1) P(iP)%FKh(:,1) = G31(:,iP)
+        if(imecMax >= 2) P(iP)%FKh(:,2) = G11(:,iP)
+        if(imecMax >= 3) P(iP)%FKh(:,3) = S331(:,iP)
+        if(imecMax >= 4) P(iP)%FKh(:,4) = S131(:,iP)
+        if(imecMax >= 5) P(iP)%FKh(:,5) = S111(:,iP)
        end do
       else ! the case when the source is at some point iP_xi 
 !      print*,"N=",Npuntos_X
        do iP = 1,Npuntos_X
+         P(iP)%GT_gq_k(iP_xi,iGq,1,2,:) = G33(:,iP)
+         P(iP)%GT_gq_k(iP_xi,iGq,2,2,:) = G31(:,iP)
+         P(iP)%GT_gq_k(iP_xi,iGq,3,2,:) = S333(:,iP)
+         P(iP)%GT_gq_k(iP_xi,iGq,4,2,:) = S313(:,iP)
+         P(iP)%GT_gq_k(iP_xi,iGq,5,2,:) = S113(:,iP)
+        
+         P(iP)%GT_gq_k(iP_xi,iGq,1,1,:) = G31(:,iP)
+         P(iP)%GT_gq_k(iP_xi,iGq,2,1,:) = G11(:,iP)
+         P(iP)%GT_gq_k(iP_xi,iGq,3,1,:) = S331(:,iP)
+         P(iP)%GT_gq_k(iP_xi,iGq,4,1,:) = S131(:,iP)
+         P(iP)%GT_gq_k(iP_xi,iGq,5,1,:) = S111(:,iP)
                 !NBpts/Npts to solve the ibem matrix/solve the diff field
 !       print*,"[",P(iP)%center(1),",",P(iP)%center(2),"]"
         
-        if (LGqPts) then
-          if(imecMax >= 1) P(iP)%Gq_xXx(iP_xi,:,iGq,1,2) = G33(:,iP)
-          if(imecMax >= 2) P(iP)%Gq_xXx(iP_xi,:,iGq,2,2) = G31(:,iP)
-          if(imecMax >= 3) P(iP)%Gq_xXx(iP_xi,:,iGq,3,2) = S333(:,iP)
-          if(imecMax >= 4) P(iP)%Gq_xXx(iP_xi,:,iGq,4,2) = S313(:,iP)
-          if(imecMax >= 5) P(iP)%Gq_xXx(iP_xi,:,iGq,5,2) = S113(:,iP)
-        
-          if(imecMax >= 1) P(iP)%Gq_xXx(iP_xi,:,iGq,1,1) = G31(:,iP)
-          if(imecMax >= 2) P(iP)%Gq_xXx(iP_xi,:,iGq,2,1) = G11(:,iP)
-          if(imecMax >= 3) P(iP)%Gq_xXx(iP_xi,:,iGq,3,1) = S331(:,iP)
-          if(imecMax >= 4) P(iP)%Gq_xXx(iP_xi,:,iGq,4,1) = S131(:,iP)
-          if(imecMax >= 5) P(iP)%Gq_xXx(iP_xi,:,iGq,5,1) = S111(:,iP) 
-        else
-          if(imecMax >= 1) P(iP)%KvGT(:,1,iP_xi) = G33(:,iP)
-          if(imecMax >= 2) P(iP)%KvGT(:,2,iP_xi) = G31(:,iP)
-          if(imecMax >= 3) P(iP)%KvGT(:,3,iP_xi) = S333(:,iP)
-          if(imecMax >= 4) P(iP)%KvGT(:,4,iP_xi) = S313(:,iP)
-          if(imecMax >= 5) P(iP)%KvGT(:,5,iP_xi) = S113(:,iP)
-        
-          if(imecMax >= 1) P(iP)%KhGT(:,1,iP_xi) = G31(:,iP)
-          if(imecMax >= 2) P(iP)%KhGT(:,2,iP_xi) = G11(:,iP)
-          if(imecMax >= 3) P(iP)%KhGT(:,3,iP_xi) = S331(:,iP)
-          if(imecMax >= 4) P(iP)%KhGT(:,4,iP_xi) = S131(:,iP)
-          if(imecMax >= 5) P(iP)%KhGT(:,5,iP_xi) = S111(:,iP)
-        end if
+!       if (LGqPts) then
+!         if(imecMax >= 1) P(iP)%Gq_xXx(iP_xi,:,iGq,1,2) = G33(:,iP)
+!         if(imecMax >= 2) P(iP)%Gq_xXx(iP_xi,:,iGq,2,2) = G31(:,iP)
+!         if(imecMax >= 3) P(iP)%Gq_xXx(iP_xi,:,iGq,3,2) = S333(:,iP)
+!         if(imecMax >= 4) P(iP)%Gq_xXx(iP_xi,:,iGq,4,2) = S313(:,iP)
+!         if(imecMax >= 5) P(iP)%Gq_xXx(iP_xi,:,iGq,5,2) = S113(:,iP)
+!       
+!         if(imecMax >= 1) P(iP)%Gq_xXx(iP_xi,:,iGq,1,1) = G31(:,iP)
+!         if(imecMax >= 2) P(iP)%Gq_xXx(iP_xi,:,iGq,2,1) = G11(:,iP)
+!         if(imecMax >= 3) P(iP)%Gq_xXx(iP_xi,:,iGq,3,1) = S331(:,iP)
+!         if(imecMax >= 4) P(iP)%Gq_xXx(iP_xi,:,iGq,4,1) = S131(:,iP)
+!         if(imecMax >= 5) P(iP)%Gq_xXx(iP_xi,:,iGq,5,1) = S111(:,iP) 
+!       else
+!         if(imecMax >= 1) P(iP)%KvGT(:,1,iP_xi) = G33(:,iP)
+!         if(imecMax >= 2) P(iP)%KvGT(:,2,iP_xi) = G31(:,iP)
+!         if(imecMax >= 3) P(iP)%KvGT(:,3,iP_xi) = S333(:,iP)
+!         if(imecMax >= 4) P(iP)%KvGT(:,4,iP_xi) = S313(:,iP)
+!         if(imecMax >= 5) P(iP)%KvGT(:,5,iP_xi) = S113(:,iP)
+!       
+!         if(imecMax >= 1) P(iP)%KhGT(:,1,iP_xi) = G31(:,iP)
+!         if(imecMax >= 2) P(iP)%KhGT(:,2,iP_xi) = G11(:,iP)
+!         if(imecMax >= 3) P(iP)%KhGT(:,3,iP_xi) = S331(:,iP)
+!         if(imecMax >= 4) P(iP)%KhGT(:,4,iP_xi) = S131(:,iP)
+!         if(imecMax >= 5) P(iP)%KhGT(:,5,iP_xi) = S111(:,iP)
+!       end if
        end do
       end if!
-      end do ! iGq
+!     end do ! iGq
       
       if(verbose>=2) write(outpf,'(a)')"did got the incidence field"
       
@@ -3288,13 +3387,14 @@
 !     end if
       !     stop 0
       end subroutine vectorB_force
-      subroutine getTheWaves(NumObservers,P,theseIPs_B,iP_xi,direction,nJ,cOME_i,iik,outpf)
+      subroutine Add_diffractedField_by_layeredMedia_source & 
+      (NumObservers,P,theseIPs_B,direction,cOME_i,iik,outpf)
       use gloVars, only : imecMax
       use resultVars, only : MecaElem,Punto!,allpoints,NPts
       use soilVars, only : N
       
       implicit none
-      integer, intent(in)          :: NumObservers,iP_xi,nJ,iik,outpf
+      integer, intent(in)          :: NumObservers,iik,outpf
       integer,    intent(in)       :: direction
       complex*16, intent(in)       :: cOME_i
       type(Punto), dimension(NumObservers), intent(inout) :: P
@@ -3309,59 +3409,55 @@
 !       print*,'[',x_i,',',z_i,'] ',e
         this_Meca = calcMecaAt_xi_zi(theseIPs_B(:,iP),x_i,z_i,e,cOME_i,outpf)
         
-        if (iP_xi .eq. 0) then
+!     if (iP_xi .eq. 0) then
         if (direction .eq. 1) then !x
-          P(iP)%FKh(iik,nJ,1:imecMax) = & 
-          P(iP)%FKh(iik,nJ,1:imecMax) + this_Meca%Rw(1:imecMax)
+          P(iP)%FKh(iik,1:imecMax) = & 
+          P(iP)%FKh(iik,1:imecMax) + this_Meca%Rw(1:imecMax)
         elseif (direction .eq. 2) then !z
-          P(iP)%FKv(iik,nJ,1:imecMax) = & 
-          P(iP)%FKv(iik,nJ,1:imecMax) + this_Meca%Rw(1:imecMax)
+          P(iP)%FKv(iik,1:imecMax) = & 
+          P(iP)%FKv(iik,1:imecMax) + this_Meca%Rw(1:imecMax)
         end if
-        else
-        if (direction .eq. 1) then !x
-          P(iP)%KhGT(iik,1:imecMax,iP_xi) = &
-          P(iP)%KhGT(iik,1:imecMax,iP_xi) + this_Meca%Rw(1:imecMax)
-        elseif (direction .eq. 2) then !z
-          P(iP)%KvGT(iik,1:imecMax,iP_xi) = &
-          P(iP)%KvGT(iik,1:imecMax,iP_xi) + this_Meca%Rw(1:imecMax)
-        end if
-        end if
+!     else
+!       if (direction .eq. 1) then !x
+!         P(iP)%KhGT(iik,1:imecMax,iP_xi) = &
+!         P(iP)%KhGT(iik,1:imecMax,iP_xi) + this_Meca%Rw(1:imecMax)
+!       elseif (direction .eq. 2) then !z
+!         P(iP)%KvGT(iik,1:imecMax,iP_xi) = &
+!         P(iP)%KvGT(iik,1:imecMax,iP_xi) + this_Meca%Rw(1:imecMax)
+!       end if
+!      end if
 
       end do
-      end subroutine getTheWaves
+      end subroutine Add_diffractedField_by_layeredMedia_source
       
       
-      subroutine getTheWavesAtQuadraturePts(iPxi,this_B,k,cOME_i,direction,iik,outpf)
+      subroutine Add_diffractedField_by_layeredMedia_Green & 
+      (NumObservers,P,theseIPs_B,iPxi,iGq,direction,cOME_i,iik,outpf)
       use gloVars, only : imecMax
-      use resultVars, only : MecaElem,Boupoints,nBpts
-      use Gquadrature, only: Gquad_n
+      use resultVars, only : MecaElem,Punto!,allpoints,NPts
       use soilVars, only : N
       
-      integer,    intent(in)       :: iPxi,direction,iik,outpf
-      real,       intent(in)       :: k
+      implicit none
+      integer, intent(in)          :: NumObservers,iPxi,iGq,direction,iik,outpf
       complex*16, intent(in)       :: cOME_i
-      complex*16, dimension(4*N+2),intent(in) :: this_B
-      complex*16, dimension(4*N+2) :: B
+      type(Punto), dimension(NumObservers), intent(inout) :: P
+      complex*16, dimension(4*N+2,NumObservers),intent(in) :: theseIPs_B
       type(MecaElem)               :: calcMecaAt_xi_zi, this_Meca
       real                         :: x_i, z_i
-      integer                      :: iP,iX,e
-      
-      do iP = 1,nBpts
-        e = BouPoints(iP)%layer
-      do iX = 1,Gquad_n
-        x_i = BouPoints(iP)%Gq_xXx_coords(iX,1)
-        z_i = BouPoints(iP)%Gq_xXx_coords(iX,2)
-        B = this_B * exp(cmplx(0.0,-k * x_i,8))
+      integer                      :: iP,e
+      do iP = 1,NumObservers
+        x_i = P(iP)%center(1)
+        z_i = P(iP)%center(2)
+          e = P(iP)%layer
+        this_Meca = calcMecaAt_xi_zi(theseIPs_B(:,iP),x_i,z_i,e,cOME_i,outpf)
         
-        this_Meca = calcMecaAt_xi_zi(B,x_i,z_i,e,cOME_i,outpf)
+        !guardar en: GT_gq_k(xi,iGq,imec,m,k)
+        P(iP)%GT_gq_k(iPxi,iGq,1:imecMax,direction,iik) = &
+        P(iP)%GT_gq_k(iPxi,iGq,1:imecMax,direction,iik) + this_Meca%Rw(1:imecMax)
         
-        Boupoints(iP)%Gq_xXx(iPxi,iik,iX,1:imecMax,direction) = &
-        BouPoints(iP)%Gq_xXx(iPxi,iik,iX,1:imecMax,direction) + &
-                                                 this_Meca%Rw(1:imecMax)
-      end do ! iX
-      end do ! iP
+      end do 
       
-      end subroutine getTheWavesAtQuadraturePts      
+      end subroutine Add_diffractedField_by_layeredMedia_Green      
       
       function calcMecaAt_xi_zi(thisIP_B,x_i,z_i,e,cOME_i,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
@@ -3479,7 +3575,7 @@
 
 !...      
       subroutine crepa_taper_vectsum_KtoX & 
-                            (P,Npuntos_X,iJ,iMecMX,KtoX,guardarFK,outpf)
+                            (P,Npuntos_X,iJ,iMecMX,outpf)
       use waveNumVars, only : NFREC,NMAX
       use resultvars, only: Punto,Hf,Hk,mPtini,mPtfin
       use glovars, only: verbose,imecMax
@@ -3490,7 +3586,6 @@
       implicit none
       type(Punto), dimension(Npuntos_X), intent(inout)  :: P
       integer, intent(in) :: Npuntos_X,iJ,iMecMX,outpf
-      logical, intent(in) :: KtoX,guardarFK
       integer :: iP_x,iMec,i,xXx
       integer, dimension(5) :: signh,signv
       real :: factor
@@ -3505,13 +3600,12 @@
       factor = sqrt(2.*NMAX*2)
       
       do iP_x = 1,Npuntos_X
-!      allocate(P(iP_x)%FK(2*NMAX,Nfrecs,iMecMX))
        
       !    1 2 3 ... NMAX NMAX+1 0 0 0 0 0 2*NMAX     
       ! k= 0 1 2 ... N/2-1     0 0 0 0 0 0 0 
       auxFK(1:NMAX,1:iMecMX) = & 
-                    P(iP_x)%FKh(1:NMAX,iJ,1:iMecMX)* nxfsource + & 
-                    P(iP_x)%FKv(1:NMAX,iJ,1:iMecMX)* nzfsource
+                    P(iP_x)%FKh(1:NMAX,1:iMecMX)* nxfsource + & 
+                    P(iP_x)%FKv(1:NMAX,1:iMecMX)* nzfsource
       
       !    1 2 3 ... NMAX NMAX+1 0 0 0 0 0 2*NMAX     
       ! k= 0 1 2 ... N/2-1 -N/2 ... -3 -2 -1
@@ -3524,38 +3618,30 @@
                            ! s11            impar            par
                            !     notice we never said conjugate
       do iMec = 1,iMecMX
-!       P(iP_x)%FX
         auxFK(nmax+1:nmax*2,iMec) = &
-      signh(iMec)* P(iP_x)%FKh(nmax+1:2:-1,iJ,iMec)* nxfsource + & 
-      signv(iMec)* P(iP_x)%FKv(nmax+1:2:-1,iJ,iMec)* nzfsource      
+           signh(iMec)* P(iP_x)%FKh(nmax+1:2:-1,iMec)* nxfsource + & 
+           signv(iMec)* P(iP_x)%FKv(nmax+1:2:-1,iMec)* nzfsource      
       end do !iMec 
       
       !filter
-!     do i=ifrec,ffrec
       do iMec = 1,iMecMX
         auxFK(:,iMec) = auxFK(:,iMec) * Hk * Hf(iJ)
       end do !iMec
-!     end do !i
       
       ! guardar el FK si es que es interesante verlo
-      if (guardarFK) then
         if (P(iP_x)%guardarFK) then
-          P(iP_x)%FK(:,iJ,1:imecMax) = auxFK
+          P(iP_x)%FK(iJ,:,1:imecMax) = auxFK
         end if
-      end if! guardarFK
       
-      if (KtoX) then
+!     if (KtoX) then
         auxFK = auxFK * factor
-!       do i=ifrec,ffrec
         do iMec = 1,iMecMX
           call fork(2*nmax, auxFK(:,iMec),+1,verbose,outpf)
         end do !iMec
-!       end do !i
         auxFK = auxFK / factor 
-      end if !KtoX
+!     end if !KtoX
       
-      ! guardar x=0 en W
-      P(iP_x)%W(iJ,1:imecMax) = auxFK(1,1:imecMax)
+      ! guardar espectro:
       
       ! guardar los siblings si es un moviepoint
       if(P(iP_x)%guardarMovieSiblings) then
@@ -3566,7 +3652,11 @@
         xXx = 1
         do i=nMax-nx,nMax+nx,MeshDXmultiplo
            P(iP_x)%WmovieSiblings(xXx,iJ,1:imecMax) = auxFK(i,1:imecMax)
+           xXx = xXx + 1
         end do
+      else !solo inquirePoints
+      ! guardar espectro en x=0
+        P(iP_x)%W(iJ,1:imecMax) = auxFK(1,1:imecMax)
       end if
       end do !iP_x
       end subroutine crepa_taper_vectsum_KtoX
@@ -3658,15 +3748,16 @@
       end do !iP_x
       !
       end subroutine crepa_taper_KtoX_GT
-      subroutine crepa_taper_KtoX_GT_Gq(J,outpf)
+      subroutine crepa_taper_KtoX_GT_Gq(J,P,Npuntos_X,outpf)
       use waveNumVars, only : NFREC,NMAX
-      use resultvars, only: nBpts,Hf,Hk, P => Boupoints 
+      use resultvars, only: Punto,nBpts,Hf,Hk 
       use glovars, only: verbose,imecMax
       use wavelets !fork
       use Gquadrature, only: Gquad_n
       
       implicit none
-      integer, intent(in) :: J,outpf
+      integer, intent(in) :: J, Npuntos_X ,outpf
+      type(Punto), dimension(Npuntos_X), intent(inout)  :: P
       integer :: iP_x,iPxi,iMec,ihv,ixXx
       complex*16, dimension(nBpts,2*nmax) :: auxKxi
       integer, dimension(5) :: signh,signv
@@ -3682,7 +3773,7 @@
       do iP_x = 1,nBpts ! para cada segmento
       do iMec = 1,imecMax
       do ihv = 1,2
-      do ixXx = 1,Gquad_n
+      do ixXx = 1,Gquad_n !cada punto guaussiano del segmento
         !      ,--- xi                    ,--- xi
         auxKxi(:,1:nmax) = P(iP_x)%Gq_xXx(:,1:nmax,ixXx,iMec,ihv) !0 1 2 3 ...
         auxKxi(:,nmax+1:2*nmax) = signh(iMec) *  & 
@@ -3745,7 +3836,8 @@
       
       if (lejos) then
       ! no usamos integración gaussiana
-       ! En el centro del segmento X
+       ! Asumimos T invariable a lo largo de la longitud,
+       ! con valor igual al del centro del segmento X
          ! dada la fuerza en XI
          ! tracción en la dirección l dada la fuerza en direccion m
       
@@ -3787,17 +3879,58 @@
       !       0       1     0      1   (indice de submatriz:  l )
       
       function freefTraction(iP_x,l)
-      use resultVars, only:BouPoints,nBpts
+      use resultVars, only:BouPoints!,nBpts
       implicit none
       complex*16 :: freefTraction
       integer, intent(in) :: iP_x,l
       
-      !        en realidad ya es FX ---,
-      !                                |   
-      freefTraction = BouPoints(iP_x)%FK(1,1,5-l) * BouPoints(iP_x)%normal(1) + &
-                      BouPoints(iP_x)%FK(1,1,4-l) * BouPoints(iP_x)%normal(2)
+      !       en realidad ya es FX ---,
+      !                               |   
+      freefTraction = BouPoints(iP_x)%W(1,5-l) * BouPoints(iP_x)%normal(1) + &
+                      BouPoints(iP_x)%W(1,4-l) * BouPoints(iP_x)%normal(2)
       
       end function freefTraction
+      function integralEq16(iP_x,l,iPxi,m)
+         !                              receptor---,       ,--- fuente
+         !                                        _|___   _|___
+         !  ibemMat(iP_x+l,iPxi+m) = integralEq14(iP_x,l,iPxi,m)
+      use resultVars, only:BouPoints,nBpts
+      use Gquadrature, only: Gquad_n
+      implicit none
+      complex*16 :: integralEq16,desp
+      integer, intent(in) :: iP_x,l,iPxi,m
+      logical :: lejos
+      integer :: xXx
+      
+      integralEq16 = 0
+      lejos = .false.
+      
+      if (lejos) then
+      ! no usamos integración gaussiana
+             
+      else ! cerca
+      ! usamos integracion gaussiana
+      
+       ! En cada punto gaussiano del segmento en Xi en la dirección l
+       do xXx = 1,Gquad_n
+         ! dada la fuerza en XI
+         ! desplazamiento en la dirección (l+1)
+         !              receptor        emisor    
+         desp = BouPoints(iP_x)%Gq_w_xXx(iPxi,xXx,5-l,m+1) 
+         ! multiplicar por peso gaussiano
+         desp = desp * BouPoints(iPxi)%Gq_xXx_C(xXx)
+         ! acumular suma
+         integralEq16 = integralEq16 + desp
+       end do !xXx
+      end if !lejos
+      
+      end function integralEq16
+      
+      ! los deplazamientos
+      ! iMec     W        U
+      !  i       1        2
+      !  l       0        1
+      
       
 !     subroutine vectorB_incidence(nJ,cOME,dK,nKmax,outpf)
 !     use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA,RHO
