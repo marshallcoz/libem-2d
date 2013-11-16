@@ -9,7 +9,7 @@
       logical, parameter    :: makeVideo = .true.
       logical, parameter    :: getInquirePointsSol = .true.!dont change
       logical, parameter    :: workBoundary = .true. 
-      logical, parameter    :: plotFKS = .false.
+      logical, parameter    :: plotFKS = .true.
       integer, parameter    :: imecMax = 5
       integer, parameter :: multSubdiv = 4 ! Lo ideal es 4 o un multiplo
       real, dimension(2), parameter :: fixedNormal = (/0.0,1.0/)
@@ -962,28 +962,29 @@
 !     print*,''
       end subroutine plotXYcomp
       
-      subroutine plotFK(thisFK,Ksize,form,coords,tt,xAx,yAx,outpf)
-!     call plotFK(testPt(1)%FK,testPt(1)%center,tt2,xAx,yAx,outpf)
+      subroutine plotFK(thisFK,form,coords,tt,xAx,yAx,outpf)
+      !                          |
+      !                          `--- 1 : real
+      !                          `--- 2 : imag
+      !                          `--- 3 : abs with enhanced sharpness 
       use DISLIN
       use waveNumVars, only : NFREC,NMAX,DFREC,DK
       use glovars
       implicit none
-      integer ,intent(in) :: Ksize,form,outpf
+      integer ,intent(in) :: form,outpf
       
-!     type(Punto),dimension(Npts) :: testPt
-      
-      !                     ,--- -k...+k
-      !                     | ,--- 0...frec
+      !                     ,--- 0...frec
+      !                     | ,--- -k...+k
       !                     | | ,--- iMec: 1:5
       !                     | | | 
-      complex*16, dimension(Ksize,NFREC+1,imecMax),intent(in) :: thisFK
+      complex*16, dimension(NFREC+1,2*NMAX,imecMax),intent(in) :: thisFK
       real, dimension(2), intent(in) :: coords
-!     real, intent(in) :: x0,y0
       character(LEN=10),intent(in) :: tt
       character(LEN=9), intent(in) :: xAx,yAx
-      real, dimension(Ksize)             :: vHorz
-      real, dimension(NFREC)            :: vVert
-      real, dimension(Ksize,NFREC)       :: M
+      
+      real, dimension(NMAX)             :: vVert
+      real, dimension(NFREC)            :: vHorz
+      real, dimension(NFREC,NMAX)       :: M
       character(LEN=10), dimension(5)   :: nombre
       character(LEN=100)                :: titulo
       integer :: i,ik,iMec,Sf
@@ -1003,15 +1004,15 @@
       nombre(5)= '_s11.png'
       
       do i=1,NFREC
-        vVert(i) = 0 + (i-1) * DFREC
+         vHorz(i) = 0 + (i-1) * DFREC
       end do
       !
-      do ik=1,Ksize
-        vHorz(ik) = 0 + (ik-1) * DK
+      do ik=1,nmax
+         vVert(ik) = 0 + (ik-1) * DK
       end do
       
       minY = 0.
-      maxY = vVert(NFREC)
+      maxY = vVert(size(vVert))
       ystep = maxY / 10.
       
       minX = vHorz(1)
@@ -1031,11 +1032,11 @@
       trim(nombre(iMec))
       
       if (form .eq. 1) then
-       M = real(thisFK(1:Ksize,1:NFREC,iMec))
+       M = real(thisFK(1:NFREC,1:NMAX,iMec))
       elseif (form .eq. 2) then
-       M = aimag(thisFK(1:Ksize,1:NFREC,iMec))
+       M = aimag(thisFK(1:NFREC,1:NMAX,iMec))
       elseif (form .eq. 3) then
-       M = log(1. + exp(p)*abs(thisFK(1:Ksize,1:NFREC,iMec))) / & 
+       M = log(1. + exp(p)*abs(thisFK(1:NFREC,1:NMAX,iMec))) / & 
            log(exp(p)+1.)
        M = M / maxval(M)
       end if
@@ -1224,7 +1225,7 @@
       character(LEN=9)  :: xAx,yAx
       integer :: dstart,dfinish!,dstep
       real :: factor
-      complex*16 :: integralEq14,freefTraction
+      complex*16 :: integralEq14,integralEq16,integralEq16mov,freefTraction
       
 !     complex*16 :: integralEq14
       ! output direction
@@ -1237,17 +1238,19 @@
       CALL getcwd(path)
       write(PrintNum,'(a,/,a)') 'Now at:',TRIM(path) 
       
-      CALL chdir("../WorkDir/outs",status)
+      CALL chdir("../outs",status)
       if (status .eq. 0) call system("rm *.*")
       if (status .eq. 0) call chdir("..")
+      call chdir("..")
       
-      
+      CALL getcwd(path)
+      write(PrintNum,'(a,/,a)') 'Now at:',TRIM(path)
       call getSoilProps (PrintNum)    
       nIpts=0; nMpts=0; nBpts = 0
       iPtfin = 0
       mPtfin = 0
 
-      
+       
       if (getInquirePointsSol) call getInquirePoints(PrintNum)
       if (makeVideo) call getVideoPoints(PrintNum)
       if (workBoundary) call getTopography(PrintNum)
@@ -1274,7 +1277,7 @@
         allocate(allpoints(iP)%FKh(NMAX+1,imecMax))
         allocate(allpoints(iP)%FKv(NMAX+1,imecMax))
         if (allpoints(iP)%guardarFK)then
-          allocate(allpoints(iP)%FK(NFREC+1,2*NMAX,imecMax))
+          allocate(allpoints(iP)%FK(NFREC+1,NMAX,imecMax))
         end if
       end do!
       do iP=iPtini,iPtfin !solo inquirepoints:
@@ -1332,10 +1335,7 @@
       if (workBoundary) then; dstart = 1; dfinish = 2; end if
       
       call makeTaperFuncs(20,0.7)
-      
-      CALL chdir("../WorkDir/outs")
-      CALL getcwd(path)
-      write(PrintNum,'(a,/,a)') 'Now at:',TRIM(path) 
+       
       
       DO J=1,NFREC+1
         ! complex frecuency for avoiding poles and provide damping
@@ -1485,13 +1485,10 @@
       
       ! para las funciones de Green
       print*,"G allpoints"
-      call crepa_taper_KtoX_GT(J,allpoints,nPts,nBpts,.true.,PrintNum)
+      call crepa_taper_KtoX_GT_Gq(J,allpoints,nPts,.true.,PrintNum)
+      
       print*,"G bou"
-      call crepa_taper_KtoX_GT(J,BouPoints,nBpts,nBpts,.false.,PrintNum) 
-      !print*,"G all quadr"
-      !call crepa_taper_KtoX_GT_Gq(J,allpoints,nPts,PrintNum)
-      print*,"G bou quadr"
-      call crepa_taper_KtoX_GT_Gq(J,BouPoints,nBpts,PrintNum)
+      call crepa_taper_KtoX_GT_Gq(J,BouPoints,nBpts,.false.,PrintNum) 
 
       ! ibem en cada frecuencia
       ! matriz de coeficientes:
@@ -1515,7 +1512,7 @@
         end do !l
       end do !iPxi
       ! vector de campo incidente
-        do l=0,1 !dirección de aplicación de la fuerza (mini renglón)
+        do l=0,1 !dirección de tracción en el receptor (mini renglón)
          trac0vec(iP_x + l) = -1.0 * freefTraction(ceiling(iP_x/2.),l)
         end do !m
       end do !iP_x
@@ -1526,22 +1523,31 @@
       if(info .ne. 0)then
            write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
            
-      ! usar coeficientes para encontrar campo difractado por topografía
-      ! almacenar en cada frecuencia en W (inqpoints) WmovieSi.. (movie)
-      do iP_x = iPtini,iPtfin
-        do l=0,1 !direc. desp. en X
+      ! usar coeficientes de fuerza por segmento 
+      ! para encontrar campo difractado por topografía
+      do iP_x = iPtini,iPtfin !cada receptor X
+        do l=0,1 !direc. desp. en receptor X  (x,z)
           do iPxi = 1,2*nBpts,2 !cada fuente virtual (dos direcciones)
             do m=0,1 !direc. func. Green
         allpoints(iP_x)%W(J,l+1) = allpoints(iP_x)%W(J,l+1) + &
         integralEq16(iP_x,l,ceiling(iPxi/2.),m) * trac0vec(iPxi+m)
             end do !m
           end do !iPxi
-        end do !il
+        end do ! l
       end do !iP_X inqPoints
       
-      do iP_x = mPtini,mPtfin
-        ! 
-      end do !iP_x movies
+      do iP_x = mPtini,mPtfin ! cada nivel de receptores X
+       do iP = 1,NxXxMpts ! cada punto de película
+        do l=0,1 !direc. desp. en receptor X  (x,z)
+          do iPxi = 1,2*nBpts,2 !cada fuente virtual (dos direcciones)
+            do m=0,1 !direc. func. Green
+        allpoints(iP_x)%WmovieSiblings(iP,J,l+1) = allpoints(iP_x)%WmovieSiblings(iP,J,l+1) + &
+        integralEq16mov(iP,iP_x,l,ceiling(iPxi/2.),m) * trac0vec(iPxi+m)
+            end do !m
+          end do !iPxi
+        end do ! l
+       end do ! iP
+      end do !iP_x
       
       end if !workbou
       END DO ! J: frequency loop
@@ -1550,58 +1556,35 @@
       deALLOCATE(A);deallocate(Ak);deallocate(this_B)
       deallocate(B);deallocate(IPIV)
       
-      do iP_x = 1,nPts
-        allocate(allpoints(iP_x)%FX(2*nmax,nfrec+1,iMecMax))
-      end do
-      
-      ! la solución del medio estratificado  
-      !           
-      !    no pasar K->X para así tener los siblings de la pelicula -,
-      !                                                              |
-      !                                                              /
-      !                                                             /
-      !                                                            /
-!     call crepa_taper_vectsum_KtoX(allpoints,nPts,1,Nfrec+1,5,.false.,PrintNum)
       
       if(verbose >= 1) write(PrintNum,*)"DWN done"
-
-! Fortran code...
-      
-! show off 
-      write(tt,'(a)')"FK_r_"
-      write(xAx,'(a)')"K [1/m]"
-      write(yAx,'(a)')"frec [Hz]"
-!     call plotFK(allpoints(2)%FK,NMAX*2,1,allpoints(2)%center,tt,xAx,yAx,PrintNum)
-!     write(tt,'(a)')"FK_i_"
-!     call plotFK(allpoints(2)%FK,NMAX*2,2,allpoints(2)%center,tt,xAx,yAx,PrintNum)
-!     write(tt,'(a)')"FK_a_"
-!     call plotFK(allpoints(2)%FK,NMAX*2,3,allpoints(2)%center,tt,xAx,yAx,PrintNum)
-!     stop 0
-
-!     call filterFK(.true.,tt,xAx,yAx,PrintNum)
-      CALL chdir("../WorkDir/outs")
-      call FKtoFX(PrintNum)
+      ! showoff 
       
       if (plotFKS) then 
-           write(tt,'(a)')"FX_"
-           write(xAx,'(a)')"X [m]"
-           write(yAx,'(a)')"frec [Hz]"
-           do iP = 1,NPts
-      call plotFK(allpoints(iP)%FK,2*NMAX,3,allpoints(iP)%center,tt,xAx,yAx,PrintNum)
-           end do
+           write(tt,'(a)')"FK_"
+           write(xAx,'(a)')"frec [Hz]"
+           write(yAx,'(a)')"horizontal wave number [1/m]"
+           CALL chdir("../outs")
+         do iP = iPtini,iPtfin
+           if (allpoints(iP)% guardarFK) then
+      call plotFK(allpoints(iP)%FK,3,allpoints(iP)%center,tt,xAx,yAx,PrintNum)
+           end if
+         end do
+           CALL chdir("..")
       end if
-      
-      write(tt,'(a)')"(i)"
-      if (getInquirePointsSol) call FXtoT0(iPtini,iPtfin,tt,PrintNum)
-!     write(tt,'(a)')"(m)"
-!     if (makeVideo) call FXtoT0(mPtini,mPtfin,tt,PrintNum)
-!     write(tt,'(a)')"(b)"
-!     if (workBoundary) call FXtoT0(bPtini,bPtfin,tt,PrintNum)
+      ! mostrar sismogramas en los puntos de interés
+           write(tt,'(a)')"S_"
+      do iP = iPtini,iPtfin
+        call W_to_t(allpoints(iP)%W,iP,allpoints(iP)%center,tt,PrintNum)
+      end do
       
       if (makeVideo) call Hollywood(PrintNum)
       
       Write(PrintNum,'(a)') ' done '      
       END program
+      
+
+! Fortran code...
       
       subroutine getSoilProps (outpf)
       use soilVars
@@ -2082,7 +2065,7 @@
       deallocate(auxVector)
       
       if (verbose >= 1) then
-       CALL chdir("../WorkDir/outs")
+       CALL chdir("../outs")
 !      ! we plot the geometry of the BigSegments 
 !      OPEN ( 333,FILE='SurfacePolyPoints.txt' ) 
 !      WRITE (333,*) "The number of points:" 
@@ -2558,7 +2541,7 @@
       
       
       if (verbose >= 1) then
-       CALL chdir("../WorkDir/outs")
+       CALL chdir("../outs")
        write(txt,'(a,I0,a)') 'Division_at[',iJ,'Hz].pdf'
        call drawGEOM(txt,.false.,outpf)
        CALL chdir("..")
@@ -2693,7 +2676,7 @@
       ! G para resolver el campo difractado por topografía
       do iX=1,nPts 
         deallocate(allpoints(ix)%GT_gq_k,allpoints(ix)%GT_gq)
-         allocate(allpoints(ix)%GT_gq_k(nBpts,Gqu_n,5,2,nmax+1,2))
+         allocate(allpoints(ix)%GT_gq_k(nBpts,Gqu_n,5,2,nmax+1))
            allocate(allpoints(ix)%GT_gq(nBpts,Gqu_n,5,2))
 !       deallocate(allpoints(iX)%KhGT,allpoints(ix)%KvGT)
 !       deallocate(allpoints(iX)%hGT, allpoints(iX)%vGT)
@@ -3630,7 +3613,7 @@
       
       ! guardar el FK si es que es interesante verlo
         if (P(iP_x)%guardarFK) then
-          P(iP_x)%FK(iJ,:,1:imecMax) = auxFK
+          P(iP_x)%FK(iJ,1:nmax,1:imecMax) = auxFK(1:nmax,1:imecMax)
         end if
       
 !     if (KtoX) then
@@ -3660,140 +3643,156 @@
       end if
       end do !iP_x
       end subroutine crepa_taper_vectsum_KtoX
-      subroutine crepa_taper_KtoX_GT(J,P,Npuntos_X,Npuntos_XI,siblings,outpf)
+      subroutine crepa_taper_KtoX_GT_Gq(J,P,Npuntos_X,AllorBou,outpf)
       use waveNumVars, only : NFREC,NMAX
-      use resultvars, only: Punto,Hf,Hk,mPtini,mPtfin
-      use glovars, only: verbose,imecMax
+      use resultvars, only: Punto,nPts,nBpts,iPtini,iPtfin,mPtini,mPtfin,Hf,Hk 
+      use glovars, only: verbose,imecMax,makevideo
       use wavelets !fork
+      use Gquadrature, only: Gquad_n
       use meshVars, only: MeshDXmultiplo,nx
       
       implicit none
+      integer, intent(in) :: J,Npuntos_X,outpf
       type(Punto), dimension(Npuntos_X), intent(inout)  :: P
-      integer, intent(in) :: J,Npuntos_X,Npuntos_XI,outpf
-      integer :: iP_x,iPxi,iMec,xXx,i
-      complex*16, dimension(2*nmax,Npuntos_XI) :: auxKxi
-      complex*16, dimension(2*nmax) :: auxauxKxi
-      integer, dimension(5) :: signh,signv
-      logical, intent(in) :: siblings
+      logical, intent(in) :: AllorBou
+      integer :: iP_x,iPxi,iMec,ihv,iGq,xXx,i
+      complex*16, dimension(2*nmax) :: Kvect
+      integer, dimension(5,2) :: sign
       real :: factor
       factor = sqrt(2.*NMAX*2)
+      
       !  fza horiz     fza vert
-      signh(1) = -1 ; signv(1) = 1  !W
-      signh(2) = 1  ; signv(2) = -1 !U
-      signh(3) = -1 ; signv(3) = 1  !s33
-      signh(4) = 1  ; signv(4) = -1 !s31
-      signh(5) = -1 ; signv(5) = 1  !s11
+      sign(1,1) = -1 ; sign(1,2) = 1  !W
+      sign(2,1) = 1  ; sign(2,2) = -1 !U
+      sign(3,1) = -1 ; sign(3,2) = 1  !s33
+      sign(4,1) = 1  ; sign(4,2) = -1 !s31
+      sign(5,1) = -1 ; sign(5,2) = 1  !s11
       
-      do iP_x = 1,Npuntos_X
-      do iMec = 1,imecMax
-        ! horizontal ------------
-        !             ,--- xi                       ,--- xi
-        auxKxi(1:nmax,:) = P(iP_x)%KhGT(1:nmax,iMec,:) !0 1 2 3 ...
-        auxKxi(nmax+1:2*nmax,:) = signh(iMec) *  & 
-             P(iP_x)%KhGT(nmax+1:2:-1,iMec,:) ! kmax -kmax ... -3 -2 -1
-             
-        do iPxi = 1,Npuntos_XI
-           auxKxi(:,iPxi) = auxKxi(:,iPxi) * Hk * Hf(J) * factor !taper
-           call fork(2*nmax,auxKxi(:,iPxi),+1,verbose,outpf) !K -> X
-           auxKxi(:,iPxi) = auxKxi(:,iPxi) / factor
-           
-           P(iP_x)%hGT(iMec,iPxi) = auxKxi(1,iPxi)
-           ! Q: ¿necesito guardar Ksiblings en las funciones de green?
-           ! A: sólo en los moviepoints
-           if (siblings) then
-              if (mPtini .le. iP_x .and. iP_x .le. mPtfin) then
-                 auxauxKxi = auxKxi(:,iPxi)
-      ! (1) reordenar creapa exitente en X para encontrarlos más facil
-                 auxauxKxi = cshift(auxauxKxi,SHIFT=nmax+1,DIM=1)
-      ! (2) guardar solo los puntos interesantes
-                 xXx = 1
-                 do i=nMax-nx,nMax+nx,MeshDXmultiplo
-                    P(iP_x)%xXxhGT(xXx,iMec,iPxi) =  auxauxKxi(i)
-                    xXx = xXx + 1       
-                 end do
-              end if ! is a movie pixel
-           end if !siblings
-        end do !iPxi
-        
-        ! vertical -------------
-        
-        auxKxi(1:nmax,:) = P(iP_x)%KvGT(1:nmax,iMec,:) !0 1 2 3 ...
-        auxKxi(nmax+1:2*nmax,:) = signv(iMec) *  & 
-             P(iP_x)%KvGT(nmax+1:2:-1,iMec,:) ! kmax -kmax ... -3 -2 -1
-             
-        do iPxi = 1,Npuntos_XI
-           auxKxi(:,iPxi) = auxKxi(:,iPxi) * Hk * Hf(J) * factor !taper
-           call fork(2*nmax,auxKxi(:,iPxi),+1,verbose,outpf) !K -> X
-           auxKxi(:,iPxi) = auxKxi(:,iPxi) / factor
-           
-           P(iP_x)%vGT(iMec,iPxi) = auxKxi(1,iPxi)
-           ! Q: ¿necesito guardar Ksiblings en las funciones de green?
-           ! A: sólo en los moviepoints
-           if (siblings) then
-              if (mPtini .le. iP_x .and. iP_x .le. mPtfin) then
-                 auxauxKxi = auxKxi(:,iPxi)
-      ! (1) reordenar creapa exitente en X para encontrarlos más facil
-                 auxauxKxi = cshift(auxauxKxi,SHIFT=nmax+1,DIM=1)
-      ! (2) guardar solo los puntos interesantes
-                 xXx = 1
-                 do i=nMax-nx,nMax+nx,MeshDXmultiplo
-                    P(iP_x)%xXxvGT(xXx,iMec,iPxi) =  auxauxKxi(i)
-                    xXx = xXx + 1       
-                 end do
-              end if ! is a movie pixel
-           end if !siblings
-        end do !iPxi
-        
-      end do !iMec
-      end do !iP_x
-      !
-      end subroutine crepa_taper_KtoX_GT
-      subroutine crepa_taper_KtoX_GT_Gq(J,P,Npuntos_X,outpf)
-      use waveNumVars, only : NFREC,NMAX
-      use resultvars, only: Punto,nBpts,Hf,Hk 
-      use glovars, only: verbose,imecMax
-      use wavelets !fork
-      use Gquadrature, only: Gquad_n
       
-      implicit none
-      integer, intent(in) :: J, Npuntos_X ,outpf
-      type(Punto), dimension(Npuntos_X), intent(inout)  :: P
-      integer :: iP_x,iPxi,iMec,ihv,ixXx
-      complex*16, dimension(nBpts,2*nmax) :: auxKxi
-      integer, dimension(5) :: signh,signv
-      real :: factor
-      factor = sqrt(2.*NMAX*2)
-      !  fza horiz     fza vert
-      signh(1) = -1 ; signv(1) = 1  !W
-      signh(2) = 1  ; signv(2) = -1 !U
-      signh(3) = -1 ; signv(3) = 1  !s33
-      signh(4) = 1  ; signv(4) = -1 !s31
-      signh(5) = -1 ; signv(5) = 1  !s11
-      
-      do iP_x = 1,nBpts ! para cada segmento
-      do iMec = 1,imecMax
+      do iP_x = 1,Npuntos_X !cada receptor x
+      do iPxi = 1,nBpts ! para cada segmento xi
+      do iGq = 1,Gquad_n !cada punto guaussiano del segmento
+      do iMec = 1,5
       do ihv = 1,2
-      do ixXx = 1,Gquad_n !cada punto guaussiano del segmento
-        !      ,--- xi                    ,--- xi
-        auxKxi(:,1:nmax) = P(iP_x)%Gq_xXx(:,1:nmax,ixXx,iMec,ihv) !0 1 2 3 ...
-        auxKxi(:,nmax+1:2*nmax) = signh(iMec) *  & 
-            P(iP_x)%Gq_xXx(:,nmax+1:2:-1,ixXx,iMec,ihv) ! kmax -kmax ... -3 -2 -1
-        
-        do iPxi = 1,nBpts
-           auxKxi(iPxi,:) = auxKxi(iPxi,:) * Hk * Hf(J) * factor !taper
-           call fork(2*nmax,auxKxi(iPxi,:),+1,verbose,outpf) !K -> X
-           auxKxi(iPxi,:) = auxKxi(iPxi,:) / factor
-           
-           P(iP_x)%Gq_w_xXx(iPxi,ixXx,iMec,ihv) = auxKxi(iPxi,1)
-           
-        end do !iPxi
-        
-      end do !ixXx
+         ! crepa
+         Kvect(1:nmax) = P(iP_x)%GT_gq_k(iPxi,iGq,iMec,ihv,1:nmax) ! 0 1 2 3 ...
+         Kvect(nmax+1:2*nmax) = sign(iMec,ihv) *  & 
+            P(iP_x)%GT_gq_k(iPxi,iGq,iMec,ihv,nmax+1:2:-1) ! kmax -kmax ... -3 -2 -1
+         
+         Kvect = Kvect * Hk * Hf(J) * factor !taper
+         call fork(2*nmax,Kvect,+1,verbose,outpf) !K -> X
+         Kvect = Kvect / factor
+         
+         ! guardamos espectro en x=0
+         if (AllorBou .and. makevideo .and. (iP_x .ge. mPtini)) then
+            ! película:
+       ! (1) reordenar creapa exitente en X para encontrarlos más facil
+                 Kvect = cshift(Kvect,SHIFT=nmax+1,DIM=1)
+       ! (2) guardar solo los puntos interesantes para la película
+                 xXx = 1
+                 do i=nMax-nx,nMax+nx,MeshDXmultiplo
+                    P(iP_x)%GT_gq_mov(iPxi,iGq,iMec,ihv,xXx) = Kvect(i)
+                    xXx = xXx + 1       
+                 end do
+         else
+            ! guardamos x=0
+                 P(iP_x)%GT_gq(iPxi,iGq,iMec,ihv) = Kvect(1)
+         end if
       end do !ihv
       end do !iMec
+      end do !iGq
+      end do !iPxi
       end do !iP_x
-      !
+     
       end subroutine crepa_taper_KtoX_GT_Gq
+!     subroutine crepa_taper_KtoX_GT(J,P,Npuntos_X,Npuntos_XI,siblings,outpf)
+!     use waveNumVars, only : NFREC,NMAX
+!     use resultvars, only: Punto,Hf,Hk,mPtini,mPtfin
+!     use glovars, only: verbose,imecMax
+!     use wavelets !fork
+!     use meshVars, only: MeshDXmultiplo,nx
+!     
+!     implicit none
+!     type(Punto), dimension(Npuntos_X), intent(inout)  :: P
+!     integer, intent(in) :: J,Npuntos_X,Npuntos_XI,outpf
+!     integer :: iP_x,iPxi,iMec,xXx,i
+!     complex*16, dimension(2*nmax,Npuntos_XI) :: auxKxi
+!     complex*16, dimension(2*nmax) :: auxauxKxi
+!     integer, dimension(5) :: signh,signv
+!     logical, intent(in) :: siblings
+!     real :: factor
+!     factor = sqrt(2.*NMAX*2)
+!     !  fza horiz     fza vert
+!     signh(1) = -1 ; signv(1) = 1  !W
+!     signh(2) = 1  ; signv(2) = -1 !U
+!     signh(3) = -1 ; signv(3) = 1  !s33
+!     signh(4) = 1  ; signv(4) = -1 !s31
+!     signh(5) = -1 ; signv(5) = 1  !s11
+!     
+!     do iP_x = 1,Npuntos_X
+!     do iMec = 1,imecMax
+!       ! horizontal ------------
+!       !             ,--- xi                       ,--- xi
+!       auxKxi(1:nmax,:) = P(iP_x)%KhGT(1:nmax,iMec,:) !0 1 2 3 ...
+!       auxKxi(nmax+1:2*nmax,:) = signh(iMec) *  & 
+!            P(iP_x)%KhGT(nmax+1:2:-1,iMec,:) ! kmax -kmax ... -3 -2 -1
+!            
+!       do iPxi = 1,Npuntos_XI
+!          auxKxi(:,iPxi) = auxKxi(:,iPxi) * Hk * Hf(J) * factor !taper
+!          call fork(2*nmax,auxKxi(:,iPxi),+1,verbose,outpf) !K -> X
+!          auxKxi(:,iPxi) = auxKxi(:,iPxi) / factor
+!          
+!          P(iP_x)%hGT(iMec,iPxi) = auxKxi(1,iPxi)
+!          ! Q: ¿necesito guardar Ksiblings en las funciones de green?
+!          ! A: sólo en los moviepoints
+!          if (siblings) then
+!             if (mPtini .le. iP_x .and. iP_x .le. mPtfin) then
+!                auxauxKxi = auxKxi(:,iPxi)
+!     ! (1) reordenar creapa exitente en X para encontrarlos más facil
+!                auxauxKxi = cshift(auxauxKxi,SHIFT=nmax+1,DIM=1)
+!     ! (2) guardar solo los puntos interesantes
+!                xXx = 1
+!                do i=nMax-nx,nMax+nx,MeshDXmultiplo
+!                   P(iP_x)%xXxhGT(xXx,iMec,iPxi) =  auxauxKxi(i)
+!                   xXx = xXx + 1       
+!                end do
+!             end if ! is a movie pixel
+!          end if !siblings
+!       end do !iPxi
+!       
+!       ! vertical -------------
+!       
+!       auxKxi(1:nmax,:) = P(iP_x)%KvGT(1:nmax,iMec,:) !0 1 2 3 ...
+!       auxKxi(nmax+1:2*nmax,:) = signv(iMec) *  & 
+!            P(iP_x)%KvGT(nmax+1:2:-1,iMec,:) ! kmax -kmax ... -3 -2 -1
+!            
+!       do iPxi = 1,Npuntos_XI
+!          auxKxi(:,iPxi) = auxKxi(:,iPxi) * Hk * Hf(J) * factor !taper
+!          call fork(2*nmax,auxKxi(:,iPxi),+1,verbose,outpf) !K -> X
+!          auxKxi(:,iPxi) = auxKxi(:,iPxi) / factor
+!          
+!          P(iP_x)%vGT(iMec,iPxi) = auxKxi(1,iPxi)
+!          ! Q: ¿necesito guardar Ksiblings en las funciones de green?
+!          ! A: sólo en los moviepoints
+!          if (siblings) then
+!             if (mPtini .le. iP_x .and. iP_x .le. mPtfin) then
+!                auxauxKxi = auxKxi(:,iPxi)
+!     ! (1) reordenar creapa exitente en X para encontrarlos más facil
+!                auxauxKxi = cshift(auxauxKxi,SHIFT=nmax+1,DIM=1)
+!     ! (2) guardar solo los puntos interesantes
+!                xXx = 1
+!                do i=nMax-nx,nMax+nx,MeshDXmultiplo
+!                   P(iP_x)%xXxvGT(xXx,iMec,iPxi) =  auxauxKxi(i)
+!                   xXx = xXx + 1       
+!                end do
+!             end if ! is a movie pixel
+!          end if !siblings
+!       end do !iPxi
+!       
+!     end do !iMec
+!     end do !iP_x
+!     !
+!     end subroutine crepa_taper_KtoX_GT
       subroutine makeTaperFuncs(Npol,cutoff_fracFmax)
       use resultvars, only: Hf,Hk 
       use waveNumVars, only : NFREC,NMAX,DFREC,DK
@@ -3829,7 +3828,7 @@
       complex*16 :: integralEq14,trac
       integer, intent(in) :: iP_x,l,iPxi,m
       logical :: lejos
-      integer :: xXx
+      integer :: iGq
       
       integralEq14 = 0
       lejos = .false.
@@ -3845,13 +3844,13 @@
       ! usamos integracion gaussiana
       
        ! En cada punto gaussiano del segmento en X
-       do xXx = 1,Gquad_n
+       do iGq = 1,Gquad_n
          ! dada la fuerza en XI
          ! tracción en la dirección l dada la fuerza en direccion m
-         trac = BouPoints(iP_x)%Gq_w_xXx(iPxi,xXx,5-l,m+1) * BouPoints(iP_x)%normal(1) + &
-                BouPoints(iP_x)%Gq_w_xXx(iPxi,xXx,4-l,m+1) * BouPoints(iP_x)%normal(2)
-         ! multiplicar por peso gaussiano
-         trac = trac * BouPoints(iP_x)%Gq_xXx_C(xXx)
+         trac = BouPoints(iP_x)%GT_gq(iPxi,iGq,5-l,m+1) * BouPoints(iP_x)%normal(1) + &
+                BouPoints(iP_x)%GT_gq(iPxi,iGq,4-l,m+1) * BouPoints(iP_x)%normal(2)
+         ! multiplicar por peso gaussiano en el segmento de integración (xi)
+         trac = trac * BouPoints(iPxi)%Gq_xXx_C(iGq)
          ! acumular suma
          integralEq14 = integralEq14 + trac
        end do !xXx
@@ -3875,8 +3874,8 @@
       !         __|__         __|__
       !      s11     s31   s13    s33
       !      s11     s31   s31    s33  (son equivalentes)
-      !       5       4     4      3   (indice en Gq_w_xXx(_,_,i,_) )
-      !       0       1     0      1   (indice de submatriz:  l )
+      !       5       4     4      3   (indice en GT_gq(_,_,i,_) )
+      !       0       1     0      1   (indice de submatriz: l )
       
       function freefTraction(iP_x,l)
       use resultVars, only:BouPoints!,nBpts
@@ -3884,23 +3883,38 @@
       complex*16 :: freefTraction
       integer, intent(in) :: iP_x,l
       
-      !       en realidad ya es FX ---,
-      !                               |   
+      !       en realidad ya es FX ---, ,--- nomas hay una, la deorita
+      !                               | |
       freefTraction = BouPoints(iP_x)%W(1,5-l) * BouPoints(iP_x)%normal(1) + &
                       BouPoints(iP_x)%W(1,4-l) * BouPoints(iP_x)%normal(2)
       
+      ! las tracciones:
+      !
+      !   ,--- componente de la tracción : m
+      !   |     ,--- cara
+      !   |     |
+      !  Tx = Sxx nx + Szx nz  |___ (0) fza real (fuente)  .
+      !  Tz = Szx nx + Szz nz  |                           .  
+      !
+      !  T_lm = S_lkm * n_k
+      !       = S_l1m * n_1 + S_l3m * n3
+      !         __|__         __|__
+      !      s11     s31   s13    s33
+      !      s11     s31   s31    s33  (son equivalentes)
+      !       5       4     4      3   (indice en w(_,i) )
+      !       0       1     0      1   (indice de submatriz: l )
       end function freefTraction
       function integralEq16(iP_x,l,iPxi,m)
          !                              receptor---,       ,--- fuente
          !                                        _|___   _|___
          !  ibemMat(iP_x+l,iPxi+m) = integralEq14(iP_x,l,iPxi,m)
-      use resultVars, only:BouPoints,nBpts
+      use resultVars, only: P => allpoints
       use Gquadrature, only: Gquad_n
       implicit none
       complex*16 :: integralEq16,desp
       integer, intent(in) :: iP_x,l,iPxi,m
       logical :: lejos
-      integer :: xXx
+      integer :: iGq
       
       integralEq16 = 0
       lejos = .false.
@@ -3912,13 +3926,13 @@
       ! usamos integracion gaussiana
       
        ! En cada punto gaussiano del segmento en Xi en la dirección l
-       do xXx = 1,Gquad_n
-         ! dada la fuerza en XI
+       do iGq = 1,Gquad_n
+         ! dada la fuerza en XI en la dirección (m+1)
          ! desplazamiento en la dirección (l+1)
-         !              receptor        emisor    
-         desp = BouPoints(iP_x)%Gq_w_xXx(iPxi,xXx,5-l,m+1) 
-         ! multiplicar por peso gaussiano
-         desp = desp * BouPoints(iPxi)%Gq_xXx_C(xXx)
+         !     receptor        emisor    
+         desp = P(iP_x)%GT_gq(iPxi,iGq,2-l,m+1)  
+         ! multiplicar por peso gaussiano de integración en segmento xi 
+         desp = desp * P(iPxi)%Gq_xXx_C(iGq)
          ! acumular suma
          integralEq16 = integralEq16 + desp
        end do !xXx
@@ -3927,10 +3941,51 @@
       end function integralEq16
       
       ! los deplazamientos
-      ! iMec     W        U
-      !  i       1        2
+      ! iMec     U        W
+      !  i       2        1
       !  l       0        1
+      !necesito  x        z
+      function integralEq16mov(iP,iP_x,l,iPxi,m)
+         !                              receptor---,       ,--- fuente
+         !                                        _|___   _|___
+         !  ibemMat(iP_x+l,iPxi+m) = integralEq14(iP_x,l,iPxi,m)
+      use resultVars, only:P => allpoints
+      use Gquadrature, only: Gquad_n
+      implicit none
+      complex*16 :: integralEq16mov,desp
+      integer, intent(in) :: iP,iP_x,l,iPxi,m
+      logical :: lejos
+      integer :: iGq
       
+      integralEq16mov = 0
+      lejos = .false.
+      
+      if (lejos) then
+      ! no usamos integración gaussiana
+             
+      else ! cerca
+      ! usamos integracion gaussiana
+      
+       ! En cada punto gaussiano del segmento en Xi en la dirección l
+       do iGq = 1,Gquad_n
+         ! dada la fuerza en XI en la dirección (m+1)
+         ! desplazamiento en la dirección (l+1)
+         !     receptor        emisor    
+         desp = P(iP_x)%GT_gq_mov(iPxi,iGq,2-l,m+1,iP) 
+         ! multiplicar por peso gaussiano de integración en segmento xi 
+         desp = desp * P(iPxi)%Gq_xXx_C(iGq)
+         ! acumular suma
+         integralEq16mov = integralEq16mov + desp
+       end do !xXx
+      end if !lejos
+      
+      end function integralEq16mov
+      
+      ! los deplazamientos
+      ! iMec     U        W
+      !  i       2        1
+      !  l       0        1
+      !necesito  x        z
       
 !     subroutine vectorB_incidence(nJ,cOME,dK,nKmax,outpf)
 !     use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA,RHO
@@ -4283,47 +4338,48 @@
 !       end if
 !     end if
 !     end subroutine storemovieKsiblings
-      subroutine FKtoFX(outpf)
-      use waveNumVars, only : NFREC,NMAX,DFREC,DK
-      use wavelets ! FORK(LX,CX,SIGNI,verbose,outpf)
-      use glovars
-      use resultvars
- !     use sourceVars, only: nxfsource,nzfsource
-      implicit none
-      
-      integer ,intent(in) :: outpf
-      integer :: ip,imec,ifrec
-      real :: factor
-      factor = sqrt(2.*NMAX*2)
-      
-      do iP = 1,NPts 
-      allpoints(iP)%FK = allpoints(iP)%FK * factor
-       do ifrec = 1,nfrec+1
-        do iMec = 1,imecMax
-         call fork(2*NMAX,allpoints(iP)%FK(:,ifrec,iMec),+1,verbose,outpf)
-        end do !mec
-       end do !frec
-      allpoints(iP)%FK = allpoints(iP)%FK / factor
-      end do !iP
-      
-      end subroutine FKtoFX
-      subroutine FXtoT0(ini,fin,tt,outpf)
+!     subroutine FKtoFX(outpf)
+!     use waveNumVars, only : NFREC,NMAX,DFREC,DK
+!     use wavelets ! FORK(LX,CX,SIGNI,verbose,outpf)
+!     use glovars
+!     use resultvars
+!!     use sourceVars, only: nxfsource,nzfsource
+!     implicit none
+!     
+!     integer ,intent(in) :: outpf
+!     integer :: ip,imec,ifrec
+!     real :: factor
+!     factor = sqrt(2.*NMAX*2)
+!     
+!     do iP = 1,NPts 
+!     allpoints(iP)%FK = allpoints(iP)%FK * factor
+!      do ifrec = 1,nfrec+1
+!       do iMec = 1,imecMax
+!        call fork(2*NMAX,allpoints(iP)%FK(:,ifrec,iMec),+1,verbose,outpf)
+!       end do !mec
+!      end do !frec
+!     allpoints(iP)%FK = allpoints(iP)%FK / factor
+!     end do !iP
+!     
+!     end subroutine FKtoFX
+      subroutine W_to_t(W,iP,coords,tt,outpf)
       use waveNumVars, only : NFREC,DFREC
-      use wavelets ! FORK(LX,CX,SIGNI,verbose,outpf)
-      use waveVars, only : dt
       use glovars
-      use resultvars, only:allpoints
+      use waveVars, only : dt
       use ploteo10pesos
+      use wavelets
       implicit none
-      integer ,intent(in) :: ini,fin,outpf
-      character(LEN=10),intent(in) :: tt
-      integer :: ip,imec,r
+      integer ,intent(in) :: iP,outpf
+      complex*16, dimension  (Nfrec+1,5), intent(in) :: W
       complex*16, dimension(2*NFREC) :: S
-      real :: x_i,z_i,factor
-      integer :: i
+      real, dimension(2), intent(in) :: coords  
+      character(LEN=10),intent(in) :: tt
+      character(LEN=10), dimension(5)   :: nombre
       character(LEN=100) :: titleN
-      character(LEN=3), dimension(5) :: nombre
-      character(LEN=9)   :: logflag
+!     character(LEN=9)   :: logflag
+      integer :: i,iMec
+      real :: x_i,z_i,factor
+      factor = sqrt(2.*NFREC)
       
       nombre(1)= 'w--'
       nombre(2)= 'u--'
@@ -4331,37 +4387,33 @@
       nombre(4)= 's31'
       nombre(5)= 's11'
       
-      factor = sqrt(2.*NFREC)
-      do iP = ini,fin 
-         x_i=allpoints(iP)%center(1)
-         z_i=allpoints(iP)%center(2)
-       do iMec = 1,imecMax
+      x_i=coords(1)
+      z_i=coords(2)
+      
+      do iMec = 1,imecMax
       !  (0) crepa en f
       !           1 2 3 4 ... Nfrec Nfrec+1
       ! tenemos:  0 1 2 3 ... N/2-1  N/2
       ! hacemos:  0 1 2 3 ... N/2-1 -N/2 ... -3 -2 -1
-         !                                        ,--- x=0
-         !                                        |
-      S(      1:nfrec  ) =       allpoints(IP)%FK(1,1:nfrec:+1,  iMec)
-      S(nfrec+1:nfrec*2) = conjg(allpoints(IP)%FK(1,nfrec+1:2:-1,iMec))
-
-         go to 11
-         
-         !save this so we can check
-         write(titleN,'(a,a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
-               'f_',trim(tt),nombre(iMec),iP,'[', &
-               int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
-               int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].txt'
-         OPEN(351,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
-         write(351,'(I2)') 1
-         write(351,'(a)') "amplitude"
-         write(351,'(F15.8)') DFREC
-         do r = 1,size(S)
-          write(351,'(F50.16,2x,F50.16)') & 
-                     real(S(r)),aimag(S(r))
-         end do
-         close (351) 
-         
+      S(      1:nfrec  ) =       W(1:nfrec:+1,  iMec)
+      S(nfrec+1:nfrec*2) = conjg(W(nfrec+1:2:-1,iMec))
+      
+      !guardar en texto
+!        write(titleN,'(a,a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
+!              'f_',trim(tt),nombre(iMec),iP,'[', &
+!              int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
+!              int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].txt'
+!        OPEN(351,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
+!        write(351,'(I2)') 1
+!        write(351,'(a)') "amplitude"
+!        write(351,'(F15.8)') DFREC
+!        do i = 1,size(S)
+!         write(351,'(F50.16,2x,F50.16)') & 
+!                    real(S(i)),aimag(S(i))
+!        end do
+!        close (351) 
+      
+      ! imprimir espectro:
          write(titleN,'(a,a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
                'f_',trim(tt),nombre(iMec),iP,'[', &
                int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
@@ -4369,21 +4421,21 @@
          call plotXYcomp(S,DFREC,2*nfrec,titleN, & 
          'frec[hz]','amplitude',1200,800)
          
-         write(titleN,'(a,a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
-               'fL_',trim(tt),nombre(iMec),iP,'[', &
-               int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
-               int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].txt'
-         logflag = 'logx     '
-         call plotSpectrum(S,DFREC,2*nfrec,nfrec, & 
-                         titleN,'frec[hz]','amplitude',logflag,1200,800)
-      
+!        write(titleN,'(a,a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
+!              'fL_',trim(tt),nombre(iMec),iP,'[', &
+!              int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
+!              int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].txt'
+!        logflag = 'logx     '
+!        call plotSpectrum(S,DFREC,2*nfrec,nfrec, & 
+!                        titleN,'frec[hz]','amplitude',logflag,1200,800)
+
       !  (1) pasar al tiempo
-   11    S = S*factor
+         S = S*factor
          call fork(2*nfrec,S,+1,verbose,outpf)
          S = S/factor
       !  (2) remover efecto de la frecuencia imaginaria
          S = S * exp(-DFREC/2.0 * dt*((/(i,i=1,2*nfrec)/)-1))
-         
+      
       !  (3) plot the damn thing
          write(titleN,'(a,a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
                'S_',trim(tt),nombre(iMec),iP,'[', &
@@ -4391,10 +4443,9 @@
                int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].pdf'
          call plotXYcomp(S,dt,2*nfrec,titleN, & 
          'time[sec]','amplitude',1200,800)
-      end do !imec
-      end do !iP
       
-      end subroutine FXtoT0
+      end do !imec
+      end subroutine W_to_t
       subroutine Hollywood(outpf)
       use DISLIN
       use resultVars
@@ -4437,11 +4488,10 @@
       nombre(4)= 's31'
       nombre(5)= 's11'
       
-      if (verbose >= 1) Write(outpf,'(a)') "Will make a movie..."      
-         CALL chdir("..")
+      if (verbose >= 1) Write(outpf,'(a)') "Will make a movie..."
          CALL chdir("../video")
          CALL getcwd(path)
-         write(outpf,'(a)') TRIM(path)
+         write(outpf,'(a,a)') "at ",TRIM(path)
          call system("rm *.png")
          call system("rm *.txt")
       
@@ -4461,69 +4511,31 @@
       
       ! se hace para los puntos del video.
       iz = 1
-      do iP= mPtini,mPtfin        
+      do iP= mPtini,mPtfin 
+      do ix = 1,NxXxMpts
         Y(iz) = allpoints(IP)%center(2) !;print*,iP,'z=',Y(iz)
-        ! (1) reordenar creapa exitente en X para encontrarlos más facil
-        allpoints(IP)%FK = cshift(allpoints(IP)%FK,SHIFT=nmax+1,DIM=1)
-      do iMec = 1,imecMax
-        ! (2) pasar al tiempo solo los puntos interesantes
-        ix = 1
-        do i=nMax-nx,nMax+nx,MeshDXmultiplo
-
-        ! (2.1) pasar al tiempo: crepa en f
-        !print*,"[",ix,",",iz,"]:[",x(ix),",",y(iz),"] imec:",iMec
         
-      Sm(ix,iz,iMec,1:nfrec) = allpoints(IP)%FK(i,1:nfrec:+1,iMec)
-      Sm(ix,iz,iMec,nfrec+1:nfrec*2) = & 
-                       conjg(allpoints(IP)%FK(i,nfrec+1:2:-1,iMec))
+        ! los espectros de cada coordenada ya están ordenaditos
+        do iMec = 1,imecMax
+        ! (1) crepa
+        Sm(ix,iz,iMec,1:nfrec) = allpoints(iP)%WmovieSiblings(ix,1:nfrec:+1,iMec)
+        Sm(ix,iz,iMec,nfrec+1:nfrec*2) = conjg(allpoints(iP)%WmovieSiblings(ix,nfrec+1:2:-1,iMec))
         
-        !save this so we can check
-!        write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
-!              'f_',nombre(iMec),iP,'[', &
-!              int(x(ix)),'.',abs(int((x(ix)-int(x(ix)))*10)),';', & 
-!              int(Y(iz)),'.',abs(int((Y(iz)-int(Y(iz)))*10)),'].txt'
-!        OPEN(351,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
-!        write(351,'(I2)') 1
-!        write(351,'(a)') "amplitude"
-!        write(351,'(F15.8)') DFREC
-!        do r = 1,size(Sm(ix,iz,iMec,:))
-!         write(351,'(F50.16,2x,F50.16)') & 
-!                    real(Sm(ix,iz,iMec,r)),aimag(Sm(ix,iz,iMec,r))
-!        end do
-!        close (351)
-!        stop 0
-
-        ! (2.2) pasar al tiempo: fork
+        ! (2) pasar al tiempo: fork
           Sm(ix,iz,iMec,:) = Sm(ix,iz,iMec,:) * factor
           call fork(2*nfrec,Sm(ix,iz,iMec,:),+1,verbose,outpf)
           Sm(ix,iz,iMec,:) = Sm(ix,iz,iMec,:) / factor
-          
+        
         ! (2.3) remover efecto de la frecuencia imaginaria
           Sm(ix,iz,iMec,:) = Sm(ix,iz,iMec,:) * & 
                             exp(-DFREC/2.0 * Dt*((/(i,i=1,2*nfrec)/)-1))
-          
-!        write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
-!              't_',nombre(iMec),iP,'[', &
-!              int(x(ix)),'.',abs(int((x(ix)-int(x(ix)))*10)),';', & 
-!              int(Y(iz)),'.',abs(int((Y(iz)-int(Y(iz)))*10)),'].txt'
-!        OPEN(351,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
-!        write(351,'(I2)') 1
-!        write(351,'(a)') "amplitude"
-!        write(351,'(F15.8)') Dt
-!        do r = 1,size(Sm(ix,iz,iMec,:))
-!         write(351,'(F50.16,2x,F50.16)') & 
-!                    real(Sm(ix,iz,iMec,r)),aimag(Sm(ix,iz,iMec,r))
-!        end do
-!        close (351)
-          
-          ix = ix + 1  
-        end do !i
-      end do !iMec
-        iz = iz + 1
+        
+        end do !iMec
+      end do !ix
+      iz = iz + 1
       end do !iP
-      !stop 0
-      !color table boundaries
       
+      !color table boundaries
       ColorRangeMaximumScale = 0.1
       
   123 do i=1,imecMax
