@@ -9,9 +9,9 @@
       logical, parameter    :: makeVideo = .true.
       logical, parameter    :: getInquirePointsSol = .true.!dont change
       logical, parameter    :: workBoundary = .true. 
-      logical, parameter    :: plotFKS = .true.
+      logical, parameter    :: plotFKS = .false.
       integer, parameter    :: imecMax = 5
-      integer, parameter :: multSubdiv = 4 ! Lo ideal es 4 o un multiplo
+      integer, parameter :: multSubdiv = 1 ! Lo ideal es 4 o un multiplo
       real, dimension(2), parameter :: fixedNormal = (/0.0,1.0/)
       complex*16, parameter :: UI = cmplx(0.0,1.0,8), &
                                UR = cmplx(1.0,0.0,8)
@@ -1268,17 +1268,19 @@
       if (makeVideo) then
          allpoints(mPtini:mPtfin) = moviePoints
          deallocate(moviePoints); end if
-
+      
       do iP=1,Npts !        x                                  
         allocate(allpoints(iP)%FKh(NMAX+1,imecMax))
         allocate(allpoints(iP)%FKv(NMAX+1,imecMax))
         if (allpoints(iP)%guardarFK)then
           allocate(allpoints(iP)%FK(NFREC+1,NMAX,imecMax))
         end if
-      end do!
+      end do
+      
       do iP=iPtini,iPtfin !solo inquirepoints:
          allocate(allpoints(iP)%W(NFREC+1,imecMax))
       end do
+      
       if (makeVideo) then
         do iP=mPtini,mPtfin
          allocate(allpoints(iP)%WmovieSiblings(NxXxMpts,NFREC+1,imecMax))
@@ -1378,20 +1380,6 @@
                       BouPoints(iPxi)%layer, & 
                       iPxi,iGq,boupoints,nBpts,COME,PrintNum)
        
-!      ! G(x,xi) entre todos los puntos interesantes
-!      call FreeField(BouPoints(iPxi)%center(2), & 
-!                     BouPoints(iPxi)%layer, & 
-!                     iPxi,allpoints,Npts,.false.,COME,PrintNum) 
-!                     
-!      ! T(x,xi) entre puntos de la frontera
-!      call FreeField(BouPoints(iPxi)%center(2), & 
-!                     BouPoints(iPxi)%layer, & 
-!                     iPxi,BouPoints,NBpts,.false.,COME,PrintNum)
-!                     
-!      ! T(x,xi) entre puntos de integración Gaussiana de la frontera
-!      call FreeField(BouPoints(iPxi)%center(2), & 
-!                     BouPoints(iPxi)%layer, & 
-!                     iPxi,BouPoints,NBpts,.true.,COME,PrintNum)
        end do !iGq
        end do !iPxi
       end if
@@ -1426,6 +1414,7 @@
           B(:,iP) = this_B * exp(cmplx(0.,-k*allpoints(iP)%center(1),8))
         end do
         call Add_diffractedField_by_layeredMedia_source(Npts,allpoints,B,direction,cOME,ik,PrintNum) 
+      
       if (workBoundary) then
   ! + campo difractado por estratos. (x:Bou xi:fuente) (término indep en ibem)
         Bb = 0; this_B = this_Bcopy
@@ -1466,7 +1455,7 @@
 !         call getTheWavesAtQuadraturePts(iPxi,this_B,k,cOME,direction,ik,PrintNum)
         end do !iGq
         end do !iPxi
-      end if
+      end if 
       
       end do ! direction
       END DO ! wavenumber loop
@@ -1476,16 +1465,17 @@
       call crepa_taper_vectsum_KtoX(allpoints,nPts,J,5,PrintNum)
       
       if (workboundary) then
-      print*,"KtoX boundary - source"
-      call crepa_taper_vectsum_KtoX(BouPoints,nBpts,1,5,PrintNum)
+        print*,"KtoX boundary - source"
+        call crepa_taper_vectsum_KtoX(BouPoints,nBpts,1,5,PrintNum)
       
-      ! para las funciones de Green
-      print*,"G allpoints"
-      call crepa_taper_KtoX_GT_Gq(J,allpoints,nPts,.true.,PrintNum)
+        ! para las funciones de Green
+        print*,"G allpoints"
+        call crepa_taper_KtoX_GT_Gq(J,allpoints,nPts,.true.,PrintNum)
       
-      print*,"G bou"
-      call crepa_taper_KtoX_GT_Gq(J,BouPoints,nBpts,.false.,PrintNum) 
-
+        print*,"G bou"
+        call crepa_taper_KtoX_GT_Gq(J,BouPoints,nBpts,.false.,PrintNum) 
+      
+      
       ! ibem en cada frecuencia
       ! matriz de coeficientes:
       if(verbose>=1)write(PrintNum,*)"forming ibem matrices"
@@ -1548,7 +1538,8 @@
        end do ! iP
       end do !iP_x
       
-      end if !workbou
+      end if !workboundary
+      
       END DO ! J: frequency loop
       
       if (workBoundary) then; deallocate(Bb);deallocate(IPIVb); end if
@@ -3300,10 +3291,8 @@
         x_i = P(iP)%center(1)
         z_i = P(iP)%center(2)
           e = P(iP)%layer
-!       print*,'[',x_i,',',z_i,'] ',e
         this_Meca = calcMecaAt_xi_zi(theseIPs_B(:,iP),x_i,z_i,e,cOME_i,outpf)
         
-!     if (iP_xi .eq. 0) then
         if (direction .eq. 1) then !x
           P(iP)%FKh(iik,1:imecMax) = & 
           P(iP)%FKh(iik,1:imecMax) + this_Meca%Rw(1:imecMax)
@@ -3311,15 +3300,6 @@
           P(iP)%FKv(iik,1:imecMax) = & 
           P(iP)%FKv(iik,1:imecMax) + this_Meca%Rw(1:imecMax)
         end if
-!     else
-!       if (direction .eq. 1) then !x
-!         P(iP)%KhGT(iik,1:imecMax,iP_xi) = &
-!         P(iP)%KhGT(iik,1:imecMax,iP_xi) + this_Meca%Rw(1:imecMax)
-!       elseif (direction .eq. 2) then !z
-!         P(iP)%KvGT(iik,1:imecMax,iP_xi) = &
-!         P(iP)%KvGT(iik,1:imecMax,iP_xi) + this_Meca%Rw(1:imecMax)
-!       end if
-!      end if
 
       end do
       end subroutine Add_diffractedField_by_layeredMedia_source
@@ -3992,26 +3972,18 @@
       integer ,intent(in) :: outpf
       real       ::  X(2*(nx/MeshDXmultiplo)+1)
       real       ::                          Y(nz)
-      complex*16 :: Sm(2*(nx/MeshDXmultiplo)+1,nz,imecMax,2*NFREC)
-!     real       :: Ss(2*(nx/MeshDXmultiplo)+1,nz)
-      
-      integer  :: iP,iMec!,r!,iJ!,ei
-      integer  :: ix,iz,iT,i,Iframe,Fframe!,ifrec!,ikk
+      complex*16 :: Sm(2*(nx/MeshDXmultiplo)+1,nz,imecMax,2*NFREC)      
+      integer  :: iP,iMec
+      integer  :: ix,iz,iT,i,Iframe,Fframe
       real     :: factor,ColorRangeMaximumScale
       character(LEN=3), dimension(5)      :: nombre
       character(LEN=60) :: textoTimeStamp
-      character(LEN=15) :: auxTxt!,txtMode
+      character(LEN=15) :: auxTxt
       CHARACTER(len=400) :: path
       character(LEN=1) :: imdone
-!     integer :: r
-!     character(LEN=100) :: titleN
       real :: maxY, minY, maxX, minX, p
       real, dimension(41)   :: ZLVRAY
       real                  :: maV,miV,Vstep,xstep,zstep
-      
-      
-!     character(LEN=10) :: tt
-!     character(LEN=9)  :: xAx,yAx
       
       nombre(1)= 'w--'
       nombre(2)= 'u--'
@@ -4047,7 +4019,7 @@
         Y(iz) = allpoints(IP)%center(2) !;print*,iP,'z=',Y(iz)
         
         ! los espectros de cada coordenada ya están ordenaditos
-        do iMec = 1,imecMax
+        do iMec = 1,2
         ! (1) crepa
         Sm(ix,iz,iMec,1:nfrec) = allpoints(iP)%WmovieSiblings(ix,1:nfrec:+1,iMec)
         Sm(ix,iz,iMec,nfrec+1:nfrec*2) = conjg(allpoints(iP)%WmovieSiblings(ix,nfrec+1:2:-1,iMec))
@@ -4069,16 +4041,16 @@
       !color table boundaries
       ColorRangeMaximumScale = 0.1
       
-  123 do i=1,imecMax
+  123 do i=1,2
        maV = maxVal(real(Sm(:,:,i,:)))
        miV = minVal(real(Sm(:,:,i,:)))
        maV = max(maV,abs(miV))
        miV = - maV
        
        print *, char(7)
-      write(6,'(a,a,a,/,a,/,a,E11.2,/,a)', ADVANCE = "NO") & 
+      write(6,'(a,a,a,F10.6,a,/,a,/,a,E11.2,/,a)', ADVANCE = "NO") & 
       'Look at the seismograms for ',nombre(i), & 
-      '. Is the response too spiky? ', &
+      '. Is the response too spiky (the max = ',maV,'? ', &
       'We can enhance detail by reducing the value for maximum color. ', &
       'We propose the maximum to be = ', & 
       ColorRangeMaximumScale * maV, &
@@ -4134,7 +4106,7 @@
       
       
       do iT=Iframe,Fframe !cada fotograma
-      do iMec=1,imecMax !cada elemento mecanico 
+      do iMec=1,2 !cada elemento mecanico 
        write(auxTxt,'(F8.3,30x)') Dt*(iT-1)
        if (verbose >= 2) then
         write(textoTimeStamp,'(a,a,a)') & 
@@ -4198,16 +4170,18 @@
                     real(maxX-minX,4),real(Z(i+1)-Z(i),4))
       end do
       
+      if (workboundary) then
       ! the topography
-!     !call color ('BACK')
-!     !call shdpat(16)
-!     !call rlarea(Xcoord(:,1),-1.0 * Xcoord(:,2),size(Xcoord(:,1)))
-!     !call color ('FORE')
-!     
-!     !CALL HSYMBL(7)
-!     !CALL MRKCLR(-1)
-!     !call marker(15)
-!     !call curve(Xcoord(:,1),-1.0 * Xcoord(:,2),size(Xcoord(:,1)))
+      call color ('BACK')
+      call shdpat(16)
+      call rlarea(Xcoord(:,1),-1.0 * Xcoord(:,2),size(Xcoord(:,1)))
+      call color ('FORE')
+      
+      CALL HSYMBL(7)
+      CALL MRKCLR(-1)
+      call marker(15)
+      call curve(Xcoord(:,1),-1.0 * Xcoord(:,2),size(Xcoord(:,1)))
+      end if
       
       CALL HEIGHT(int(50,4))
       call errmod ("all", "off")
@@ -4217,7 +4191,7 @@
       end do !iT
       
       !now make the video with the frames
-      do iMec=1,imecMax
+      do iMec=1,2
       write(path,'(a,a,a)')'ffmpeg -f image2 -i ',nombre(iMec), & 
                                                       '%d.png video.mp4'
       call system(trim(path))
