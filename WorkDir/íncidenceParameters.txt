@@ -1,12 +1,12 @@
 Mesh:
       Mesh Delta on Z (m)
-2.0
+10.0
       Mesh minDelta on X (m)
 2.0
       MeshOffset on Z (m)
 0.0
       Mesh +-maxX (m)
-20.0
+10.0
 Incidence:
       Amplitude function scale
 1.0

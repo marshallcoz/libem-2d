@@ -5,13 +5,13 @@
       !         = 1   ! main calls, properties and images
       !         = 2   ! 1 + counters in loops and subfunctions
       !         = 3   ! 2 + matrix values
-      integer, parameter    :: verbose = 1
+      integer, parameter    :: verbose = 2
       logical, parameter    :: makeVideo = .true.
       logical, parameter    :: getInquirePointsSol = .true.!dont change
       logical, parameter    :: workBoundary = .true. 
       logical, parameter    :: plotFKS = .false.
       integer, parameter    :: imecMax = 5
-      integer, parameter :: multSubdiv = 1 ! Lo ideal es 4 o un multiplo
+      integer, parameter :: multSubdiv = 4 ! Lo ideal es 4 o un multiplo
       real, dimension(2), parameter :: fixedNormal = (/0.0,1.0/)
       complex*16, parameter :: UI = cmplx(0.0,1.0,8), &
                                UR = cmplx(1.0,0.0,8)
@@ -21,6 +21,9 @@
       
       module Gquadrature
       integer, parameter :: Gquad_n = 8 ! número par
+      
+!     real, parameter, dimension(1) :: Gqu_t_8 = (/1.0/)
+!     real, parameter, dimension(1) :: Gqu_A_8 =(/1.0/)
       real, parameter, dimension(8) :: Gqu_t_8 = & 
       (/ -0.96028986, &
          -0.79666648, &
@@ -117,12 +120,12 @@
       
       module resultVars
 !     use gloVars, only: dp
-       type Point
+       type Pointe
         real :: X,Z
-       end type Point
+       end type Pointe
        
        type MecaElem
-        type (Point) :: center
+        type (Pointe) :: center
         complex*16, dimension(5) :: Rw !u1,u3,s33,s31,s11
        end type MecaElem
      
@@ -146,7 +149,7 @@
         complex*16, dimension  (:,:), allocatable :: FKh,FKv
         
       ! para las funciones de Green:
-      !               (imec) l ---, ,--- m 
+      !               (imec) l ---, ,--- m (1 = horz, 2= vert)
       !                  iGQ ---, | |   ,--- k
       !                 xi ---, | | |   | 
       !                       | | | |   | 
@@ -166,30 +169,6 @@
         complex*16, dimension(:,:,:), allocatable :: WmovieSiblings
       !                       |
       !                       `--- sibling index
-      
-      !  G_{i,m} (x,xi) / T_{i,m} (x,xi)  cuado este punto es x: 
-      
-      !                     
-      !                     ,--- k: 1...NMAX+1
-      !                     | ,--- iMec: 1:5  (1:2-G- 3:4:5--T--)
-      !                     | | ,---  xi: 1...NBpts (actuadores en BouPoints)
-      ! allpoints/boupoints | | | 
-!     complex*16, dimension(:,:,:), allocatable :: KhGT,KvGT
-!     complex*16, dimension  (:,:), allocatable ::  hGT, vGT !every frecuency
-        
-                                   
-      !                     ,--- xXx: -3dx -2dx -1dx 0 +1dx +2dx +3dx 
-      !                     | ,--- iMec: 1:5  (1:2-G- 3:4:5--T--)
-      !                     | | ,---  xi: 1...NBpts (actuadores en BouPoints)
-      ! allpoints (movie)   | | | 
-!     complex*16, dimension(:,:,:), allocatable :: xXxhGT,xXxvGT
-      
-      ! para integración Gaussiana de un segmento consigo mismo
-      !                         ,--- xXx (indice punto integracion Gaussiana)
-      !                  k ---, | ,--- iMec
-      !    xi: 1...nBpts ---, | | | ,--- (1,2) -> dirección
-!     complex*16, dimension(:,:,:,:,:), allocatable :: Gq_xXx
-!     complex*16, dimension(:,  :,:,:), allocatable :: Gq_w_xXx
       
       !               ,--- xXx (indice punto integracion Gaussiana)
       !               | ,--- (1,2) -> (y,z)
@@ -251,7 +230,7 @@
       integer, intent(in) :: outpf
       integer, intent(in) :: NUM ! = NFREC*2
       integer :: M,i
-      real :: A
+      real*8 :: A
       
       ! ajustar el número de puntos a una pontencia entera de 2
       M = int(log10(real(NUM)) / log10(2.)+0.99 )
@@ -276,9 +255,9 @@
       COMPLEX*16 :: CARG,CW,CTEMP 
       complex*16,intent(inout) :: CX(LX)
       real, parameter :: pi = 4.*ATAN(1.)
-      real :: SC
+      real*8 :: SC
       integer :: i,j,m,istep,l
-      if (verbose >= 2) then
+      if (verbose >= 3) then
         write(outpf,'(a,I4,a)')'FFT on ',LX,' length vector'
       end if
       J=1
@@ -619,7 +598,7 @@
       real, allocatable :: normalto(:,:) !function result value
       real, parameter      :: a = real(1,8) ! normal poing up parameter
       real, parameter      :: tolerance = real(0.001,8) !to tell if its vertical
-      real, dimension(degree) :: fprime !surf_poly derivative coeficients
+      real*8, dimension(degree) :: fprime !surf_poly derivative coeficients
       real :: fprimeX, x0, mag 
       
       ALLOCATE (normalto(nXI,2))
@@ -1202,7 +1181,7 @@
       use refSolMatrixVars ! cOME,A,B,XX,IPIV,info
       use gloVars !UI,UR,PI,verbose
       use waveNumVars !NFREC,FREC,DFREC,OME,OMEI,DK,NMAX,LFREC,DK,NMAX
-      use soilVars, only : N,BETA
+      use soilVars, only : N
       use debugStuff
       use resultVars
       use GeometryVars!, only : numberOffixedBoundaryPoints
@@ -1217,10 +1196,11 @@
       integer, parameter :: PrintNum = 6
       !Loop Counters
       integer :: J  ! frequency loop
-      integer :: l,m,iP,iPxi,iP_x,direction !small loop counter
+      integer :: l,m,iP,iPxi,iP_x,direction,i !small loop counter
       integer :: status,iGq
       integer :: IK ! wavenumber loop   
       CHARACTER(len=400) :: path
+      character(LEN=100) :: titleN
       character(LEN=10) :: tt
       character(LEN=9)  :: xAx,yAx
       integer :: dstart,dfinish!,dstep
@@ -1435,7 +1415,7 @@
                            BouPoints(iPxi)%layer, & 
                            BouPoints(iPxi)%isOnInterface, & 
                            direction,cOME,k)
-          this_B = this_B * exp(cmplx(0.,k*BouPoints(iPxi)%Gq_xXx_coords(iGq,1),8))
+          this_B = this_B * exp(cmplx(0.0, k * BouPoints(iPxi)%Gq_xXx_coords(iGq,1),8))
           Ak = A; IPIV = 4*N+2
           call zgesv(4*N+2,1,Ak,4*N+2,IPIV(:,1),this_B,4*N+2,info)   
            if(info .ne. 0)then
@@ -1450,9 +1430,6 @@
           (Npts,allpoints,B,iPxi,iGq,direction,cOME,ik,PrintNum)
           call Add_diffractedField_by_layeredMedia_Green & 
           (nBpts,boupoints,Bb,iPxi,iGq,direction,cOME,ik,PrintNum)
-!         call getTheWaves(Npts,allpoints,B,iPxi,direction,cOME,ik,PrintNum) 
-!         call getTheWaves(nBpts,BouPoints,Bb,iPxi,direction,cOME,ik,PrintNum) 
-!         call getTheWavesAtQuadraturePts(iPxi,this_B,k,cOME,direction,ik,PrintNum)
         end do !iGq
         end do !iPxi
       end if 
@@ -1479,15 +1456,15 @@
       ! ibem en cada frecuencia
       ! matriz de coeficientes:
       if(verbose>=1)write(PrintNum,*)"forming ibem matrices"
-      ibemMat = 0
+      ibemMat = 0; trac0vec = 0
       do iP_x = 1, 2*nBpts, 2 !receptor(Big renglón)
       do iPxi = 1, 2*nBpts, 2 !fuente virtual(Big columna)
 !       print*,"[",ceiling(iP_x/2.),",",ceiling(iPxi/2.),"]"
-        do l=0,1 !dirección de tracción en el receptor (mini renglón)
-        do m=0,1 !dirección de aplicación de la fuerza (mini columna)
+        do l=0,1 !componente de tracción en el receptor (mini renglón) (0 horz , 1 vert)
+        do m=0,1 !dirección de aplicación de la fuerza (mini columna) (0 horz, 1 vert)
           if(iP_x .eq. iPxi) then
             if (l .eq. m) then
-              ibemMat(iP_x + l, iPxi + m) = 0.5 ! <-- problema interior
+              ibemMat(iP_x + l, iPxi + m) = 0.5 ! <-- x tiende a Sxi desde el interior
             else
               ibemMat(iP_x + l, iPxi + m) = 0.0
             end if
@@ -1503,12 +1480,35 @@
          trac0vec(iP_x + l) = -1.0 * freefTraction(ceiling(iP_x/2.),l)
         end do !m
       end do !iP_x
-     
+      
+      print*,"A"
+      call showMNmatrixZ(2*nBpts,2*nBpts,ibemMat,"ibMat",PrintNum)
+      
+      print*,"B"
+      call showMNmatrixZ(2*nBpts,1, trac0vec,"trac0",PrintNum)
+      
+      
       ! solución de densidades de fuerza
       iPIVbem = 2*nBpts
       call zgesv(2*nBpts,1,ibemMat,2*nBpts,IPIVbem,trac0vec,2*nBpts,info)
       if(info .ne. 0)then
            write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
+      
+      print*,"B"
+      call showMNmatrixZ(2*nBpts,1, trac0vec," phi ",PrintNum)
+         
+         CALL chdir("outs")
+         write(titleN,'(a,I0,a)') 'phi_',J,'.txt'
+         OPEN(351,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
+         do i = 1,2*nBpts,2
+          write(351,'(F20.16,2x,F20.16,2x,F20.16,6x,F20.16,2x,F20.16,2x,F20.16)') & 
+                     real(trac0vec(i)),aimag(trac0vec(i)),abs(trac0vec(i)), &
+                     real(trac0vec(i+1)),aimag(trac0vec(i+1)),abs(trac0vec(i+1))
+         end do
+         close (351) 
+         CALL chdir("..")
+      
+      stop 0
       
       print*,"add diffracted field by topography"
       ! usar coeficientes de fuerza por segmento 
@@ -1553,7 +1553,7 @@
       if (plotFKS) then 
            write(tt,'(a)')"FK_"
            write(xAx,'(a)')"frec [Hz]"
-           write(yAx,'(a)')" K [1/m]"
+           write(yAx,'(a)')" K [1/m] "
            CALL chdir("outs")
          do iP = iPtini,iPtfin
            if (allpoints(iP)% guardarFK) then
@@ -1564,10 +1564,12 @@
       end if
       ! mostrar sismogramas en los puntos de interés
            write(tt,'(a)')"S_"
+           CALL chdir("outs")
       do iP = iPtini,iPtfin
         call W_to_t(allpoints(iP)%W,iP,allpoints(iP)%center,tt,PrintNum)
       end do
-      
+           CALL chdir("..")
+           
       if (makeVideo) call Hollywood(PrintNum)
       
       Write(PrintNum,'(a)') ' done '      
@@ -1677,8 +1679,6 @@
       subroutine getInquirePoints(outpf)
       use resultVars, only : inqPoints, nIpts, iPtini,iPtfin
       use soilVars, only : Z,N
-      use waveNumVars, only : NFREC,NMAX
-      use glovars, only : imecMax
 !     use gloVars, only : dp
       implicit none
       integer, intent(in) :: outpf
@@ -1751,10 +1751,9 @@
       use resultVars, only : moviePoints, nMpts, & 
                              iPtfin,mPtini,mPtfin
       use meshVars
-      use GeometryVars, only : Xcoord
-      use gloVars,only:verbose,workBoundary, getInquirePointsSol,imecMax
+      use gloVars,only:verbose
       use soilVars, only : Z,N
-      use waveNumVars, only : DK,NFREC,NMAX
+      use waveNumVars, only : DK,NMAX
       use resultvars, only: NxXxMpts
       implicit none
       integer, intent(in)          :: outpf!,nJ
@@ -1875,8 +1874,8 @@
       use GeometryVars
       use gloVars
       use fitting
-      use soilVars, only : Z,N,BETA
-      use waveNumVars, only : NFREC,DFREC,NMAX
+      use soilVars, only : Z,N
+      use waveNumVars, only : NMAX
       use ploteo10pesos
       use resultVars, only : BouPoints, nBpts, & 
                              mPtfin,bPtini,bPtfin,iPtfin, &
@@ -1904,7 +1903,6 @@
       integer :: i,xory,xoryOtro,status
       real :: xA,yA,xB,yB
       real :: interpol  
-      CHARACTER(len=400) :: path
       
       ! min wavelenght = beta / maxFrec
       huboCambios = .false.
@@ -1952,10 +1950,10 @@
       iXI = 1
       DO WHILE (iXI <= nXI-1)!iXI = 1,nXI-1 !para cada segmento
      ! we check if there is a change of medium along segment [iXI,iXI+1]
-         if (verbose >= 2 ) then
-           write(outpf,'(a)')" "
-           write(outpf,'(a)')"next segment "
-         end if
+!        if (verbose >= 2 ) then
+!          write(outpf,'(a)')" "
+!          write(outpf,'(a)')"next segment "
+!        end if
          DO e = 2,size(Z) !en cada estrato
             if (verbose >= 3 ) then
           write(outpf,'(a,F12.8)')"Z =",Z(e)
@@ -2041,7 +2039,7 @@
       ! we will not change Xcoord from now on. 
       
       if (verbose >= 1) then
-       write(outpf,'(a,I0,a,I0,a)')"We now have ",nXI," nodes describing " &
+       write(outpf,'(a,I0,a,I0,a)')"We have ",nXI," nodes describing " &
                     ,nXI-1," segments"
        if (Verbose >= 2) then
         DO iXI = 1,nXI
@@ -2076,7 +2074,13 @@
          e = 0
          do while(Z(e+1) < midPoint(iXI,2))
             e = e + 1
+            if (e .gt. N) then
+              e = e - 1
+              exit
+            end if
          end do
+         if (e .eq. 0) e = 1
+         
          layerXI(iXI) = e
          
          do e=1,N+1
@@ -2105,9 +2109,9 @@
       end do
       surf_poly = polyfit(x,y,size(x),degree,verbose,outpf)
       
-      if (verbose >= 1) then
-       write(outpf,'(a)')'Normal vectors at midpoint of segments [Z+]'
-      end if
+!     if (verbose >= 1) then
+!      write(outpf,'(a)')'Normal vectors at midpoint of segments [Z+ orientation]'
+!     end if
  !normal vector componts at midPoints of BigSegments
       ALLOCATE (normXI(nXI-1,2)) 
       normXI = normalto(midPoint(:,1),midPoint(:,2),nXI-1,surf_poly, & 
@@ -2181,6 +2185,7 @@
         do i = 1,Gqu_n !ceros de Legendre (una coordenada):
           BouPoints(iX)%Gq_xXx_coords(i,xory) = (ABp(2)+ABp(1))/2 + &
                                            (ABp(2)-ABp(1))/2 * Gqu_t(i)
+                                           
           BouPoints(iX)%Gq_xXx_C(i) = (ABp(2)-ABp(1))/2 * Gqu_A(i)
         end do
         
@@ -2195,10 +2200,16 @@
         end do
         
         if (verbose .ge. 2) then
-        print*,"{",xA,",",yA,"}-{",xB,",",yB,"}"
+          write(outpf,'(a,F12.8,a,F12.8,a,F12.8,a,F12.8,a,F12.8,a,F12.8,a,F12.6,a)') & 
+               "[",BouPoints(iX)%bord_A(1),",",BouPoints(iX)%bord_A(2),"]-[", & 
+                 BouPoints(iX)%bord_B(1),",",BouPoints(iX)%bord_B(2), & 
+                 "] L:", BouPoints(iX)%length, &
+                 " n:[",BouPoints(iX)%normal(1),",",BouPoints(iX)%normal(2),"]"
+                   
+!       print*,"{",xA,",",yA,"}-{",xB,",",yB,"} Gquad points:"
         do i = 1,Gqu_n
-          print*,"[",BouPoints(iX)%Gq_xXx_coords(i,xory), " , ", &
-          BouPoints(iX)%Gq_xXx_coords(i,xoryOtro), "]"
+          print*,"Gq",i,"[",BouPoints(iX)%Gq_xXx_coords(i,1), " , ", &
+          BouPoints(iX)%Gq_xXx_coords(i,2), "]"
         end do
         print*,""
         end if
@@ -2275,7 +2286,12 @@
            e = 0
            do while (Z(e+1) .le. midiXI(2)) 
               e = e + 1
+              if (e .gt. N) then
+                e = e - 1
+                exit
+              end if
            end do ! layers
+           if (e .eq. 0) e = 1
         ! la longitud máxima para un segmento en este estrato:
            maxLen = BETA(e) / (multSubdiv * maxFrec)
            !safe lock
@@ -2301,7 +2317,7 @@
         ! we compare againts segment length
         if (lengthXI(iXI) > maxLen) then
              if (verbose >= 1) then
-              write(outpf,'(a,I5,a,F8.6,a,F10.6,a)') & 
+              write(outpf,'(a,I0,a,F8.2,a,F8.2,a)') & 
               "L(:",iXi,")=",lengthXI(iXI),"> maxLen(",maxLen,"); "
              end if
               !we divide de segment in half and check,
@@ -2429,7 +2445,12 @@
          e = 0
          do while(Z(e+1) < midPoint(iXI,2))
             e = e + 1
+            if (e .gt. N) then
+               e = e - 1
+               exit
+            end if
          end do
+         if (e .eq. 0) e = 1
          layerXI(iXI) = e
          
          do e=1,N+1
@@ -2740,9 +2761,6 @@
       use waveNumVars, only : NFREC,NMAX,DK
       use resultvars, only: Punto
       use Gquadrature, only: Gquad_n
-!     use sourceVars, only : x_f => xfsource, & 
-!                            z_f => zfsource, & 
-!                            e => efsource
       
       implicit none
       integer,    intent(in)     :: e_f,iP_xi,iGq,Npuntos_X
@@ -2750,9 +2768,8 @@
       integer,    intent(in)     :: outpf
       complex*16, intent(in)     :: cOME
       type(Punto), dimension(Npuntos_X), intent(inout)  :: P
-      !logical,    intent(in)     :: LGqPts
       
-      integer                    :: ik,iP!,iGq,nGq
+      integer                    :: ik,iP
       real                       :: k
       real, dimension(Npuntos_X) :: z_i,SGNz
       complex*16, dimension(NMAX+1,Npuntos_X) :: G11,G33,G31, & 
@@ -2772,23 +2789,9 @@
       omeBet = cOME**2/BETA(e_f)**2.0
       L2M = LAMBDA(e_f) + 2.0*AMU(e_f)
       
-!                 nGq = Gquad_n
-!     if (LGqPts) nGq = 1
-      
-!     do iGq = 1,nGq
-      
-      !solo con los puntos en el mismo estrato que la Fuente
-!     if (LGqPts) then
-!       do iP = 1,Npuntos_X
-!         if(P(iP)%layer .eq. e_f) then
-!           z_i(iP) = P(iP)%Gq_xXx_coords(iGq,2) - z_f
-!         end if
-!       end do
-!     else
         where (P(:)%layer .eq. e_f)
            z_i = P(:)%center(2) - z_f
         end where
-!     end if
       
       where (z_i .ne. 0)
         SGNz = z_i / ABS(z_i)
@@ -2867,39 +2870,11 @@
          P(iP)%GT_gq_k(iP_xi,iGq,3,1,:) = S331(:,iP)
          P(iP)%GT_gq_k(iP_xi,iGq,4,1,:) = S131(:,iP)
          P(iP)%GT_gq_k(iP_xi,iGq,5,1,:) = S111(:,iP)
-                !NBpts/Npts to solve the ibem matrix/solve the diff field
-!       print*,"[",P(iP)%center(1),",",P(iP)%center(2),"]"
-        
-!       if (LGqPts) then
-!         if(imecMax >= 1) P(iP)%Gq_xXx(iP_xi,:,iGq,1,2) = G33(:,iP)
-!         if(imecMax >= 2) P(iP)%Gq_xXx(iP_xi,:,iGq,2,2) = G31(:,iP)
-!         if(imecMax >= 3) P(iP)%Gq_xXx(iP_xi,:,iGq,3,2) = S333(:,iP)
-!         if(imecMax >= 4) P(iP)%Gq_xXx(iP_xi,:,iGq,4,2) = S313(:,iP)
-!         if(imecMax >= 5) P(iP)%Gq_xXx(iP_xi,:,iGq,5,2) = S113(:,iP)
-!       
-!         if(imecMax >= 1) P(iP)%Gq_xXx(iP_xi,:,iGq,1,1) = G31(:,iP)
-!         if(imecMax >= 2) P(iP)%Gq_xXx(iP_xi,:,iGq,2,1) = G11(:,iP)
-!         if(imecMax >= 3) P(iP)%Gq_xXx(iP_xi,:,iGq,3,1) = S331(:,iP)
-!         if(imecMax >= 4) P(iP)%Gq_xXx(iP_xi,:,iGq,4,1) = S131(:,iP)
-!         if(imecMax >= 5) P(iP)%Gq_xXx(iP_xi,:,iGq,5,1) = S111(:,iP) 
-!       else
-!         if(imecMax >= 1) P(iP)%KvGT(:,1,iP_xi) = G33(:,iP)
-!         if(imecMax >= 2) P(iP)%KvGT(:,2,iP_xi) = G31(:,iP)
-!         if(imecMax >= 3) P(iP)%KvGT(:,3,iP_xi) = S333(:,iP)
-!         if(imecMax >= 4) P(iP)%KvGT(:,4,iP_xi) = S313(:,iP)
-!         if(imecMax >= 5) P(iP)%KvGT(:,5,iP_xi) = S113(:,iP)
-!       
-!         if(imecMax >= 1) P(iP)%KhGT(:,1,iP_xi) = G31(:,iP)
-!         if(imecMax >= 2) P(iP)%KhGT(:,2,iP_xi) = G11(:,iP)
-!         if(imecMax >= 3) P(iP)%KhGT(:,3,iP_xi) = S331(:,iP)
-!         if(imecMax >= 4) P(iP)%KhGT(:,4,iP_xi) = S131(:,iP)
-!         if(imecMax >= 5) P(iP)%KhGT(:,5,iP_xi) = S111(:,iP)
-!       end if
+
        end do
       end if!
 !     end do ! iGq
       
-      if(verbose>=2) write(outpf,'(a)')"did got the incidence field"
       
       end subroutine FreeField
       
@@ -3078,13 +3053,8 @@
       
       subroutine vectorB_force(this_B,z_f,e,fisInterf,direction,cOME,k)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA,RHO
-      use gloVars, only : verbose,UR,UI,PI
-      !use waveVars, only : Uo    
-!     use refSolMatrixVars, only : B    
+      use gloVars, only : verbose,UR,UI,PI  
       use debugStuff   
-!     use sourceVars, only :  e =>  efsource, &
-!                           z_f => zfsource, &
-!                     fisInterf => intfsource
       use resultVars, only : allpoints,NPts
       implicit none
       
@@ -3109,21 +3079,13 @@
 !     B = 0; this_B = 0
 !     B(4*N+1,:) = (-UR ) / (2.0 * PI ); return
       
-      !Concentrated force en el inquire point 1
       G11=0;G31=0;G33=0
       s111=0;s331=0;s131=0;s113=0;s333=0;s313=0
       
       nInterf = 2
       if (fisInterf) then
          nInterf = 1
-      end if
-        
-!     e = allpoints(1)%layer
-            !posicionn inicialis
-!     x_f = allpoints(1)%center(1)
-!     z_f = allpoints(1)%center(2)
-!     
-!     print*,"force on layer ",e," [",x_f,",",z_f,"]"    
+      end if   
       
       z_loc(1) = Z(e) - z_f !downward (-)
       if (e .ne. N+1) then
@@ -3150,7 +3112,7 @@
       ! en cada interfaz (1 arriba) y (2 abajo)
       do iIf = 1,2
 !         print*,"[",x,",",z_loc(iIf),"]"
-          if (z_loc(iIf) .ne. 0) then
+          if (z_loc(iIf) .ne. 0.) then
             SGNz = z_loc(iIf) / ABS(z_loc(iIf))
           else
             SGNz = 0
@@ -3205,8 +3167,8 @@
       end if
       
       ! El vector de términos independientes genera el campo difractado
-      ! fuerza VERTICAL
-      if (direction .eq. 1) then
+      
+      if (direction .eq. 1) then ! fuerza HORIZONTAL
        if (e .ne. 1) then
         !  w             =     (1) interfaz de arriba; (2) abajo
         this_B(1+4*(e-1)-2) =  G31(1)
@@ -3231,7 +3193,7 @@
         this_B(1+4*(e-1)+5) = - S131(2)
        end if
       end if
-      elseif (direction .eq. 2) then
+      elseif (direction .eq. 2) then ! fuerza VERTICAL
        if (e .ne. 1) then
         !  w             =     (1) interfaz de arriba; (2) abajo
         this_B(1+4*(e-1)-2) =  G33(1)
@@ -3258,11 +3220,7 @@
       end if
       
       end if ! direction
-      
-      
-      
-      
-!     return
+
       
 !     if(verbose >= 3) then
       
@@ -3328,7 +3286,8 @@
         !guardar en: GT_gq_k(xi,iGq,imec,m,k)
         P(iP)%GT_gq_k(iPxi,iGq,1:imecMax,direction,iik) = &
         P(iP)%GT_gq_k(iPxi,iGq,1:imecMax,direction,iik) + this_Meca%Rw(1:imecMax)
-        
+        !                                 1 == x
+        !                                 2 == z
       end do 
       
       end subroutine Add_diffractedField_by_layeredMedia_Green      
@@ -3618,15 +3577,15 @@
       end subroutine makeTaperFuncs      
       
       ! meh  
-      function integralEq14(iP_x,l,iPxi,m)
+      function integralEq14(iP_x,i,iPxi,j)
          !                                receptor---,       ,--- fuente
          !                                        ___|__ ____|_
-         !  ibemMat(iP_x+l,iPxi+m) = integralEq14(iP_x,l,iPxi,m)
+         !  ibemMat(iP_x+l,iPxi+m) = integralEq14(iP_x,i,iPxi,j)
       use resultVars, only:BouPoints,nBpts
       use Gquadrature, only: Gquad_n
       implicit none
       complex*16 :: integralEq14,trac
-      integer, intent(in) :: iP_x,l,iPxi,m
+      integer, intent(in) :: iP_x,i,iPxi,j
       logical :: lejos
       integer :: iGq
       
@@ -3639,16 +3598,31 @@
        ! con valor igual al del centro del segmento X
          ! dada la fuerza en XI
          ! tracción en la dirección l dada la fuerza en direccion m
-      
+        trac = BouPoints(iP_x)%GT_gq(iPxi,ceiling(Gquad_n/2.),5-i,j+1) * BouPoints(iP_x)%normal(1) + &
+               BouPoints(iP_x)%GT_gq(iPxi,ceiling(Gquad_n/2.),4-i,j+1) * BouPoints(iP_x)%normal(2)
+        integralEq14 = trac * BouPoints(iPxi)%length
+        stop  "lejos"
       else ! cerca
       ! usamos integracion gaussiana
       
        ! En cada punto gaussiano del segmento en X
        do iGq = 1,Gquad_n
-         ! dada la fuerza en XI
-         ! tracción en la dirección l dada la fuerza en direccion m
-         trac = BouPoints(iP_x)%GT_gq(iPxi,iGq,5-l,m+1) * BouPoints(iP_x)%normal(1) + &
-                BouPoints(iP_x)%GT_gq(iPxi,iGq,4-l,m+1) * BouPoints(iP_x)%normal(2)
+         ! dada la fuerza en el segmento XI en el punto de integración iGq
+         ! componente i de la Tracción 
+         !
+         ! t(n)  =  nx Sxx + nz Szx       t(n)  =  nx Sxz + nz Szz
+         !    i=x                            i=z
+         !------------------------
+         !    i -> x :: Sxx   Szx
+         !               5     4    (índice de variable)
+         !      0       5-0   4-0   (fórmula)
+         !------------------------
+         !    i -> z :: Sxz   Szz
+         !               4     3    (índice de variable)
+         !      1       5-1   4-1   (fórmula)
+         
+         trac = BouPoints(iP_x)%GT_gq(iPxi,iGq,5-i,j+1) * BouPoints(iP_x)%normal(1) + &
+                BouPoints(iP_x)%GT_gq(iPxi,iGq,4-i,j+1) * BouPoints(iP_x)%normal(2)
          ! multiplicar por peso gaussiano en el segmento de integración (xi)
          trac = trac * BouPoints(iPxi)%Gq_xXx_C(iGq)
          ! acumular suma
@@ -3930,7 +3904,7 @@
                int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
                int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].pdf'
          call plotXYcomp(S,DFREC,2*nfrec,titleN, & 
-         'frec[hz]','amplitude',1200,800)
+         'frec[hz] ','amplitude',1200,800)
          
 !        write(titleN,'(a,a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
 !              'fL_',trim(tt),nombre(iMec),iP,'[', &
@@ -3967,7 +3941,7 @@
       use gloVars
       use MeshVars
       use soilVars, only : Z,N
-      use GeometryVars, only : Xcoord
+      use GeometryVars, only : Xcoord,nxi
       implicit none
       integer ,intent(in) :: outpf
       real       ::  X(2*(nx/MeshDXmultiplo)+1)
@@ -4048,13 +4022,14 @@
        miV = - maV
        
        print *, char(7)
-      write(6,'(a,a,a,F10.6,a,/,a,/,a,E11.2,/,a)', ADVANCE = "NO") & 
-      'Look at the seismograms for ',nombre(i), & 
+       write(6,'(a,a,a,F10.6,a,/,a,/,a,F10.6,/,a)', ADVANCE = "NO") & 
+      'Look at the seismograms for ', nombre(i), & 
       '. Is the response too spiky (the max = ',maV,'? ', &
       'We can enhance detail by reducing the value for maximum color. ', &
       'We propose the maximum to be = ', & 
       ColorRangeMaximumScale * maV, &
-      'Do yo want to change it [Y]/[N] ?  '
+      'Do yo want to change it [Y]/[N] ?'
+      
       read(5,*)imdone
       if(imdone .eq. 'Y' .or. imdone .eq. 'y') then
         write(6,'(a)', ADVANCE = "NO")'New maximum for plot = '
@@ -4173,14 +4148,16 @@
       if (workboundary) then
       ! the topography
       call color ('BACK')
-      call shdpat(16)
-      call rlarea(Xcoord(:,1),-1.0 * Xcoord(:,2),size(Xcoord(:,1)))
+      call shdpat(int(16,4))
+      call rlarea(real(Xcoord(:,1),4),real(Xcoord(:,2),4),int(nXI,4))
       call color ('FORE')
       
-      CALL HSYMBL(7)
-      CALL MRKCLR(-1)
-      call marker(15)
-      call curve(Xcoord(:,1),-1.0 * Xcoord(:,2),size(Xcoord(:,1)))
+      CALL HSYMBL(int(7,4))
+      CALL MRKCLR(int(-1,4))
+      call marker(int(15,4))
+      
+      call curve(real(Xcoord(:,1),4),real(Xcoord(:,2),4),int(nXI,4))
+      call xaxgit()
       end if
       
       CALL HEIGHT(int(50,4))
@@ -4208,4 +4185,6 @@
         go to 123
       end if
       end subroutine Hollywood
+! Fortran code...
+      
 
