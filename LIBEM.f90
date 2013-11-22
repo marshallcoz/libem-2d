@@ -5,7 +5,7 @@
       !         = 1   ! main calls, properties and images
       !         = 2   ! 1 + counters in loops and subfunctions
       !         = 3   ! 2 + matrix values
-      integer, parameter    :: verbose = 1
+      integer, parameter    :: verbose = 2
       logical, parameter    :: makeVideo = .true.
       logical, parameter    :: getInquirePointsSol = .true.!dont change
       logical, parameter    :: workBoundary = .true. 
@@ -1499,7 +1499,7 @@
          close (351) 
          CALL chdir("..")
       end if
-      
+      stop 0
       
       print*,"add diffracted field by topography"
       ! usar coeficientes de fuerza por segmento 
@@ -1582,12 +1582,12 @@
       
       ! vemos si existen los archivos
       
-      inquire(file="HVDEPTH.DAT",exist=lexist)
+      inquire(file="HVDEPTH.txt",exist=lexist)
       if (lexist) then
-        OPEN(7,FILE="HVDEPTH.DAT",FORM="FORMATTED")
+        OPEN(7,FILE="HVDEPTH.txt",FORM="FORMATTED")
       else
         write(outpf,'(a)') 'There is a missing input file. '
-        stop 'Check "HVDEPTH.DAT" on Working directory' 
+        stop 'Check "HVDEPTH.txt" on Working directory' 
       end if
       
       READ(7,*)
@@ -2149,8 +2149,8 @@
         allocate(BouPoints(iX)%GT_gq_k(nBpts,Gqu_n,5,2,nmax+1))
           allocate(BouPoints(iX)%GT_gq(nBpts,Gqu_n,5,2))
 
-        allocate(BouPoints(iX)%FKh(NMAX+1,imecMax))
-        allocate(BouPoints(iX)%FKv(NMAX+1,imecMax))
+        allocate(BouPoints(iX)%FKh(NMAX+1,imecMax)); BouPoints(iX)%FKh = 0
+        allocate(BouPoints(iX)%FKv(NMAX+1,imecMax)); BouPoints(iX)%FKv = 0
         allocate(BouPoints(iX)%FK(1,2*NMAX,iMecMax)) 
         allocate(BouPoints(iX)%W(1,iMecMax))
         
@@ -2177,7 +2177,7 @@
           BouPoints(iX)%Gq_xXx_coords(i,xory) = (ABp(2)+ABp(1))/2 + &
                                            (ABp(2)-ABp(1))/2 * Gqu_t(i)
                                            
-          BouPoints(iX)%Gq_xXx_C(i) = abs(ABp(2)-ABp(1))/2 * Gqu_A(i)
+          BouPoints(iX)%Gq_xXx_C(i) = abs(BouPoints(iX)%length)/2 * Gqu_A(i)
         end do
         
         ! la otra coordenada:
@@ -2553,9 +2553,9 @@
         allocate(BouPoints(iX)%Gq_xXx_C(Gqu_n))
        
       ! Coordenadas de los puntos de integración Gaussiana.
-        norm_comp(1)=(BouPoints(iX)%bord_B(1)-BouPoints(iX)%bord_A(1)) & 
+        norm_comp(1)=abs(BouPoints(iX)%bord_B(1)-BouPoints(iX)%bord_A(1)) & 
                       / BouPoints(iX)%length
-        norm_comp(2)=(BouPoints(iX)%bord_B(2)-BouPoints(iX)%bord_A(2)) & 
+        norm_comp(2)=abs(BouPoints(iX)%bord_B(2)-BouPoints(iX)%bord_A(2)) & 
                       / BouPoints(iX)%length
         
         if (norm_comp(2) > norm_comp(1)) then
@@ -2573,7 +2573,8 @@
         do i = 1,Gqu_n !ceros de Legendre (una coordenada):
           BouPoints(iX)%Gq_xXx_coords(i,xory) = (ABp(2)+ABp(1))/2 + &
                                            (ABp(2)-ABp(1))/2 * Gqu_t(i)
-          BouPoints(iX)%Gq_xXx_C(i) = (ABp(2)-ABp(1))/2 * Gqu_A(i)
+                                           
+          BouPoints(iX)%Gq_xXx_C(i) = abs(BouPoints(iX)%length)/2 * Gqu_A(i)
         end do
         
         ! la otra coordenada:
@@ -2587,10 +2588,17 @@
         end do
         
         if (verbose .ge. 2) then
-        print*,"{",xA,",",yA,"}-{",xB,",",yB,"}"
+        write(outpf,'(a,F12.8,a,F12.8,a,F12.8,a,F12.8,a,F12.8,a,F12.8,a,F12.6,a)') & 
+               "[",BouPoints(iX)%bord_A(1),",",BouPoints(iX)%bord_A(2),"]-[", & 
+                 BouPoints(iX)%bord_B(1),",",BouPoints(iX)%bord_B(2), & 
+                 "] L:", BouPoints(iX)%length, &
+                 " n:[",BouPoints(iX)%normal(1),",",BouPoints(iX)%normal(2),"]"
+        if (xory .eq. 1) print*,"mayormente horizontal"
+        if (xory .eq. 2) print*,"mayormente vertical"          
+!       print*,"{",xA,",",yA,"}-{",xB,",",yB,"} Gquad points:"
         do i = 1,Gqu_n
-          print*,"[",BouPoints(iX)%Gq_xXx_coords(i,xory), " , ", &
-          BouPoints(iX)%Gq_xXx_coords(i,xoryOtro), "]"
+          print*,"Gq",i,"[",BouPoints(iX)%Gq_xXx_coords(i,1), " , ", &
+          BouPoints(iX)%Gq_xXx_coords(i,2), "] :: ",BouPoints(iX)%Gq_xXx_C(i)
         end do
         print*,""
         end if
