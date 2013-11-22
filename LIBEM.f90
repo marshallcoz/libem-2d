@@ -5,7 +5,7 @@
       !         = 1   ! main calls, properties and images
       !         = 2   ! 1 + counters in loops and subfunctions
       !         = 3   ! 2 + matrix values
-      integer, parameter    :: verbose = 2
+      integer, parameter    :: verbose = 1
       logical, parameter    :: makeVideo = .true.
       logical, parameter    :: getInquirePointsSol = .true.!dont change
       logical, parameter    :: workBoundary = .true. 
@@ -84,7 +84,7 @@
       complex*16, save, allocatable :: A(:,:),B(:,:),Ak(:,:),Bb(:,:)
       complex*16, dimension(:), allocatable :: this_B,this_Bcopy
                                    
-      integer, dimension(:,:), allocatable :: IPIV,IPIVb
+      integer, dimension(:), allocatable :: IPIV
       integer :: info    
       end module refSolMatrixVars
       
@@ -1238,7 +1238,7 @@
       allocate (this_B(4*N+2))
       allocate (this_Bcopy(4*N+2))
       ALLOCATE (B (4*N+2,Npts)) ! una sola fuente
-      ALLOCATE (IPIV(4*N+2, NPts)) ! pivote
+      ALLOCATE (IPIV(4*N+2)) ! pivote
       allocate (auxKvect(2*Nmax))
       factor = sqrt(2.*NMAX*2)
       
@@ -1250,8 +1250,8 @@
          deallocate(moviePoints); end if
       
       do iP=1,Npts !        x                                  
-        allocate(allpoints(iP)%FKh(NMAX+1,imecMax))
-        allocate(allpoints(iP)%FKv(NMAX+1,imecMax))
+        allocate(allpoints(iP)%FKh(NMAX+1,imecMax)); allpoints(iP)%FKh = 0
+        allocate(allpoints(iP)%FKv(NMAX+1,imecMax)); allpoints(iP)%FKv = 0
         if (allpoints(iP)%guardarFK)then
           allocate(allpoints(iP)%FK(NFREC+1,NMAX,imecMax))
         end if
@@ -1271,34 +1271,17 @@
       ! G para resolver el campo difractado por topografía
        do iP_x = 1,nPts 
          allocate(allpoints(iP_x)%GT_gq_k(nBpts,Gquad_n,5,2,nmax+1))
+         allpoints(iP_x)%GT_gq_k = 0
        end do!
        do iP_x = iPtini,iPtfin
          allocate(allpoints(iP_x)%GT_gq(nBpts,Gquad_n,5,2))
        end do
        if (makeVideo) then
          do iP_x = mPtini,mPtfin
-!        allocate(allpoints(iP_x)%GT_gq_mov_k(nBpts,Gquad_n,5,2,NxXxMpts,nmax+1,2))
            allocate(allpoints(iP_x)%GT_gq_mov(nBpts,Gquad_n,5,2,NxXxMpts))
          end do
        end if
       end if
-      
-         ! (Green)           x                        xi
-!        allocate(allpoints(iP_x)%KhGT(nmax+1,imecMax,nBpts))
-!        allocate(allpoints(iP_x)%KvGT(nmax+1,imecMax,nBpts))
-!        allocate(allpoints(iP_x)%hGT(imecMax,nBpts))
-!        allocate(allpoints(iP_x)%vGT(imecMax,nBpts))
-!      end do
-!      if (makeVideo) then
-!        do iP_x = mPtini,mPtfin
-!         allocate(allpoints(iP_x)%xXxhGT(NxXxMpts,imecMax,nBpts))
-!         allocate(allpoints(iP_x)%xXxvGT(NxXxMpts,imecMax,nBpts))
-!        end do
-!      end if
-!     end if!
-            
-      !prepare the incident wave amplitude function Uo
-!     call waveAmplitude(PrintNum) 
       
       ! source application point:
       xfsource = allpoints(1)%center(1)
@@ -1307,6 +1290,11 @@
       intfsource = allpoints(1)%isOnInterface
       nxfsource = allpoints(1)%normal(1)
       nzfsource = allpoints(1)%normal(2)
+      
+      if (verbose .ge. 1) then
+        write(PrintNum,'(a,F8.2,a,F8.2,a)') & 
+                            "source is at (",xfsource,",",zfsource,")"
+      end if
       
       dstart = 1; dfinish = 2!; dstep = 2
       if (nxfsource .eq. 0) dstart=2;if (nzfsource .eq. 0) dfinish=1
@@ -1335,7 +1323,7 @@
         
       ! Subsegment the topography if neccesssary
        call subdivideTopo(J,PrintNum)
-   
+      
       ! Free field solution:
        call FreeField(zfsource, & 
                       efsource, & 
@@ -1369,7 +1357,7 @@
       
 !     NMAX=(OME/minval(BETA))/DK+1                   !EMPIRICAL (improve)
 !     NMAX=2*NMAX+100                                !EMPIRICAL (improve)
-           
+      
       Do ik=1,nmax+1 !WAVE NUMBER LOOP-
          k = real(ik-1,8) * dK
          if (ik .eq. 1) k = dk * 0.001
@@ -1387,7 +1375,7 @@
         this_B = this_B * exp( cmplx(0.0, k * xfsource,8))
         this_Bcopy = this_B
         Ak = A; IPIV = 4*N+2
-        call zgesv(4*N+2,1,Ak,4*N+2,IPIV(:,1),this_B,4*N+2,info)   
+        call zgesv(4*N+2,1,Ak,4*N+2,IPIV,this_B,4*N+2,info)   
         if(info .ne. 0)then
            write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
         do iP = 1,Npts !(receptores en el medio)
@@ -1410,6 +1398,8 @@
         do iPxi = 1,nBpts ! cada segmento
         do iGq = 1,Gquad_n !cada punto de integración en el segmento
           B = 0; this_B = 0; Bb = 0;
+!         print*,"force is at [",BouPoints(iPxi)%Gq_xXx_coords(iGq,1),BouPoints(iPxi)%Gq_xXx_coords(iGq,2),"] e=", &
+!         BouPoints(iPxi)%layer
           call vectorB_force(this_B, & 
                            BouPoints(iPxi)%Gq_xXx_coords(iGq,2), & 
                            BouPoints(iPxi)%layer, & 
@@ -1417,7 +1407,7 @@
                            direction,cOME,k)
           this_B = this_B * exp(cmplx(0.0, k * BouPoints(iPxi)%Gq_xXx_coords(iGq,1),8))
           Ak = A; IPIV = 4*N+2
-          call zgesv(4*N+2,1,Ak,4*N+2,IPIV(:,1),this_B,4*N+2,info)   
+          call zgesv(4*N+2,1,Ak,4*N+2,IPIV,this_B,4*N+2,info)   
            if(info .ne. 0)then
            write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
          do iP = 1,Npts !(receptores en el medio)
@@ -1427,9 +1417,9 @@
           Bb(:,iP) = this_B * exp(cmplx(0.,-k*BouPoints(iP)%center(1),8))
          end do
           call Add_diffractedField_by_layeredMedia_Green & 
-          (Npts,allpoints,B,iPxi,iGq,direction,cOME,ik,PrintNum)
+                (Npts,allpoints,B,iPxi,iGq,direction,cOME,ik,PrintNum)
           call Add_diffractedField_by_layeredMedia_Green & 
-          (nBpts,boupoints,Bb,iPxi,iGq,direction,cOME,ik,PrintNum)
+                (nBpts,boupoints,Bb,iPxi,iGq,direction,cOME,ik,PrintNum)
         end do !iGq
         end do !iPxi
       end if 
@@ -1455,6 +1445,7 @@
       
       ! ibem en cada frecuencia
       ! matriz de coeficientes:
+      
       if(verbose>=1)write(PrintNum,*)"forming ibem matrices"
       ibemMat = 0; trac0vec = 0
       do iP_x = 1, 2*nBpts, 2 !receptor(Big renglón)
@@ -1470,23 +1461,24 @@
             end if
           else 
             ibemMat(iP_x + l, iPxi + m) = & 
-                     integralEq14(ceiling(iP_x/2.),l,ceiling(iPxi/2.),m)
+                      integralEq14(ceiling(iP_x/2.),l,ceiling(iPxi/2.),m)
+!                     print*,ceiling(iP_x/2.),l,ceiling(iPxi/2.),m
           end if
+!         print*,"x=",iP_x+l,"  xi=",iPxi+m, "  val=",ibemMat(iP_x + l, iPxi + m); print*,""
         end do !m
         end do !l
       end do !iPxi
       ! vector de campo incidente
         do l=0,1 !dirección de tracción en el receptor (mini renglón)
          trac0vec(iP_x + l) = -1.0 * freefTraction(ceiling(iP_x/2.),l)
+!        print*,"trac ",iP_x + l,"  val=",trac0vec(iP_x + l)
         end do !m
       end do !iP_x
       
-      print*,"A"
-      call showMNmatrixZ(2*nBpts,2*nBpts,ibemMat,"ibMat",PrintNum)
-      
-      print*,"B"
-      call showMNmatrixZ(2*nBpts,1, trac0vec,"trac0",PrintNum)
-      
+      if (verbose .ge. 2) then
+        call showMNmatrixZ(2*nBpts,2*nBpts,ibemMat,"ibMat",PrintNum)
+        call showMNmatrixZ(2*nBpts,1, trac0vec,"trac0",PrintNum)
+      end if
       
       ! solución de densidades de fuerza
       iPIVbem = 2*nBpts
@@ -1494,9 +1486,8 @@
       if(info .ne. 0)then
            write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
       
-      print*,"B"
-      call showMNmatrixZ(2*nBpts,1, trac0vec," phi ",PrintNum)
-         
+      if (verbose .ge. 2) then
+         call showMNmatrixZ(2*nBpts,1, trac0vec," phi ",PrintNum)
          CALL chdir("outs")
          write(titleN,'(a,I0,a)') 'phi_',J,'.txt'
          OPEN(351,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
@@ -1507,8 +1498,8 @@
          end do
          close (351) 
          CALL chdir("..")
+      end if
       
-      stop 0
       
       print*,"add diffracted field by topography"
       ! usar coeficientes de fuerza por segmento 
@@ -1542,7 +1533,7 @@
       
       END DO ! J: frequency loop
       
-      if (workBoundary) then; deallocate(Bb);deallocate(IPIVb); end if
+      if (workBoundary) then; deallocate(Bb); end if
       deALLOCATE(A);deallocate(Ak);deallocate(this_B)
       deallocate(B);deallocate(IPIV)
       
@@ -1880,7 +1871,7 @@
       use resultVars, only : BouPoints, nBpts, & 
                              mPtfin,bPtini,bPtfin,iPtfin, &
                              ibemMat,trac0vec,IPIVbem 
-      use refSolMatrixVars, only: Bb,IPIVb
+      use refSolMatrixVars, only: Bb
       use Gquadrature, only: Gqu_n => Gquad_n, & 
                              Gqu_t => Gqu_t_8, & 
                              Gqu_A => Gqu_A_8
@@ -2167,9 +2158,9 @@
         allocate(BouPoints(iX)%Gq_xXx_C(Gqu_n))
         
       ! Coordenadas de los puntos de integración Gaussiana.
-        norm_comp(1)=(BouPoints(iX)%bord_B(1)-BouPoints(iX)%bord_A(1)) & 
+        norm_comp(1)=abs(BouPoints(iX)%bord_B(1)-BouPoints(iX)%bord_A(1)) & 
                       / BouPoints(iX)%length
-        norm_comp(2)=(BouPoints(iX)%bord_B(2)-BouPoints(iX)%bord_A(2)) & 
+        norm_comp(2)=abs(BouPoints(iX)%bord_B(2)-BouPoints(iX)%bord_A(2)) & 
                       / BouPoints(iX)%length
         
         if (norm_comp(2) > norm_comp(1)) then
@@ -2186,7 +2177,7 @@
           BouPoints(iX)%Gq_xXx_coords(i,xory) = (ABp(2)+ABp(1))/2 + &
                                            (ABp(2)-ABp(1))/2 * Gqu_t(i)
                                            
-          BouPoints(iX)%Gq_xXx_C(i) = (ABp(2)-ABp(1))/2 * Gqu_A(i)
+          BouPoints(iX)%Gq_xXx_C(i) = abs(ABp(2)-ABp(1))/2 * Gqu_A(i)
         end do
         
         ! la otra coordenada:
@@ -2205,11 +2196,12 @@
                  BouPoints(iX)%bord_B(1),",",BouPoints(iX)%bord_B(2), & 
                  "] L:", BouPoints(iX)%length, &
                  " n:[",BouPoints(iX)%normal(1),",",BouPoints(iX)%normal(2),"]"
-                   
+        if (xory .eq. 1) print*,"mayormente horizontal"
+        if (xory .eq. 2) print*,"mayormente vertical"          
 !       print*,"{",xA,",",yA,"}-{",xB,",",yB,"} Gquad points:"
         do i = 1,Gqu_n
           print*,"Gq",i,"[",BouPoints(iX)%Gq_xXx_coords(i,1), " , ", &
-          BouPoints(iX)%Gq_xXx_coords(i,2), "]"
+          BouPoints(iX)%Gq_xXx_coords(i,2), "] :: ",BouPoints(iX)%Gq_xXx_C(i)
         end do
         print*,""
         end if
@@ -2217,7 +2209,6 @@
       
       
       allocate(Bb(4*N+2, nBpts))
-      ALLOCATE(IPIVb(4*N+2, nBpts)) ! pivote
       
       allocate(ibemMat(2*nBpts,2*nBpts))
       allocate(trac0vec(2*nBpts))
@@ -2236,7 +2227,7 @@
                              bPtini,bPtfin,iPtini,iPtfin, &
                              allpoints,nPts,mPtini,mPtfin,NxXxMpts, &
                              ibemMat,trac0vec,IPIVbem
-      use refSolMatrixVars, only: Bb,IPIVb
+      use refSolMatrixVars, only: Bb
       use ploteo10pesos
       use Gquadrature, only: Gqu_n => Gquad_n, & 
                              Gqu_t => Gqu_t_8, & 
@@ -2550,11 +2541,11 @@
       
       ! para resolver las densidades de fuerza IBEM:
       do iX=1,nBpts !van vacías porque esto cuenta para cada frecuencia
-        allocate(BouPoints(iX)%GT_gq_k(nBpts,Gqu_n,5,2,nmax+1))
-          allocate(BouPoints(iX)%GT_gq(nBpts,Gqu_n,5,2))
+        allocate(BouPoints(iX)%GT_gq_k(nBpts,Gqu_n,5,2,nmax+1)); BouPoints(iX)%GT_gq_k = 0
+          allocate(BouPoints(iX)%GT_gq(nBpts,Gqu_n,5,2)); BouPoints(iX)%GT_gq = 0
           
-        allocate(BouPoints(iX)%FKh(NMAX+1,imecMax))
-        allocate(BouPoints(iX)%FKv(NMAX+1,imecMax))
+        allocate(BouPoints(iX)%FKh(NMAX+1,imecMax)); BouPoints(iX)%FKh = 0
+        allocate(BouPoints(iX)%FKv(NMAX+1,imecMax)); BouPoints(iX)%FKv = 0
         allocate(BouPoints(iX)%FK(1,2*NMAX,iMecMax))  
         allocate(BouPoints(iX)%W(1,iMecMax))
         
@@ -2608,25 +2599,24 @@
       ! G para resolver el campo difractado por topografía
       do iX=1,nPts 
         deallocate(allpoints(ix)%GT_gq_k)
-          allocate(allpoints(ix)%GT_gq_k(nBpts,Gqu_n,5,2,nmax+1))
+          allocate(allpoints(ix)%GT_gq_k(nBpts,Gqu_n,5,2,nmax+1)); allpoints(ix)%GT_gq_k = 0
       end do!
       do iX=iPtini,iPtfin 
         deallocate(allpoints(ix)%GT_gq)
-          allocate(allpoints(ix)%GT_gq(nBpts,Gqu_n,5,2))
+          allocate(allpoints(ix)%GT_gq(nBpts,Gqu_n,5,2)); allpoints(ix)%GT_gq = 0
       end do
       
       if (makeVideo) then
         do iX = mPtini,mPtfin
           deallocate(allpoints(ix)%GT_gq_mov)
-          allocate(allpoints(ix)%GT_gq_mov(nBpts,Gqu_n,5,2,NxXxMpts))
+          allocate(allpoints(ix)%GT_gq_mov(nBpts,Gqu_n,5,2,NxXxMpts)); allpoints(ix)%GT_gq_mov = 0
         end do
       end if
       
       !también en necesario actulizar el tamaño del vector
       !de términos independientes
-       deallocate(Bb);deallocate(IPIVb)
+       deallocate(Bb)
        allocate(Bb(4*N+2, nBpts))
-       ALLOCATE(IPIVb(4*N+2, nBpts)) ! pivote
       
       deallocate(ibemMat, trac0vec, IPIVbem)
       allocate(ibemMat(2*nBpts,2*nBpts))
@@ -2946,7 +2936,7 @@
 
       complex*16, dimension(2,4) :: subMatD, subMatS
       complex*16, dimension(4,1) :: diagMat
-      complex*16 :: gamma,nu,eta,xi
+      complex*16 :: gamma,nu,xi!,eta
       complex*16 :: egammaN,enuN,egammaP,enuP
       integer    :: iR,iC,e,bord
       
@@ -2968,7 +2958,7 @@
           if(aimag(nu).gt.0.0)nu=-nu
           
           xi = k**2 - nu**2
-          eta = 2*gamma**2 - cOME_i**2/BETA(e)**2
+!         eta = 2*gamma**2 - cOME_i**2/BETA(e)**2
           
           ! la profundidad z de la frontera superior del estrato
 !         z_i = Z(e)   ! e=1  ->  z = z0 = 0
@@ -3169,66 +3159,39 @@
       ! El vector de términos independientes genera el campo difractado
       
       if (direction .eq. 1) then ! fuerza HORIZONTAL
-       if (e .ne. 1) then
-        !  w             =     (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)-2) =  G31(1)
-        !  u 
-        this_B(1+4*(e-1)-1) =  G11(1)
+       if (e .ne. 1) then ! =     (1) interfaz de arriba; (2) abajo
+        this_B(1+4*(e-1)-2) =  G31(1)!  w
+        this_B(1+4*(e-1)-1) =  G11(1)!  u
        end if 
-        ! szz
-        this_B(1+4*(e-1)  ) =  S331(1)
-        ! szx 
-        this_B(1+4*(e-1)+1) =  S131(1)
-      
-  !77  
+        this_B(1+4*(e-1)  ) =  S331(1)! szz
+        this_B(1+4*(e-1)+1) =  S131(1)! szx
+    
       if (.not. fisInterf) then  
-       if (e .ne. N+1) then
-        !  w             =      (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)+2) = - G31(2)
-        ! u
-        this_B(1+4*(e-1)+3) = - G11(2)
-        ! szz 
-        this_B(1+4*(e-1)+4) = - S331(2)
-       ! szx 
-        this_B(1+4*(e-1)+5) = - S131(2)
+       if (e .ne. N+1) then! =      (1) interfaz de arriba; (2) abajo
+        this_B(1+4*(e-1)+2) = - G31(2)!  w
+        this_B(1+4*(e-1)+3) = - G11(2)!  u
+        this_B(1+4*(e-1)+4) = - S331(2)! szz
+        this_B(1+4*(e-1)+5) = - S131(2)! szx
        end if
       end if
       elseif (direction .eq. 2) then ! fuerza VERTICAL
-       if (e .ne. 1) then
-        !  w             =     (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)-2) =  G33(1)
-        !  u 
-        this_B(1+4*(e-1)-1) =  G31(1)
+       if (e .ne. 1) then! =     (1) interfaz de arriba; (2) abajo
+        this_B(1+4*(e-1)-2) =  G33(1)!  w 
+        this_B(1+4*(e-1)-1) =  G31(1)!  u 
        end if 
-        ! szz
-        this_B(1+4*(e-1)  ) =  S333(1)
-        ! szx 
-        this_B(1+4*(e-1)+1) =  S313(1)
-      
-  !77  
+        this_B(1+4*(e-1)  ) =  S333(1)! szz
+        this_B(1+4*(e-1)+1) =  S313(1)! szx 
+    
       if (.not. fisInterf) then  
-       if (e .ne. N+1) then
-        !  w             =      (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)+2) = - G33(2)
-        ! u
-        this_B(1+4*(e-1)+3) = - G31(2)
-        ! szz 
-        this_B(1+4*(e-1)+4) = - S333(2)
-       ! szx 
-        this_B(1+4*(e-1)+5) = - S313(2)
+       if (e .ne. N+1) then!=      (1) interfaz de arriba; (2) abajo
+        this_B(1+4*(e-1)+2) = - G33(2)!  w 
+        this_B(1+4*(e-1)+3) = - G31(2)!  u
+        this_B(1+4*(e-1)+4) = - S333(2)! szz 
+        this_B(1+4*(e-1)+5) = - S313(2)! szx 
        end if
       end if
       
       end if ! direction
-
-      
-!     if(verbose >= 3) then
-      
-!       write(outpf,*)"[", allpoints(nJ)%center(1,1),"," & 
-!                     , allpoints(nJ)%center(1,2),"]  e=",e
-!       call showMNmatrixZ(4*N+2,1,B,"B    ",outpf)
-!     end if
-      !     stop 0
       end subroutine vectorB_force
       subroutine Add_diffractedField_by_layeredMedia_source & 
       (NumObservers,P,theseIPs_B,direction,cOME_i,iik,outpf)
@@ -3286,8 +3249,8 @@
         !guardar en: GT_gq_k(xi,iGq,imec,m,k)
         P(iP)%GT_gq_k(iPxi,iGq,1:imecMax,direction,iik) = &
         P(iP)%GT_gq_k(iPxi,iGq,1:imecMax,direction,iik) + this_Meca%Rw(1:imecMax)
-        !                                 1 == x
-        !                                 2 == z
+        !                                 1 == horizontal
+        !                                 2 == vertical
       end do 
       
       end subroutine Add_diffractedField_by_layeredMedia_Green      
@@ -3297,18 +3260,14 @@
       use gloVars, only : verbose,UI,UR,PI
       use waveVars, only : Theta
       use waveNumVars, only : K !current DWN step
-!     use refSolMatrixVars, only : B !(:,iP)
       use resultVars, only : MecaElem
       implicit none
       type (MecaElem)              :: calcMecaAt_xi_zi
       real, intent(in)             :: x_i, z_i
       complex*16, intent(in)       :: cOME_i  
-!     logical                      :: done
       integer, intent(in)          :: e,outpf
       complex*16, dimension(4*N+2),intent(in) :: thisIP_B
-!     integer    :: e
-!     real       :: p!,q
-      complex*16 :: gamma,nu,eta,xi!,k
+      complex*16 :: gamma,nu,eta,xi
       complex*16 :: egammaN,enuN,egammaP,enuP
       complex*16, dimension(2,4) :: subMatD
       complex*16, dimension(3,4) :: subMatS
@@ -3317,35 +3276,26 @@
       complex*16, dimension(2,1) :: resD
       complex*16, dimension(3,1) :: resS
       
-!     real :: localZ,localZsig
-!     integer :: dd
-      
       if (verbose >= 3) then
        write(outpf,'(a,F7.3,a,F12.7,a,F10.2,a,F10.2,a,I0)') & 
                     "finding solution values at w:", & 
                     real(cOME_i),"k=",k," {",x_i,",",z_i,"} e=",e
       end if
       
-!     print*,Bk
-!     return
-      
       calcMecaAt_xi_zi%center%X = x_i
       calcMecaAt_xi_zi%center%Z = z_i
-
-!      localz = Z(e)
-!      localzsig = Z(e+1)
        
       ! algunas valores constantes para todo el estrato
       gamma = sqrt(cOME_i**2. /ALFA(e)**2. - k**2.)
       nu = sqrt(cOME_i**2. /BETA(e)**2. - k**2.)
       xi = k**2. - nu**2.
-      eta = 2.*gamma**2. - cOME_i**2. /BETA(e)**2.
+      eta = 2.0*gamma**2.0 - (cOME_i/BETA(e))**2.0
       subMatD = RESHAPE((/ -gamma,-k*UR,-k*UR,nu,gamma,-k*UR,-k*UR,-nu /), &
                            (/ 2,4 /))
-      subMatS = RESHAPE((/ xi,      -2. *k*gamma,     eta,     &
-                          -2. *k*nu,     -xi,        2.*k*nu,   &
-                           xi,       2.*k*gamma,     eta,     &
-                           2. *k*nu,     -xi,       -2.*k*nu /),&
+      subMatS = RESHAPE((/ xi,      -2.0*k*gamma,     eta,     &
+                          -2.0*k*nu,     -xi,        2.0*k*nu,   &
+                           xi,       2.0*k*gamma,     eta,     &
+                           2.0*k*nu,     -xi,       -2.0*k*nu /),&
                            (/3,4/))      
       
          !downward waves
@@ -3370,26 +3320,20 @@
           subMatD(:,4) = subMatD(:,4) * diagMat(4,1) !Up   S
           
           ! esfuerzos estrato i
-          subMatS = AMU(e) * exp(-UI*k*x_i) * subMatS
+          subMatS = AMU(e) * exp(-UI * k * x_i) * subMatS
           subMatS(:,1) = subMatS(:,1) * diagMat(1,1) !Down P
           subMatS(:,2) = subMatS(:,2) * diagMat(2,1) !Down S
           subMatS(:,3) = subMatS(:,3) * diagMat(3,1) !Up   P
           subMatS(:,4) = subMatS(:,4) * diagMat(4,1) !Up   S
       
  !mutiplicamos por los coeficientes de la solución del sistema
-        if (e /= N+1) then!                          ,--- punto
-!         partOfXX(1:4,1) = B(4*(e-1)+1 : 4*(e-1)+4,iP)
+        if (e /= N+1) then
           partOfXX(1:4,1) = thisIP_B(4*(e-1)+1 : 4*(e-1)+4)
-        else
-        !( condición de radiación)
-!         partOfXX(1:2,1) = B(4*(e-1)+1 : 4*(e-1)+2,iP)
+        else !( condición de radiación)
           partOfXX(1:2,1) = thisIP_B(4*(e-1)+1 : 4*(e-1)+2)
           partOfXX(3:4,1) = 0.0d0
         end if!
         if (verbose>=3) then
-!         do dd=1,size(Bk(:))
-!           print*,"B",dd,"= ",Bk(dd)
-!         end do
           print*,"xx1 ",partOfXX(1,1)
           print*,"xx2 ",partOfXX(2,1)
           print*,"xx3 ",partOfXX(3,1)
@@ -3592,6 +3536,7 @@
       integralEq14 = 0
       lejos = .false.
       
+      
       if (lejos) then
       ! no usamos integración gaussiana
        ! Asumimos T invariable a lo largo de la longitud,
@@ -3601,7 +3546,7 @@
         trac = BouPoints(iP_x)%GT_gq(iPxi,ceiling(Gquad_n/2.),5-i,j+1) * BouPoints(iP_x)%normal(1) + &
                BouPoints(iP_x)%GT_gq(iPxi,ceiling(Gquad_n/2.),4-i,j+1) * BouPoints(iP_x)%normal(2)
         integralEq14 = trac * BouPoints(iPxi)%length
-        stop  "lejos"
+        !stop  "lejos"
       else ! cerca
       ! usamos integracion gaussiana
       
@@ -3948,7 +3893,7 @@
       real       ::                          Y(nz)
       complex*16 :: Sm(2*(nx/MeshDXmultiplo)+1,nz,imecMax,2*NFREC)      
       integer  :: iP,iMec
-      integer  :: ix,iz,iT,i,Iframe,Fframe
+      integer  :: ix,iz,iT,i,Iframe,Fframe,mecMAx
       real     :: factor,ColorRangeMaximumScale
       character(LEN=3), dimension(5)      :: nombre
       character(LEN=60) :: textoTimeStamp
@@ -3964,6 +3909,8 @@
       nombre(3)= 's33'
       nombre(4)= 's31'
       nombre(5)= 's11'
+      mecMax = 5
+      if(workboundary) mecMax = 2
       
       if (verbose >= 1) Write(outpf,'(a)') "Will make a movie..."
          CALL chdir("video")
@@ -3993,7 +3940,7 @@
         Y(iz) = allpoints(IP)%center(2) !;print*,iP,'z=',Y(iz)
         
         ! los espectros de cada coordenada ya están ordenaditos
-        do iMec = 1,2
+        do iMec = 1,mecMax
         ! (1) crepa
         Sm(ix,iz,iMec,1:nfrec) = allpoints(iP)%WmovieSiblings(ix,1:nfrec:+1,iMec)
         Sm(ix,iz,iMec,nfrec+1:nfrec*2) = conjg(allpoints(iP)%WmovieSiblings(ix,nfrec+1:2:-1,iMec))
@@ -4015,7 +3962,7 @@
       !color table boundaries
       ColorRangeMaximumScale = 0.1
       
-  123 do i=1,2
+  123 do i=1,mecMax
        maV = maxVal(real(Sm(:,:,i,:)))
        miV = minVal(real(Sm(:,:,i,:)))
        maV = max(maV,abs(miV))
@@ -4081,14 +4028,14 @@
       
       
       do iT=Iframe,Fframe !cada fotograma
-      do iMec=1,2 !cada elemento mecanico 
+      do iMec=1,mecMax !cada elemento mecanico 
        write(auxTxt,'(F8.3,30x)') Dt*(iT-1)
        if (verbose >= 2) then
-        write(textoTimeStamp,'(a,a,a)') & 
-         nombre(iMec), trim(adjustl(auxTxt)),'.txt'
+        write(textoTimeStamp,'(a,a,a,a)') & 
+         nombre(iMec), '-' ,trim(adjustl(auxTxt)),'.txt'
         open(44, file=textoTimeStamp)
         do iz=1,nz
-        do ix=1,nx
+        do ix=1,size(Sm,1)
           write(44,'(e15.6)',advance='no') real(Sm(ix,iz,iMec,iT))
         end do
         write(44,*)
@@ -4118,6 +4065,8 @@
       call winsiz(int(1200,4),int(800,4))
       CALL SCRMOD('REVERS') !fondo blanco
       CALL DISINI()
+!     CALL COMPLX ! sets a complex font
+      CALL HWFONT()
            !the position of an axis system. Lower left corner
       CALL axspos (int(300,4) ,int(2200,4)) 
       call axslen (int(2700,4), int(2000,4)) !size of the axis system.
@@ -4168,9 +4117,9 @@
       end do !iT
       
       !now make the video with the frames
-      do iMec=1,2
-      write(path,'(a,a,a)')'ffmpeg -f image2 -i ',nombre(iMec), & 
-                                                      '%d.png video.mp4'
+      do iMec=1,mecMax
+      write(path,'(a,a,a)')'ffmpeg -i ',nombre(iMec), & 
+                  '%d.png -f mp4 -vcodec h264 -pix_fmt yuv420p video.mp4'
       call system(trim(path))
       write(path,'(a,a,a)') 'cp video.mp4 ',nombre(iMec),'.mp4'
       call system(trim(path))
@@ -4183,6 +4132,21 @@
       read(5,*)imdone
       if(imdone .eq. 'Y' .or. imdone .eq. 'y') then
         go to 123
+      end if
+      print *, char(7)
+      write(6,'(a)') 'Delete *.png files? [Y]'
+      read(5,*)imdone
+      if(imdone .eq. 'Y' .or. imdone .eq. 'y') then
+        write(path,'(a)') 'rm *.png'
+        call system(trim(path))
+      end if
+      if (verbose .ge. 2) then
+        write(6,'(a)') 'Delete *.txt files? [Y]'
+        read(5,*)imdone
+        if(imdone .eq. 'Y' .or. imdone .eq. 'y') then
+          write(path,'(a)') 'rm *.txt'
+          call system(trim(path))
+        end if
       end if
       end subroutine Hollywood
 ! Fortran code...

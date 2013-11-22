@@ -6,7 +6,7 @@ Mesh:
       MeshOffset on Z (m)
 0.0
       Mesh +-maxX (m)
-10.0
+20.0
 Incidence:
       Amplitude function scale
 1.0
