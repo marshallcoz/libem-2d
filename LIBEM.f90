@@ -212,7 +212,7 @@
       integer, save :: MeshDXmultiplo
       real, save :: MeshDZ,MeshDX,DeltaX
       real, save :: MeshMaxX !from leftmost or rightmost point
-      real, save :: MeshOffsetZ  !from deeper point
+      real, save :: MeshMaxZ  
       real, save  :: boundingXn,boundingZn
       real, save  :: boundingXp,boundingZp
 
@@ -1763,7 +1763,7 @@
       READ(7,*)
       READ(7,*) MeshDX
       READ(7,*)
-      READ(7,*) MeshOffsetZ
+      READ(7,*) MeshMaxZ
       READ(7,*)
       READ(7,*) MeshMaxX
       close(7)
@@ -1802,7 +1802,7 @@
 !         boundingZp = max(maxval(Xcoord(:,2)),Z(N+1))
 !         boundingZn = minval(Xcoord(:,2)) 
 !       else
-          boundingZp = Z(N+1)
+          boundingZp = MeshMaxZ !Z(N+1)
           boundingZn = 0. 
 !       end if!
         NxXxMpts = 2*(nx/MeshDXmultiplo)+1
@@ -1813,9 +1813,9 @@
           write(outpf,'(a,F9.1,a,F9.1,a,F10.3,a,F10.3,a,I0,a)') & 
                         "x :[", - nx * DeltaX," ... ", nx * DeltaX, & 
                   "] @",MeshDX,"m -> (",DeltaX,"m*[",MeshDXmultiplo,"])"
-          write(outpf,'(a,F9.1,a,F9.1,a,F10.3,a,F9.1,a)') & 
+          write(outpf,'(a,F9.1,a,F9.1,a,F10.3,a)') & 
                      "z :[",boundingZn," ... ",boundingZp, & 
-                     "] @",MeshDZ,"m    (+",MeshOffsetZ,"m offset)"
+                     "] @",MeshDZ,"m"
           write(outpf,'(a,I0)') "Number of horizontal movie pixels: ", & 
                               2*(nx/MeshDXmultiplo)+1
         end if
@@ -1824,8 +1824,9 @@
         if(boundingZn == 0.0) then
           plusCero =1
         end if
-        nz = int((abs(boundingZn)+abs(boundingZp) & 
-                   + 1.0 * MeshOffsetZ) / MeshDZ) + plusCero
+!       nz = int((abs(boundingZn)+abs(boundingZp) & 
+!                  + 1.0 * MeshOffsetZ) / MeshDZ) + plusCero
+        nz = int((abs(boundingZn)+abs(boundingZp)) / MeshDZ) + plusCero
         
         nMpts = nz
         mPtini = iPtfin + 1
