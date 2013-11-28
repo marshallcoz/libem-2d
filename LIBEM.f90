@@ -80,12 +80,12 @@
       !reference solution variables:
       complex*16 :: cOME  
       !Linear equation matrix system:           ,--- vector term indep.
-      !                                         | ,--- iP
-      !                                         | | 
-      complex*16, save, allocatable :: A(:,:),B(:,:),Ak(:,:),Bb(:,:)
+      !                                         | 
+      !                                         | 
+      complex*16, save, allocatable :: A(:,:),B(:),Ak(:,:),Bb(:,:)
       complex*16, dimension(:), allocatable :: this_B,this_Bcopy
                                    
-      integer, dimension(:,:), allocatable :: IPIV
+      integer, dimension(:), allocatable :: IPIV
       integer :: info    
       end module refSolMatrixVars
       
@@ -1243,9 +1243,9 @@
       ALLOCATE (A(4*N+2,4*N+2)); A=cmplx(0,0,8)
       allocate (Ak(4*N+2,4*N+2)); Ak=cmplx(0,0,8)
       allocate (this_B(4*N+2))
-      allocate (this_Bcopy(4*N+2))
-      ALLOCATE (B (4*N+2,Npts)) ! una sola fuente
-      ALLOCATE (IPIV(4*N+2,npts)) ! pivote
+!     allocate (this_Bcopy(4*N+2))
+      ALLOCATE (B (4*N+2)) ! una sola fuente
+      ALLOCATE (IPIV(4*N+2)) ! pivote
       allocate (auxKvect(2*Nmax))
       factor = sqrt(2.*NMAX*2)
       
@@ -1369,35 +1369,21 @@
       Do ik=1,nmax+1 !WAVE NUMBER LOOP-
          k = real(ik-1,8) * dK
          if (ik .eq. 1) k = dk * 0.001
-  
       !--- P-SV
       call matrixA_borderCond(k,cOME,PrintNum)
                    !    1  ,  2
       do direction = dstart,dfinish ! Fuerza horizontal; vertical
       
   ! + campo difractado por estratos. (x:todos xi:fuente)
-        B = 0; this_B = 0 
-        call vectorB_force(this_B,zfsource,efsource,intfsource, & 
-                          direction,cOME,k)
-        ! xi es la fuente real (una sola)
-!       this_B = this_B * exp( cmplx(0.0,k * xfsource,8))
-        this_Bcopy = this_B
+        B = 0 
+        call vectorB_force(B,zfsource,efsource,intfsource,direction,cOME,k)
+        if (workBoundary) this_B = B
         Ak = A; IPIV = 4*N+2
-        call zgesv(4*N+2,1,Ak,4*N+2,IPIV(:,1),this_B,4*N+2,info)   
-        if(info .ne. 0)then
-           write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
-        do iP = 1,Npts !(receptores en el medio)
-          B(:,iP) = this_B !* exp(cmplx(0.,-k*(allpoints(iP)%center(1)),8))
-        end do
+        call zgesv(4*N+2,1,Ak,4*N+2,IPIV,B,4*N+2,info)   
+          if(info .ne. 0)then; write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
         call Add_diffractedField_by_layeredMedia_source(Npts,allpoints,B,direction,cOME,ik,PrintNum) 
-      
       if (workBoundary) then
-  ! + campo difractado por estratos. (x:Bou xi:fuente) (término indep en ibem)
-        Bb = 0; this_B = this_Bcopy
-        do iP = 1,nBpts !(receptores en la frontera)
-          Bb(:,iP) = this_B * exp(cmplx(0.,-k*BouPoints(iP)%center(1),8))
-        end do
-        call Add_diffractedField_by_layeredMedia_source(nBpts,BouPoints,Bb,direction,cOME,ik,PrintNum)
+        call Add_diffractedField_by_layeredMedia_source(nBpts,BouPoints,this_B,direction,cOME,ik,PrintNum)
       end if
        
   ! + funcion de Green. (x:todos xi:Bou_Gqpts)
@@ -1405,29 +1391,29 @@
       if (workBoundary) then
         do iPxi = 1,nBpts ! cada segmento
         do iGq = 1,Gquad_n !cada punto de integración en el segmento
-          B = 0; this_B = 0; Bb = 0;
+          B = 0
 !         print*,"force is at [",BouPoints(iPxi)%Gq_xXx_coords(iGq,1),BouPoints(iPxi)%Gq_xXx_coords(iGq,2),"] e=", &
 !         BouPoints(iPxi)%layer
-          call vectorB_force(this_B, & 
+          call vectorB_force(B, & 
                            BouPoints(iPxi)%Gq_xXx_coords(iGq,2), & 
                            BouPoints(iPxi)%layer, & 
                            BouPoints(iPxi)%isOnInterface, & 
                            direction,cOME,k)
-          this_B = this_B * exp(cmplx(0.0, k * BouPoints(iPxi)%Gq_xXx_coords(iGq,1),8))
+!         this_B = this_B * exp(cmplx(0.0, k * BouPoints(iPxi)%Gq_xXx_coords(iGq,1),8))
           Ak = A; IPIV = 4*N+2
-          call zgesv(4*N+2,1,Ak,4*N+2,IPIV,this_B,4*N+2,info)   
+          call zgesv(4*N+2,1,Ak,4*N+2,IPIV,B,4*N+2,info)   
            if(info .ne. 0)then
            write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
-         do iP = 1,Npts !(receptores en el medio)
-          B(:,iP) = this_B * exp(cmplx(0.,-k*allpoints(iP)%center(1),8))
-         end do!
-         do iP = 1,nBpts !(receptores en la frontera)
-          Bb(:,iP) = this_B * exp(cmplx(0.,-k*BouPoints(iP)%center(1),8))
-         end do
+!        do iP = 1,Npts !(receptores en el medio)
+!         B(:,iP) = this_B * exp(cmplx(0.,-k*allpoints(iP)%center(1),8))
+!        end do!
+!        do iP = 1,nBpts !(receptores en la frontera)
+!         Bb(:,iP) = this_B * exp(cmplx(0.,-k*BouPoints(iP)%center(1),8))
+!        end do
           call Add_diffractedField_by_layeredMedia_Green & 
                 (Npts,allpoints,B,iPxi,iGq,direction,cOME,ik,PrintNum)
           call Add_diffractedField_by_layeredMedia_Green & 
-                (nBpts,boupoints,Bb,iPxi,iGq,direction,cOME,ik,PrintNum)
+                (nBpts,boupoints,B,iPxi,iGq,direction,cOME,ik,PrintNum)
         end do !iGq
         end do !iPxi
       end if 
@@ -1493,8 +1479,8 @@
       call zgesv(2*nBpts,1,ibemMat,2*nBpts,IPIVbem,trac0vec,2*nBpts,info)
       if(info .ne. 0)then
            write(PrintNum,'(a,I0)')"Problem No:",info; stop 0; end if
-      
-      if (verbose .ge. 2) then
+      !
+      if (verbose .ge. 1) then
          call showMNmatrixZ(2*nBpts,1, trac0vec," phi ",PrintNum)
          CALL chdir("outs")
          write(titleN,'(a,I0,a)') 'phi_',J,'.txt'
@@ -1507,7 +1493,7 @@
          close (351) 
          CALL chdir("..")
       end if
-      stop 0
+!     stop 0
       
       print*,"add diffracted field by topography"
       ! usar coeficientes de fuerza por segmento 
@@ -1541,7 +1527,7 @@
       
       END DO ! J: frequency loop
       
-      if (workBoundary) then; deallocate(Bb); end if
+!     if (workBoundary) then; deallocate(Bb); end if
       deALLOCATE(A);deallocate(Ak);deallocate(this_B)
       deallocate(B);deallocate(IPIV)
       
@@ -2231,7 +2217,7 @@
       end do !iX
       
       
-      allocate(Bb(4*N+2, nBpts))
+!     allocate(Bb(4*N+2, nBpts))
       
       allocate(ibemMat(2*nBpts,2*nBpts))
       allocate(trac0vec(2*nBpts))
@@ -3235,7 +3221,7 @@
       integer,    intent(in)       :: direction
       complex*16, intent(in)       :: cOME_i
       type(Punto), dimension(NumObservers), intent(inout) :: P
-      complex*16, dimension(4*N+2,NumObservers),intent(in) :: theseIPs_B
+      complex*16, dimension(4*N+2),intent(in) :: theseIPs_B
       type(MecaElem)               :: calcMecaAt_xi_zi, this_Meca
       real                         :: x_i, z_i
       integer                      :: iP,e
@@ -3243,7 +3229,7 @@
         x_i = P(iP)%center(1)
         z_i = P(iP)%center(2)
           e = P(iP)%layer
-        this_Meca = calcMecaAt_xi_zi(theseIPs_B(:,iP),x_i,z_i,e,cOME_i,outpf)
+        this_Meca = calcMecaAt_xi_zi(theseIPs_B,x_i,z_i,e,cOME_i,outpf)
         
         if (direction .eq. 1) then !x
           P(iP)%FKh(iik,1:imecMax) = & 
@@ -3267,7 +3253,7 @@
       integer, intent(in)          :: NumObservers,iPxi,iGq,direction,iik,outpf
       complex*16, intent(in)       :: cOME_i
       type(Punto), dimension(NumObservers), intent(inout) :: P
-      complex*16, dimension(4*N+2,NumObservers),intent(in) :: theseIPs_B
+      complex*16, dimension(4*N+2),intent(in) :: theseIPs_B
       type(MecaElem)               :: calcMecaAt_xi_zi, this_Meca
       real                         :: x_i, z_i
       integer                      :: iP,e
@@ -3275,7 +3261,7 @@
         x_i = P(iP)%center(1)
         z_i = P(iP)%center(2)
           e = P(iP)%layer
-        this_Meca = calcMecaAt_xi_zi(theseIPs_B(:,iP),x_i,z_i,e,cOME_i,outpf)
+        this_Meca = calcMecaAt_xi_zi(theseIPs_B,x_i,z_i,e,cOME_i,outpf)
         
         !guardar en: GT_gq_k(xi,iGq,imec,m,k)
         P(iP)%GT_gq_k(iPxi,iGq,1:imecMax,direction,iik) = &
@@ -3475,7 +3461,7 @@
 !       print*,""
 !       print*, NxXxMpts
 !       print*,size(auxFK,1)
-        do i=1,2*nmax,meshdxmultiplo
+        do i=1,2*nmax,MeshDXmultiplo
 !          print*,i
            P(iP_x)%WmovieSiblings(xXx,iJ,1:imecMax) = auxFK(i,1:imecMax)
            xXx = xXx + 1
@@ -3488,9 +3474,9 @@
       end do !iP_x
       end subroutine crepa_taper_vectsum_KtoX
       subroutine crepa_taper_KtoX_GT_Gq(J,P,Npuntos_X,AllorBou,outpf)
-      use waveNumVars, only : NFREC,NMAX
-      use resultvars, only: Punto,nPts,nBpts,iPtini,iPtfin,mPtini,mPtfin,Hf,Hk 
-      use glovars, only: verbose,imecMax,makevideo
+      use waveNumVars, only : NFREC,NMAX,DK
+      use resultvars, only: Punto,nPts,nBpts,iPtini,iPtfin,mPtini,mPtfin,Hf,Hk,BP => BouPoints
+      use glovars, only: verbose,imecMax,makevideo,pi
       use wavelets !fork
       use Gquadrature, only: Gquad_n
       use meshVars, only: MeshDXmultiplo,nx
@@ -3499,10 +3485,10 @@
       integer, intent(in) :: J,Npuntos_X,outpf
       type(Punto), dimension(Npuntos_X), intent(inout)  :: P
       logical, intent(in) :: AllorBou
-      integer :: iP_x,iPxi,iMec,ihv,iGq,xXx,i
+      integer :: iP_x,iPxi,iMec,ihv,iGq,xXx,i,ik
       complex*16, dimension(2*nmax) :: Kvect
       integer, dimension(5,2) :: sign
-      real :: factor
+      real :: factor,k
       factor = sqrt(2.*NMAX*2)
       
       !  fza horiz     fza vert
@@ -3523,6 +3509,15 @@
          Kvect(nmax+1:2*nmax) = sign(iMec,ihv) *  & 
             P(iP_x)%GT_gq_k(iPxi,iGq,iMec,ihv,nmax+1:2:-1) ! kmax -kmax ... -3 -2 -1
          
+         ! añadir información sobre la coordenada x de la fuente
+      do ik=1,nmax
+        k = real(ik-1,8) * dK
+        if (ik .eq. 1) k = dk * 0.001
+        Kvect(ik) = Kvect(ik) * exp(cmplx(0.,-pi*k*BP(iPxi)%Gq_xXx_coords(iGq,1)))
+        k = real(ik,8) * dK * -1
+        Kvect(2*nmax+1-ik) = Kvect(2*nmax+1-ik) * exp(cmplx(0.,-pi*k*BP(iPxi)%Gq_xXx_coords(iGq,1)))
+      end do
+         
          Kvect = Kvect * Hk * Hf(J) * factor !taper
          call fork(2*nmax,Kvect,+1,verbose,outpf) !K -> X
          Kvect = Kvect / factor
@@ -3534,7 +3529,7 @@
                  Kvect = cshift(Kvect,SHIFT=nmax+1,DIM=1)
        ! (2) guardar solo los puntos interesantes para la película
                  xXx = 1
-                 do i=nMax-nx,nMax+nx,MeshDXmultiplo
+                 do i=1,2*nmax,MeshDXmultiplo
                     P(iP_x)%GT_gq_mov(iPxi,iGq,iMec,ihv,xXx) = Kvect(i)
                     xXx = xXx + 1       
                  end do
@@ -3944,12 +3939,15 @@
       complex*16 :: Sm(2*(nx/MeshDXmultiplo)+1,nz,imecMax,2*NFREC)      
       integer  :: iP,iMec
       integer  :: ix,iz,iT,i,Iframe,Fframe,mecMAx
-      real     :: factor,ColorRangeMaximumScale
+      real     :: factor,ColorRangeMaximumScale,tlabel
+      integer*4 :: lentitle
       character(LEN=3), dimension(5)      :: nombre
       character(LEN=60) :: textoTimeStamp
       character(LEN=15) :: auxTxt
       CHARACTER(len=400) :: path
       character(LEN=1) :: imdone
+      character(LEN=60) :: CTIT
+
       real :: maxY, minY, maxX, minX, p
       real, dimension(41)   :: ZLVRAY
       real                  :: maV,miV,Vstep,xstep,zstep
@@ -4112,11 +4110,12 @@
       call filmod('DELETE') ! para sobreescribir el archivo
       CALL PAGE (int(3600,4),int(2400,4))
       call imgfmt('RGB')
-      call winsiz(int(1200,4),int(800,4))
+      call winsiz(int(1200),int(800,4))
       CALL SCRMOD('REVERS') !fondo blanco
       CALL DISINI()
 !     CALL COMPLX ! sets a complex font
-      CALL HWFONT()
+      CALL BMPFNT ('SIMPLEX')
+!     CALL HWFONT()
            !the position of an axis system. Lower left corner
       CALL axspos (int(300,4) ,int(2200,4)) 
       call axslen (int(2700,4), int(2000,4)) !size of the axis system.
@@ -4159,7 +4158,14 @@
       call xaxgit()
       end if
       
-      CALL HEIGHT(int(50,4))
+!     CTIT='Vectors'
+      tlabel = (it)*dt
+!     print*,tlabel
+      write(CTIT,'(a,F9.5,a)') 't=',tlabel,' seg'
+      lentitle = NLMESS(CTIT)
+      CALL MESSAG(CTIT,int((3600-lentitle-100),4),int(300,4))
+      
+      CALL HEIGHT(int(150,4))
       call errmod ("all", "off")
       CALL DISFIN 
       end do !iMec
