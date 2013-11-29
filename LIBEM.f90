@@ -8,7 +8,7 @@
       integer, parameter    :: verbose = 1
       logical, parameter    :: makeVideo = .true.
       logical, parameter    :: getInquirePointsSol = .true.!dont change
-      logical, parameter    :: workBoundary = .false.
+      logical, parameter    :: workBoundary = .true.
       logical, parameter    :: plotFKS = .false.
       integer, parameter    :: imecMax = 5
       integer, parameter :: multSubdiv = 4 ! Lo ideal es 4 o un multiplo
@@ -1363,6 +1363,7 @@
       if (workBoundary) then 
          call subdivideTopo(J,PrintNum)
          call allocintegPoints(J)
+         if(allocated(vout)) deallocate(Vout)
          if(.not. allocated(Vout)) allocate(Vout(2*nBpts,2))
       end if
       ! Free field solution:
@@ -1417,15 +1418,15 @@
 !     NMAX=2*NMAX+100                                !EMPIRICAL (improve)
       
       ! diffracted field by stratification
-      call stratumDiffField (iPxi = 0, &
-                             PX = allpoints, nPX = npts, task = 0, &
-                         J = J, cOME = cOME, outpf = PrintNum, V = Vout)
+      call stratumDiffField (0, &
+                             allpoints, npts, 0, &
+                         J, cOME, PrintNum, Vout)
       
       if (workboundary) then
       ! diffracted field by stratification at the boundary
-      call stratumDiffField (iPxi = 0, &
-                             PX = boupoints, nPX = nBpts, task = 0, &
-                         J = 1, cOME = cOME, outpf = PrintNum, V = Vout)
+      call stratumDiffField (0, &
+                             boupoints, nBpts,  0, &
+                         1, cOME, PrintNum, Vout)
                          
       ! calcular las tracciones en la topografía:
       do iP_x = 1,2*nBpts,2
@@ -1436,9 +1437,9 @@
       
       ! llenar la matriz de ibem por columnas
       do iPxi = 1,2*nBpts,2
-      call stratumDiffField (iPxi = ceiling(iPxi/2.), &
-                             PX = boupoints, nPX = nBpts, task = -1, &
-                         J = J, cOME = cOME, outpf = PrintNum, V = Vout)
+      call stratumDiffField (ceiling(iPxi/2.), &
+                             boupoints, nBpts, -1, &
+                         J, cOME, PrintNum, Vout)
                          
       ibemMat(:,iPxi:iPxi+1) = Vout
       end do
@@ -2659,7 +2660,7 @@
         deallocate(BouPoints(iX)%Gq_xXx_C)
 !       deallocate(BouPoints(iX)%GT_gq_k)
         deallocate(BouPoints(iX)%GT_gq)
-        do iXi=1,nbpts
+        do iXi=1,size(BouPoints(iX)%Gt_k)
           if(allocated(BouPoints(iX)%GT_k(ixi)%qlmk)) deallocate(BouPoints(iX)%GT_k(iXi)%qlmk)
         end do
         deallocate(BouPoints(iX)%GT_k)
@@ -2776,8 +2777,7 @@
       
       !también en necesario actulizar el tamaño del vector
       !de términos independientes
-       deallocate(Bb)
-       allocate(Bb(4*N+2, nBpts))
+     
       
       deallocate(ibemMat, trac0vec, IPIVbem)
       allocate(ibemMat(2*nBpts,2*nBpts))

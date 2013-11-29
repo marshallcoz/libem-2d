@@ -4,7 +4,7 @@ H(m) Alfa(m/s) Beta(m/s) Dens(T/m3)
 15       40    30        1.5
 8888    110    90        1.5
 DFREC   nFREC   DeltaK   nK     Q   (Original scheme)
-20.0     16     0.0002    256    100.0
+0.2     32     0.0002    256    100.0
 
 N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
 2
