@@ -1,17 +1,15 @@
 Mesh:
       Mesh Delta on Z (m)
-1.5
+0.1
       Mesh minDelta on X (m)
-1.5
+0.1
       Mesh Max Z (m)
-30.0
+4.0
       Mesh +-maxX (m)
-15.0
+2.0
 Incidence:
       Amplitude function scale
 1.0
-      Theta (degree)
-0.0
       Ts
 1.0
       Tp
