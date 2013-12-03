@@ -1434,11 +1434,11 @@
                          J = J, cOME = cOME, outpf = PrintNum, V = Vout)
       
       do ip_x = iPtini,iPtfin
-      allpoints(ip_x)%W = allpoints(ip_x)%W * Uo(J) * Escala
+         allpoints(ip_x)%W = allpoints(ip_x)%W * Uo(J) * Escala
       end do
       if (makeVideo) then
       do ip_x = mPtini,mPtfin
-      allpoints(ip_x)%WmovieSiblings = allpoints(ip_x)%WmovieSiblings * Uo(J) * Escala
+         allpoints(ip_x)%WmovieSiblings = allpoints(ip_x)%WmovieSiblings * Uo(J) * Escala
       end do
       end if
       
@@ -1448,7 +1448,7 @@
                              PX = boupoints, nPX = nBpts, task = 0, &
                          J = 1, cOME = cOME, outpf = PrintNum, V = Vout)
       do ip_x = 1,nbpts
-      boupoints(ip_x)%W = boupoints(ip_x)%W * Uo(J) * Escala
+         boupoints(ip_x)%W = boupoints(ip_x)%W * Uo(J) * Escala
       end do
                          
       ! calcular las tracciones en la topografía:
