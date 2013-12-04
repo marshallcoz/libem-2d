@@ -1264,7 +1264,7 @@
       NPts = nIpts + nMpts
       allocate (allpoints(Npts))
       allocate (Ak(4*N+2,4*N+2,nmax+1))
-      allocate (this_B(4*N+2))
+!     allocate (this_B(4*N+2))
       ALLOCATE (B (4*N+2)) ! una sola fuente
       ALLOCATE (IPIV(4*N+2)) ! pivote
       allocate (auxKvect(2*Nmax))
@@ -1363,31 +1363,28 @@
 !     NMAX=(OME/minval(BETA))/DK+1                   !EMPIRICAL (improve)
 !     NMAX=2*NMAX+100                                !EMPIRICAL (improve)
       
-      call stratumDiffField (iPxi = 0, &
-                             PX = allpoints, nPX = npts, task = 0, &
-                         J = J, cOME = cOME, outpf = PrintNum, V = Vout)
+      call stratumDiffField (0, &
+                             allpoints, npts, 0, &
+                             J, cOME, PrintNum, Vout)
       
       do ip_x = iPtini,iPtfin
-         allpoints(ip_x)%W(J,1:2) = allpoints(ip_x)%W(J,1:2) * Uo(J) * Escala
+         allpoints(ip_x)%W(J,:) = allpoints(ip_x)%W(J,:) * Uo(J) * Escala
       end do
       if (makeVideo) then
        do ip_x = mPtini,mPtfin
-         allpoints(ip_x)%WmovieSiblings(:,J,1:2) = allpoints(ip_x)%WmovieSiblings(:,J,1:2) * Uo(J) * Escala
+         allpoints(ip_x)%WmovieSiblings(:,J,:) = allpoints(ip_x)%WmovieSiblings(:,J,:) * Uo(J) * Escala
        end do
       end if
       !
       if (workboundary) then
       trac0vec = cmplx(0.0,0.0,8) 
       ! diffracted field by stratification at the boundary
-      call stratumDiffField (iPxi = 0, &
-                             PX = boupoints, nPX = nBpts, task = 0, &
-                         J = 1, cOME = cOME, outpf = PrintNum, V = Vout)
+      call stratumDiffField (0, &
+                             boupoints, nBpts, 0, &
+                             1, cOME, PrintNum, Vout)
       do ip_x = 1,nbpts
-         boupoints(ip_x)%W(1,1:2) = boupoints(ip_x)%W(1,1:2) * Uo(J) * Escala
+         boupoints(ip_x)%W(1,:) = boupoints(ip_x)%W(1,:) * Uo(J) * Escala
       end do
-      
-      
-      ! calcular las tracciones en la topografía:
       do iP_x = 1,2*nBpts,2
        do l=0,1 !dirección de tracción en el receptor (mini renglón)
          trac0vec(iP_x + l) = -1.0 * freefTraction(ceiling(iP_x/2.),l)
@@ -1401,10 +1398,14 @@
       ibemMat = cmplx(1.0,0.0,8) 
       do iPxi = 1,2*nBpts,2
         vout = cmplx(0.0,0.0,8)
-        call stratumDiffField (iPxi = ceiling(iPxi/2.), &
-                             PX = boupoints, nPX = nBpts, task = -1, &
-                         J = J, cOME = cOME, outpf = PrintNum, V = Vout)
+        call stratumDiffField (ceiling(iPxi/2.), &
+                             boupoints, nBpts, -1, &
+                             J, cOME, PrintNum, Vout)
         ibemMat(:,iPxi:iPxi+1) = Vout
+        
+        call stratumDiffField (ceiling(iPxi/2.), &
+                              allpoints, npts, 0, &
+                              J, cOME, PrintNum, Vout)
       end do
       
       if (verbose .ge. 2) then
@@ -1443,6 +1444,7 @@
         end do ! iPxi
       end do !iP_X inqPoints
       
+      if (makeVideo) then
       do iP_x = mPtini,mPtfin ! cada nivel de receptores X
        do iP = 1,NxXxMpts ! cada punto de película
         do l=0,1 !direc. desp. en receptor X  (x,z)
@@ -1455,10 +1457,11 @@
         end do ! l
        end do ! iP
       end do !iP_x
+      end if
       end if ! workboundary
       END DO ! J: frequency loop
       
-      deallocate(this_B)
+!     deallocate(this_B)
       deallocate(B);deallocate(IPIV)
       
       if(verbose >= 1) write(PrintNum,'(a)')"response found..."
@@ -2990,11 +2993,11 @@
       subroutine stratumDiffField (iPxi, &
                                    PX, nPX, task, &
                                    J, cOME, outpf, V)
-      ! 
+      ! task = -1
       ! Toma una fuente XI y devuelve un vector V_[2*nBpts,2] de tracciones sobre puntos X
       ! 
-      ! Si task =  0 sólo almacena el campo diffractado (estratigrafía) en W y WmovieSiblings
-      !    task = -1 hace 0 y arroja el término de vectores independientes para el ibem 
+      ! task =  0
+      ! Almacena el campo diffractado (estratigrafía) en W y WmovieSiblings
       
       use gloVars, only: verbose,PI
       use resultvars, only:nBpts,MecaElem,Punto,Boupoints,Hf,Hk, NxXxMpts
@@ -3071,12 +3074,8 @@
          k = real(ik-1,8) * dK
          if (ik .eq. 1) k = dk * 0.001
         
-!       call matrixA_borderCond(A,k,cOME,outpf)
-        call vectorB_force(B,zf,ef,intf,dir,cOME,k)
-!       IPIV = 4*N+2
-!       call zgesv(4*N+2,1,Ak(:,:,ik),4*N+2,IPIV,B,4*N+2,info)   
+        call vectorB_force(B,zf,ef,intf,dir,cOME,k)  
         B = matmul(AK(:,:,ik),B)
-!         if(info .ne. 0) stop "Problem at DWN global matrix "
         Meca_diff = calcMecaAt_xi_zi(B,&  
                      PX(iP_x)%center(2),& 
                      PX(iP_x)%layer,cOME,k,outpf)
@@ -3142,43 +3141,35 @@
          !               5     4       |                4     3
          !      0       5-0   4-0      |         1     5-1   4-1
          !---------------------------------------------------------
-      end if ! task
-      
+      else !task = 0
         ! guardamos el campo difractado
         if(PX(iP_x)%guardarMovieSiblings) then
           ! (1) reordenar la crepa existente en X
           auxK = cshift(auxK,SHIFT=nmax,DIM=1)
           ! (2) guardar sólo los interesantes
           xXx = 1
-!         print*,size(auxk,1)
-!         print*,nmax-nx
-!         print*, NxXxMpts
-!         print*, MeshDXmultiplo
-!         do i=nmax-nx,nmax+nx,MeshDXmultiplo
           do i=1,2*nmax,MeshDXmultiplo
-!           print*,"xXx",xXx,"   i=",i
             if (iPxi .eq. 0) then !fuente real
               if (dir .eq. 1) PX(iP_x)%WmovieSiblings(xXx,J,:) = 0
               PX(iP_x)%WmovieSiblings(xXx,J,1:5) = auxK(i,1:5) * nf(dir) + &
               PX(iP_x)%WmovieSiblings(xXx,J,1:5)
             else ! func de green (sólo desplazamientos)
-              PX(iP_x)%GT_gq_mov(iPxi,iGq,1:2,dir,xXx) = auxK(i,1:2) * nf(dir) !+ &
+              PX(iP_x)%GT_gq_mov(iPxi,iGq,1:5,dir,xXx) = auxK(i,1:5) * nf(dir) !+ &
 !             PX(iP_x)%GT_gq_mov(iPxi,iGq,1:2,dir,xXx) 
             end if
             xXx = xXx + 1
-          end do  
-!          stop 0
+          end do 
         else !es un inquirePoint
           if (iPxi .eq. 0) then !fuente real
             if (dir .eq. 1) PX(iP_x)%W(J,:) = 0
             PX(iP_x)%W(J,1:5) = auxK(1,1:5) * nf(dir) + &
             PX(iP_x)%W(J,1:5)
           else ! func de green
-            PX(iP_x)%GT_gq(iPxi,iGq,1:2,dir) = auxK(1,1:2) * nf(dir) !+ &
+            PX(iP_x)%GT_gq(iPxi,iGq,1:5,dir) = auxK(1,1:5) * nf(dir) !+ &
 !           PX(iP_x)%GT_gq(iPxi,iGq,1:2,dir) 
           end if
         end if
-      
+      end if ! task
       end do !dir
       end do !iGq
        renglon = renglon + 2
@@ -4245,7 +4236,7 @@
          integralEq16 = integralEq16 + desp
        end do !xXx
       end if !lejos
-      
+!     print*,integralEq16 
       end function integralEq16
       
       ! los deplazamientos
