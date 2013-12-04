@@ -111,6 +111,7 @@
       real,save, dimension(:), allocatable :: x,y !subdivided nodes
       
       !                                             ,--Original nodes
+      real,save, dimension(:,:,:), allocatable :: Nodes_xz_n
       real,save, dimension(:,:), allocatable :: Xcoord 
             
       ! length and normals at midpoint of BigSegments:
@@ -1230,8 +1231,7 @@
       !Loop Counters
       integer :: J  ! frequency loop
       integer :: l,m,iP,iPxi,iP_x,i,ik !small loop counter
-      integer :: status
-!     integer :: IK ! wavenumber loop   
+      integer :: status 
       CHARACTER(len=400) :: path
       character(LEN=100) :: titleN
       character(LEN=10) :: tt
@@ -1269,13 +1269,8 @@
       if (workBoundary) call getTopography(PrintNum)
       NPts = nIpts + nMpts
       allocate (allpoints(Npts))
-      
-!     ALLOCATE (A(4*N+2,4*N+2)); A=cmplx(0,0,8)
-!     allocate (Ak(4*N+2,4*N+2)); Ak=cmplx(0,0,8)
-      
       allocate (Ak(4*N+2,4*N+2,nmax+1))
       allocate (this_B(4*N+2))
-!     allocate (this_Bcopy(4*N+2))
       ALLOCATE (B (4*N+2)) ! una sola fuente
       ALLOCATE (IPIV(4*N+2)) ! pivote
       allocate (auxKvect(2*Nmax))
@@ -1289,31 +1284,24 @@
          allpoints(mPtini:mPtfin) = moviePoints
          deallocate(moviePoints); end if
       
-      do iP=1,Npts !        x                                  
-!       allocate(allpoints(iP)%FKh(NMAX+1,5)); allpoints(iP)%FKh = 0
-!       allocate(allpoints(iP)%FKv(NMAX+1,5)); allpoints(iP)%FKv = 0
-        if (allpoints(iP)%guardarFK)then
+      ! Espectro - numero de onda
+      do iP=1,Npts; if (allpoints(iP)%guardarFK)then
           allocate(allpoints(iP)%FK(NFREC+1,NMAX,5))
-        end if
-      end do
+      end if; end do!
       
       do iP=iPtini,iPtfin !solo inquirepoints:
          allocate(allpoints(iP)%W(NFREC+1,5)); allpoints(iP)%W = 0
       end do
       
-      if (makeVideo) then
-        do iP=mPtini,mPtfin
+      if (makeVideo) then; do iP=mPtini,mPtfin
          allocate(allpoints(iP)%WmovieSiblings(NxXxMpts,NFREC+1,5))
          allpoints(iP)%WmovieSiblings = 0
-        end do
-      end if!
+      end do; end if!
       
       if (workBoundary) then
       ! G para resolver el campo difractado por topografía
        do iP_x = 1,nPts 
          allocate(allpoints(iP_x)%GT_k(nBpts))
-!        allocate(allpoints(iP_x)%GT_gq_k(nBpts,Gquad_n,5,2,nmax+1))
-!        allpoints(iP_x)%GT_gq_k = 0
        end do!
        do iP_x = iPtini,iPtfin
          allocate(allpoints(iP_x)%GT_gq(nBpts,Gquad_n,5,2))
@@ -1338,10 +1326,6 @@
                             "source is at (",xfsource,",",zfsource,")"
       end if
       
-!     dstart = 1; dfinish = 2!; dstep = 2
-!     if (nxfsource .eq. 0) dstart=2;if (nzfsource .eq. 0) dfinish=1
-!     if (workBoundary) then; dstart = 1; dfinish = 2; end if
-      !                       F   K
       call makeTaperFuncs(30,0.7,0.7)
       call expPIK(expK)
       call waveAmplitude(PrintNum)
@@ -1349,7 +1333,7 @@
       DO J=1,NFREC+1
         ! complex frecuency for avoiding poles and provide damping
         FREC=DFREC*real(J-1)
-        if (J .eq. 1) FREC = DFREC*0.001 
+        if (J .eq. 1) FREC = DFREC*0.8 
         OME=2.0*PI*FREC
 
 !       OMEI=0.7*PI/TW
@@ -1378,50 +1362,6 @@
          call inverseA(Ak(:,:,ik),4*N+2)
       end do ! ik
       
-      ! Free field solution:
-!      call FreeField(zfsource, & 
-!                     efsource, & 
-!                     0,0,allpoints,Npts,COME)
-!     
-!                     
-!     if (workBoundary) then
-!      ! fuente real:
-!      call FreeField(zfsource, & 
-!                     efsource, & 
-!                     0,0,BouPoints,nBpts,COME)
-!      
-!      ! fuentes virtuales en cada punto de integración:                     METER ESTO AL LOOP GRANDOTE
-!     do iPxi = 1,nBpts
-!      do iP_x = 1,nBpts ! receptores: los puntos de la frontera 
-!        if (BouPoints(iP_x)%GT_k(iPxi)%shouldUseQuadrature) then
-!          do iGq = 1,Gquad_n
-!             call FreeField(BouPoints(iPxi)%Gq_xXx_coords(iGq,2), & 
-!                     BouPoints(iPxi)%layer, & 
-!                     iPxi,iGq,boupoints(iP_x),1,COME)
-!          end do
-!        else
-!             call FreeField(BouPoints(iPxi)%center(2), & 
-!                     BouPoints(iPxi)%layer, & 
-!                     iPxi,1,boupoints(iP_x),1,COME)
-!        end if
-!      end do 
-!      ! receptores: inquirepoints y moviepoints
-!      do iP_x = 1,nPts
-!        if (Allpoints(iP_x)%GT_k(iPxi)%shouldUseQuadrature) then
-!          do iGq = 1,Gquad_n
-!             call FreeField(BouPoints(iPxi)%Gq_xXx_coords(iGq,2), & 
-!                     BouPoints(iPxi)%layer, & 
-!                     iPxi,iGq,allpoints(iP_x),1,COME)
-!          end do
-!        else
-!             call FreeField(BouPoints(iPxi)%center(2), & 
-!                     BouPoints(iPxi)%layer, & 
-!                     iPxi,1,allpoints(iP_x),1,COME)
-!        end if
-!      end do
-!     end do
-!     end if !workboundary
-      
         ! for the discrete wave number
 !     LFREC=2000 + L*exp(-PI*(FLOAT(J-1)/NFREC)**2)  !EMPIRICAL (improve)
 !     DK=2.0*PI/LFREC
@@ -1433,30 +1373,32 @@
                              PX = allpoints, nPX = npts, task = 0, &
                          J = J, cOME = cOME, outpf = PrintNum, V = Vout)
       
+      
+      
       do ip_x = iPtini,iPtfin
-         allpoints(ip_x)%W = allpoints(ip_x)%W * Uo(J) * Escala
+         allpoints(ip_x)%W(J,1:5) = allpoints(ip_x)%W(J,1:5) * Uo(J) * Escala
       end do
       if (makeVideo) then
-      do ip_x = mPtini,mPtfin
-         allpoints(ip_x)%WmovieSiblings = allpoints(ip_x)%WmovieSiblings * Uo(J) * Escala
-      end do
+       do ip_x = mPtini,mPtfin
+         allpoints(ip_x)%WmovieSiblings(:,J,1:5) = allpoints(ip_x)%WmovieSiblings(:,J,1:5) * Uo(J) * Escala
+       end do
       end if
-      
+      !
       if (workboundary) then
       ! diffracted field by stratification at the boundary
       call stratumDiffField (iPxi = 0, &
                              PX = boupoints, nPX = nBpts, task = 0, &
                          J = 1, cOME = cOME, outpf = PrintNum, V = Vout)
       do ip_x = 1,nbpts
-         boupoints(ip_x)%W = boupoints(ip_x)%W * Uo(J) * Escala
+         boupoints(ip_x)%W(J,1:5) = boupoints(ip_x)%W(J,1:5) * Uo(J) * Escala
       end do
                          
       ! calcular las tracciones en la topografía:
       trac0vec = cmplx(0.0,0.0,8) 
       do iP_x = 1,2*nBpts,2
-      do l=0,1 !dirección de tracción en el receptor (mini renglón)
+       do l=0,1 !dirección de tracción en el receptor (mini renglón)
          trac0vec(iP_x + l) = -1.0 * freefTraction(ceiling(iP_x/2.),l)
-      end do !l
+       end do !l
       end do
       if (verbose .ge. 2) then
         call showMNmatrixZ(2*nBpts,1, trac0vec,"trac0",PrintNum)
@@ -1465,12 +1407,11 @@
       ! llenar la matriz de ibem por columnas
       ibemMat = cmplx(1.0,0.0,8) 
       do iPxi = 1,2*nBpts,2
-      vout = cmplx(0.0,0.0,8)
-      call stratumDiffField (iPxi = ceiling(iPxi/2.), &
+        vout = cmplx(0.0,0.0,8)
+        call stratumDiffField (iPxi = ceiling(iPxi/2.), &
                              PX = boupoints, nPX = nBpts, task = -1, &
                          J = J, cOME = cOME, outpf = PrintNum, V = Vout)
-                         
-      ibemMat(:,iPxi:iPxi+1) = Vout
+        ibemMat(:,iPxi:iPxi+1) = Vout
       end do
       
       if (verbose .ge. 2) then
@@ -1484,12 +1425,12 @@
       if(info .ne. 0) stop "problem wiht ibem system"
       
       if (verbose .ge. 1) then
-         call showMNmatrixZabs(2*nBpts,1, trac0vec," phi ",PrintNum)
+       if(verbose .ge. 2) call showMNmatrixZabs(2*nBpts,1, trac0vec," phi ",PrintNum)
          CALL chdir("outs")
          write(titleN,'(a,I0,a)') 'phi_',J,'.txt'
          OPEN(351,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
          do i = 1,2*nBpts,2
-          write(351,'(F20.16,2x,F20.16,2x,F20.16,6x,F20.16,2x,F20.16,2x,F20.16)') & 
+          write(351,'(ES14.5E2,2x,ES14.5E2,2x,ES14.5E2,6x,ES14.5E2,2x,ES14.5E2,2x,ES14.5E2)') & 
                      real(trac0vec(i)),aimag(trac0vec(i)),abs(trac0vec(i)), &
                      real(trac0vec(i+1)),aimag(trac0vec(i+1)),abs(trac0vec(i+1))
          end do
@@ -1534,12 +1475,9 @@
       deallocate(this_B)
       deallocate(B);deallocate(IPIV)
       
-      
       if(verbose >= 1) write(PrintNum,*)"response found..."
       
       ! showoff 
-      
-      
       if (plotFKS) then 
            write(tt,'(a)')"FK_"
            write(xAx,'(a)')"frec [Hz]"
@@ -1552,6 +1490,7 @@
          end do
            CALL chdir("..")
       end if
+      
       ! mostrar sismogramas en los puntos de interés
            CALL chdir("outs")
            CALL getcwd(path)
@@ -1564,6 +1503,7 @@
       call date_and_time(TIME=time); write(PrintNum,'(a,a)') "hhmmss.sss = ",time  
       call cpu_time(finishT)
       write(PrintNum,'(a,f6.3)') "Elapsed time [sec] before video = ",finishT-startT
+      
       if (makeVideo) call Hollywood(PrintNum)
       
       Write(PrintNum,'(a)') ' done '    
@@ -1757,8 +1697,7 @@
       READ(35,*)
       READ(35,'(L1)') plotFKS; print*,"plotFK?",plotFKS
       READ(35,*)
-      READ(35,'(I1)') multSubdiv; multSubdiv = multSubdiv * 4;
-                              print*,"division multiple = ", multSubdiv
+      READ(35,'(I1)') multSubdiv; print*,"division multiple = ", multSubdiv
       READ(35,*)
       READ(35,*)
       READ(35,*) WLmulti; print*,"integ WL multiple = ", WLmulti
@@ -2341,6 +2280,12 @@
       x = Xcoord(:,1)
       y = Xcoord(:,2)
       
+      allocate(Nodes_xz_n(size(x),2,2))
+      Nodes_xz_n(:,1,1) = x
+      Nodes_xz_n(:,2,1) = y
+      Nodes_xz_n(1:nXI-1,1,2) = normXI(:,1)
+      Nodes_xz_n(1:nXI-1,2,2) = normXI(:,2)
+      
       !---
       nBpts = nXI - 1 ! es menos 1 porque se usan los puntos centrales
       bPtini = 1
@@ -2478,6 +2423,7 @@
       integer :: i,xory,xoryOtro
       real :: xA,yA,xB,yB
       real :: interpol
+      integer :: iNstart,iNfinish,iN
       
       huboCambios = .false.
       allocate(isOnIF(1))
@@ -2514,14 +2460,14 @@
         ! la longitud máxima para un segmento en este estrato:
            maxLen = BETA(e) / (multSubdiv * maxFrec)
            !safe lock
-           if (maxLen < 0.05) then
+           if (maxLen < 0.005) then
               write(outpf,'(a,I3)')'e:',e
               write(outpf,'(a,F6.3)')'z:',Z(e)
               write(outpf,'(a,F6.3)')'beta:',BETA(e)
               write(outpf,'(a,F6.3)')'maxlen:',maxLen
-              maxLen = max(maxLen,0.01)
+              maxLen = max(maxLen,0.005)
               write(outpf,'(a,a)')"  WARNING: Safe lock ative. ", & 
-              "maxLen of segments fixed to 0.01m"
+              "maxLen of segments fixed to 0.005m"
            end if
        
          ! aunque los segmentos rectos de integración son del doble de
@@ -2701,9 +2647,22 @@
       !normal vector componts at midPoints of BigSegments
       deallocate(normXI)
       ALLOCATE (normXI(nXI-1,2)) 
-      normXI = normalto(midPoint(:,1),midPoint(:,2),nXI-1,surf_poly, & 
-               degree,verbose,outpf)
+!     normXI = normalto(midPoint(:,1),midPoint(:,2),nXI-1,surf_poly, & 
+!              degree,verbose,outpf)
       
+      ! en lugar de hacer esto, vamos a heredar las normales para cada rango de ordenadas --------------------
+      ! Nodes_xz_n
+      iNstart = 1
+      iNfinish = size(Nodes_xz_n(:,1,1)) - 1
+      do iX = 1,size(midPoint(:,1))
+      do iN = iNstart,iNfinish
+      if(Nodes_xz_n(iN,1,1) .le. midPoint(ix,1) .and. midPoint(ix,1) .le. Nodes_xz_n(iN+1,1,1)) then
+      print*,midPoint(ix,1)," entre {",Nodes_xz_n(iN,1,1)," - ",Nodes_xz_n(iN+1,1,1),"}"
+      normXI(iX,1) = Nodes_xz_n(iN,1,2)
+      normXI(iX,2) = Nodes_xz_n(iN,2,2)
+      end if
+      end do
+      end do
       
       if (verbose >= 1) then
        CALL chdir("outs")
@@ -2867,6 +2826,7 @@
       allocate(trac0vec(2*nBpts))
       allocate(IPIVbem(2*nBpts))
       end if ! huboCambios
+      
       end subroutine subdivideTopo
       subroutine allocintegPoints(iJ)
       use soilVars, only : BETA
@@ -2966,9 +2926,9 @@
 !      end do       
 !      close (31)
        ! plot it to a pdf file:
-!      write(titleN,'(a)') 'rick_time.pdf'
-!      xAx = 'time[sec]'
-!      yAx = 'amplitude'
+       write(titleN,'(a)') 'rick_time.pdf'
+       xAx = 'time[sec]'
+       yAx = 'amplitude'
        call plotXYcomp(Uo,Dt,size(Uo),titleN,xAx,yAx,1200,800)
        CALL chdir("..")
 !      CALL SYSTEM ('../plotXYcomp rick_time.txt rick_time.pdf time[sec] amplitude 1200 800')
@@ -3081,6 +3041,7 @@
       renglon = 1
       V = 0 
       do iP_x = 1,nPX ! para cada punto X
+      
       if (iPxi .eq. iP_x) then
         V(renglon+0,1) = 0.5; V(renglon+0,2) = 0.0
         V(renglon+1,1) = 0.0; V(renglon+1,2) = 0.5
@@ -3211,22 +3172,24 @@
           do i=1,2*nmax,MeshDXmultiplo
 !           print*,"xXx",xXx,"   i=",i
             if (iPxi .eq. 0) then !fuente real
+              if (dir .eq. 1) PX(iP_x)%WmovieSiblings(xXx,J,1:5) = 0
               PX(iP_x)%WmovieSiblings(xXx,J,1:5) = auxK(i,1:5) * nf(dir) + &
               PX(iP_x)%WmovieSiblings(xXx,J,1:5)
             else ! func de green (sólo desplazamientos)
-              PX(iP_x)%GT_gq_mov(iPxi,iGq,1:2,dir,xXx) = auxK(i,1:2) * nf(dir) + &
-              PX(iP_x)%GT_gq_mov(iPxi,iGq,1:2,dir,xXx)
+              PX(iP_x)%GT_gq_mov(iPxi,iGq,1:2,dir,xXx) = auxK(i,1:2) * nf(dir) !+ &
+!             PX(iP_x)%GT_gq_mov(iPxi,iGq,1:2,dir,xXx) 
             end if
             xXx = xXx + 1
           end do  
 !          stop 0
         else !es un inquirePoint
           if (iPxi .eq. 0) then !fuente real
+            if (dir .eq. 1) PX(iP_x)%W(J,1:5) = 0
             PX(iP_x)%W(J,1:5) = auxK(1,1:5) * nf(dir) + &
             PX(iP_x)%W(J,1:5)
           else ! func de green
-            PX(iP_x)%GT_gq(iPxi,iGq,1:5,dir) = auxK(1,1:5) * nf(dir) !+ &
-!           PX(iP_x)%GT_gq(iPxi,iGq,1:5,dir)
+            PX(iP_x)%GT_gq(iPxi,iGq,1:2,dir) = auxK(1,1:2) * nf(dir) !+ &
+!           PX(iP_x)%GT_gq(iPxi,iGq,1:2,dir) 
           end if
         end if
       
@@ -4436,13 +4399,13 @@
       use wavelets
       implicit none
       integer ,intent(in) :: iP,outpf
-      complex*16, dimension  (Nfrec+1,5), intent(in) :: W
+      complex*16, dimension(Nfrec+1,2), intent(in) :: W
       complex*16, dimension(2*NFREC) :: S
       real, dimension(2), intent(in) :: coords  
 !     character(LEN=10),intent(in) :: tt
       character(LEN=3), dimension(5)   :: nombre
       character(LEN=100) :: titleN
-!     character(LEN=9)   :: logflag
+      character(LEN=9)   :: logflag
       integer :: i,iMec
       real :: x_i,z_i,factor
       factor = sqrt(2.*NFREC)
@@ -4456,30 +4419,32 @@
       x_i=coords(1)
       z_i=coords(2)
       
-      do iMec = 1,imecMax
+      do iMec = 1,2
       !  (0) crepa en f
       !           1 2 3 4 ... Nfrec Nfrec+1
       ! tenemos:  0 1 2 3 ... N/2-1  N/2
       ! hacemos:  0 1 2 3 ... N/2-1 -N/2 ... -3 -2 -1
       S(      1:nfrec  ) =       W(1:nfrec:+1,  iMec)
       S(nfrec+1:nfrec*2) = conjg(W(nfrec+1:2:-1,iMec))
-      
+      if (verbose .ge. 2) then
       !guardar en texto
-!        write(titleN,'(a,a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
-!              'f_',trim(tt),nombre(iMec),iP,'[', &
-!              int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
-!              int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].txt'
-!        OPEN(351,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
-!        write(351,'(I2)') 1
-!        write(351,'(a)') "amplitude"
-!        write(351,'(F15.8)') DFREC
-!        do i = 1,size(S)
-!         write(351,'(F50.16,2x,F50.16)') & 
-!                    real(S(i)),aimag(S(i))
-!        end do
-!        close (351) 
+         write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
+               'f_',nombre(iMec),iP,'[', &
+               int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
+               int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].txt'
+!        print*,titleN
+         OPEN(3211,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
+         write(3211,'(I0)') 1
+         write(3211,'(a)') "amplitude"
+         write(3211,'(F15.8)') DFREC
+         do i = 1,size(S)
+          write(3211,'(ES14.5E2,2x,ES14.5E2)') real(S(i)),aimag(S(i))
+         end do
+         close (3211) 
+      end if
       
       ! imprimir espectro:
+        if (Verbose .ge. 2) then
          write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
                'f_',nombre(iMec),iP,'[', &
                int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
@@ -4487,14 +4452,14 @@
 !        print*,titleN
          call plotXYcomp(S,DFREC,2*nfrec,titleN, & 
          'frec[hz] ','amplitude',1200,800)
-         
-!        write(titleN,'(a,a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
-!              'fL_',trim(tt),nombre(iMec),iP,'[', &
-!              int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
-!              int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].txt'
-!        logflag = 'logx     '
-!        call plotSpectrum(S,DFREC,2*nfrec,nfrec, & 
-!                        titleN,'frec[hz]','amplitude',logflag,1200,800)
+        end if
+         write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
+               'fL_',nombre(iMec),iP,'[', &
+               int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
+               int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].pdf'
+         logflag = 'logx     '
+         call plotSpectrum(S,DFREC,2*nfrec,nfrec, & 
+                         titleN,'frec[hz]','amplitude',logflag,1200,800)
 
       !  (1) pasar al tiempo
          S = S*factor
@@ -4504,6 +4469,22 @@
          S = S * exp(-DFREC/2.0 * dt*((/(i,i=1,2*nfrec)/)-1))
       
       !  (3) plot the damn thing
+      if (verbose .ge. 2) then
+      !guardar en texto
+         write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
+               'S_',nombre(iMec),iP,'[', &
+               int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
+               int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].txt'
+!        print*,titleN
+         OPEN(3211,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
+         write(3211,'(I0)') 1
+         write(3211,'(a)') "amplitude"
+         write(3211,'(F15.8)') DT
+         do i = 1,size(S)
+          write(3211,'(ES14.5E2,2x,ES14.5E2)') real(S(i)),aimag(S(i))
+         end do
+         close (3211) 
+      end if
          write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
                'S_',nombre(iMec),iP,'[', &
                int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
