@@ -1320,7 +1320,7 @@
                             "source is at (",xfsource,",",zfsource,")"
       end if
       
-      call makeTaperFuncs(30,0.7,0.7)
+      call makeTaperFuncs(20,0.8,0.8)
       call expPIK(expK)
       call waveAmplitude(PrintNum)
       
@@ -1335,7 +1335,7 @@
         ! Bouchon (2003) OMEI entre -pi/T y -2pi/T ; T= 2pi/DFREC
 !       COME=CMPLX(OME, -OMEI*1.0) !periodic sources damping
 !       COME=COME*(UR - UI/2.0/Qq) !histeretic damping
-        cOME = cmplx(OME, -DFREC / 2.0,8) * cmplx(1.0, -1.0/2.0/Qq,8)
+        cOME = cmplx(OME, -DFREC / 1.0,8) * cmplx(1.0, -1.0/2.0/Qq,8)
         
         if(verbose>=1)then
  write(PrintNum,'(A,I0,A,EN13.2,1x,EN13.2,A,EN11.2,a,EN11.1,a)') &
@@ -1687,7 +1687,7 @@
       READ(35,*)
       READ(35,'(L1)') plotFKS; print*,"plotFK?",plotFKS
       READ(35,*)
-      READ(35,'(I1)') multSubdiv; print*,"division multiple = ", multSubdiv
+      READ(35,*) multSubdiv; print*,"division multiple = ", multSubdiv
       READ(35,*)
       READ(35,*)
       READ(35,*) WLmulti; print*,"integ WL multiple = ", WLmulti
@@ -4443,7 +4443,7 @@
          call fork(2*nfrec,S,+1,verbose,outpf)
          S = S/factor
       !  (2) remover efecto de la frecuencia imaginaria
-         S = S * exp(-DFREC/2.0 * dt*((/(i,i=1,2*nfrec)/)-1))
+         S = S * exp(-DFREC/1.0 * dt*((/(i,i=1,2*nfrec)/)-1))
       
       !  (3) plot the damn thing
       if (verbose .ge. 1) then
@@ -4550,7 +4550,7 @@
         
         ! (2.3) remover efecto de la frecuencia imaginaria
           Sm(ix,iz,iMec,:) = Sm(ix,iz,iMec,:) * & 
-                            exp(-DFREC/2.0 * Dt*((/(i,i=1,2*nfrec)/)-1))
+                            exp(-DFREC/1.0 * Dt*((/(i,i=1,2*nfrec)/)-1))
         
         end do !iMec
       end do !ix
