@@ -1436,7 +1436,6 @@
         do iPxi = 1,2*nBpts,2 !cada fuente virtual (dos direcciones)
           do l=0,1 !direc. desp. en receptor X  (x,z)
             do m=0,1 !direc. func. Green
- !       print*,"[",iP_x,",",ceiling(iPxi/2.),"] (",l,",",m,")"
         allpoints(iP_x)%W(J,l+1) = allpoints(iP_x)%W(J,l+1) + &
         integralEq16(iP_x,l,ceiling(iPxi/2.),m) * trac0vec(iPxi+m)
             end do !m
