@@ -65,10 +65,9 @@
       integer,save      :: NFREC
       real   ,save      :: FREC,DFREC,OME,OMEI
       !Discrete Wave-number:
-      !real  ,save       :: K
       real   ,save      :: DK    ! delta k on discrete wave number
       integer,save      :: NMAX
-      real   ,save      :: LFREC,Qq!,L,TW
+      real   ,save      :: LFREC,Qq
       complex*16, dimension(:), allocatable :: expK
       complex*16, dimension(:,:), allocatable :: Vout
       end module waveNumVars
@@ -76,14 +75,9 @@
       module refSolMatrixVars
       !reference solution variables:
       complex*16 :: cOME  
-      !Linear equation matrix system:           ,--- vector term indep.
-      !                                         | 
-      !                                         | 
-      complex*16, save, allocatable :: B(:)!,A(:,:),Ak(:,:),Bb(:,:)
-      
+      complex*16, save, allocatable :: B(:)
       complex*16, dimension(:,:,:), allocatable :: Ak
-      complex*16, dimension(:), allocatable :: this_B,this_Bcopy
-                                   
+      complex*16, dimension(:), allocatable :: this_B                             
       integer, dimension(:), allocatable :: IPIV
       integer :: info    
       end module refSolMatrixVars
@@ -1373,28 +1367,27 @@
                              PX = allpoints, nPX = npts, task = 0, &
                          J = J, cOME = cOME, outpf = PrintNum, V = Vout)
       
-      
-      
       do ip_x = iPtini,iPtfin
-         allpoints(ip_x)%W(J,1:5) = allpoints(ip_x)%W(J,1:5) * Uo(J) * Escala
+         allpoints(ip_x)%W(J,1:2) = allpoints(ip_x)%W(J,1:2) * Uo(J) * Escala
       end do
       if (makeVideo) then
        do ip_x = mPtini,mPtfin
-         allpoints(ip_x)%WmovieSiblings(:,J,1:5) = allpoints(ip_x)%WmovieSiblings(:,J,1:5) * Uo(J) * Escala
+         allpoints(ip_x)%WmovieSiblings(:,J,1:2) = allpoints(ip_x)%WmovieSiblings(:,J,1:2) * Uo(J) * Escala
        end do
       end if
       !
       if (workboundary) then
+      trac0vec = cmplx(0.0,0.0,8) 
       ! diffracted field by stratification at the boundary
       call stratumDiffField (iPxi = 0, &
                              PX = boupoints, nPX = nBpts, task = 0, &
                          J = 1, cOME = cOME, outpf = PrintNum, V = Vout)
       do ip_x = 1,nbpts
-         boupoints(ip_x)%W(J,1:5) = boupoints(ip_x)%W(J,1:5) * Uo(J) * Escala
+         boupoints(ip_x)%W(1,1:2) = boupoints(ip_x)%W(1,1:2) * Uo(J) * Escala
       end do
-                         
+      
+      
       ! calcular las tracciones en la topografía:
-      trac0vec = cmplx(0.0,0.0,8) 
       do iP_x = 1,2*nBpts,2
        do l=0,1 !dirección de tracción en el receptor (mini renglón)
          trac0vec(iP_x + l) = -1.0 * freefTraction(ceiling(iP_x/2.),l)
@@ -1416,7 +1409,6 @@
       
       if (verbose .ge. 2) then
         call showMNmatrixZ(2*nBpts,2*nBpts,ibemMat,"ibMat",PrintNum)
-        call showMNmatrixZ(2*nBpts,1, trac0vec,"trac0",PrintNum)
       end if
       
       ! resolver ibem
@@ -1437,8 +1429,7 @@
          close (351) 
          CALL chdir("..")
       end if
-      
-      print*,"add diffracted field by topography"
+      if(verbose .ge. 2) write(PrintNum,'(a)') "add diffracted field by topography"
       ! usar coeficientes de fuerza por segmento 
       ! para encontrar campo difractado por topografía
       do iP_x = iPtini,iPtfin !cada receptor X
@@ -1465,20 +1456,17 @@
         end do ! l
        end do ! iP
       end do !iP_x
-      
-      
       end if ! workboundary
-      
       END DO ! J: frequency loop
       
-!     if (workBoundary) then; deallocate(Bb); end if
       deallocate(this_B)
       deallocate(B);deallocate(IPIV)
       
-      if(verbose >= 1) write(PrintNum,*)"response found..."
+      if(verbose >= 1) write(PrintNum,'(a)')"response found..."
       
       ! showoff 
       if (plotFKS) then 
+      if(verbose >= 1) write(PrintNum,'(a)')"show off"
            write(tt,'(a)')"FK_"
            write(xAx,'(a)')"frec [Hz]"
            write(yAx,'(a)')" K [1/m] "
@@ -1502,7 +1490,7 @@
       
       call date_and_time(TIME=time); write(PrintNum,'(a,a)') "hhmmss.sss = ",time  
       call cpu_time(finishT)
-      write(PrintNum,'(a,f6.3)') "Elapsed time [sec] before video = ",finishT-startT
+      write(PrintNum,'(a,f10.3)') "Elapsed time [sec] before video = ",finishT-startT
       
       if (makeVideo) call Hollywood(PrintNum)
       
@@ -2481,7 +2469,7 @@
         
         ! we compare againts segment length
         if (lengthXI(iXI) > maxLen) then
-             if (verbose >= 1) then
+             if (verbose >= 2) then
               write(outpf,'(a,I0,a,F8.2,a,F8.2,a)') & 
               "L(:",iXi,")=",lengthXI(iXI),"> maxLen(",maxLen,"); "
              end if
@@ -2577,7 +2565,6 @@
       
       
       if (huboCambios) then
-      print*,"refinar frontera"
       !-------
       ! encontrar punto centrales de nuevo:
       deallocate(Xcoord)
@@ -2657,7 +2644,7 @@
       do iX = 1,size(midPoint(:,1))
       do iN = iNstart,iNfinish
       if(Nodes_xz_n(iN,1,1) .le. midPoint(ix,1) .and. midPoint(ix,1) .le. Nodes_xz_n(iN+1,1,1)) then
-      print*,midPoint(ix,1)," entre {",Nodes_xz_n(iN,1,1)," - ",Nodes_xz_n(iN+1,1,1),"}"
+      if (verbose .ge. 2) print*,midPoint(ix,1)," entre {",Nodes_xz_n(iN,1,1)," - ",Nodes_xz_n(iN+1,1,1),"}"
       normXI(iX,1) = Nodes_xz_n(iN,1,2)
       normXI(iX,2) = Nodes_xz_n(iN,2,2)
       end if
@@ -2669,9 +2656,9 @@
        write(txt,'(a,I0,a)') 'Division_at[',iJ,'Hz].pdf'
        call drawGEOM(txt,.false.,outpf)
        CALL chdir("..")
-      
-      
-        write(outpf,'(a,I0,a)')"Segments table: (",nXI-1,")"
+        write(outpf,'(a,I0,a)')"Boundary was segmented, now it is made of: (",nXI-1,") elements"
+      end if!
+      if (verbose >= 2) then
         do idx = 1,nXI - 1
           write(outpf,'(a,F7.3,a,F7.3,a,F7.3,a,F7.3,a,F6.2,a,F7.3,a,F7.3,a)') & 
             "[", Xcoord(idx,1),",", Xcoord(idx,2),"]->[", & 
@@ -3172,7 +3159,7 @@
           do i=1,2*nmax,MeshDXmultiplo
 !           print*,"xXx",xXx,"   i=",i
             if (iPxi .eq. 0) then !fuente real
-              if (dir .eq. 1) PX(iP_x)%WmovieSiblings(xXx,J,1:5) = 0
+              if (dir .eq. 1) PX(iP_x)%WmovieSiblings(xXx,J,:) = 0
               PX(iP_x)%WmovieSiblings(xXx,J,1:5) = auxK(i,1:5) * nf(dir) + &
               PX(iP_x)%WmovieSiblings(xXx,J,1:5)
             else ! func de green (sólo desplazamientos)
@@ -3184,7 +3171,7 @@
 !          stop 0
         else !es un inquirePoint
           if (iPxi .eq. 0) then !fuente real
-            if (dir .eq. 1) PX(iP_x)%W(J,1:5) = 0
+            if (dir .eq. 1) PX(iP_x)%W(J,:) = 0
             PX(iP_x)%W(J,1:5) = auxK(1,1:5) * nf(dir) + &
             PX(iP_x)%W(J,1:5)
           else ! func de green
@@ -4120,81 +4107,81 @@
       end subroutine expPIK
       
       ! meh  
-      function integralEq14(iP_x,i,iPxi,j)
-         !                                receptor---,       ,--- fuente
-         !                                        ___|__ ____|_
-         !  ibemMat(iP_x+l,iPxi+m) = integralEq14(iP_x,i,iPxi,j)
-      use resultVars, only:BouPoints,nBpts
-      use Gquadrature, only: Gquad_n
-      implicit none
-      complex*16 :: integralEq14,trac
-      integer, intent(in) :: iP_x,i,iPxi,j
-      logical :: lejos
-      integer :: iGq
-      
-      integralEq14 = 0
-      lejos = .false.
-      
-      
-      if (lejos) then
-      ! no usamos integración gaussiana
-       ! Asumimos T invariable a lo largo de la longitud,
-       ! con valor igual al del centro del segmento X
-         ! dada la fuerza en XI
-         ! tracción en la dirección l dada la fuerza en direccion m
-        trac = BouPoints(iP_x)%GT_gq(iPxi,ceiling(Gquad_n/2.),5-i,j+1) * BouPoints(iP_x)%normal(1) + &
-               BouPoints(iP_x)%GT_gq(iPxi,ceiling(Gquad_n/2.),4-i,j+1) * BouPoints(iP_x)%normal(2)
-        integralEq14 = trac * BouPoints(iPxi)%length
-        !stop  "lejos"
-      else ! cerca
-      ! usamos integracion gaussiana
-      
-       ! En cada punto gaussiano del segmento en X
-       do iGq = 1,Gquad_n
-         ! dada la fuerza en el segmento XI en el punto de integración iGq
-         ! componente i de la Tracción 
-         !
-         ! t(n)  =  nx Sxx + nz Szx       t(n)  =  nx Sxz + nz Szz
-         !    i=x                            i=z
-         !------------------------
-         !    i -> x :: Sxx   Szx
-         !               5     4    (índice de variable)
-         !      0       5-0   4-0   (fórmula)
-         !------------------------
-         !                                   i -> z :: Sxz   Szz
-         !               (índice de variable)           4     3 
-         !                          (fórmula)    1     5-1   4-1 
-         
-         trac = BouPoints(iP_x)%GT_gq(iPxi,iGq,5-i,j+1) * BouPoints(iP_x)%normal(1) + &
-                BouPoints(iP_x)%GT_gq(iPxi,iGq,4-i,j+1) * BouPoints(iP_x)%normal(2)
-         ! multiplicar por peso gaussiano en el segmento de integración (xi)
-         trac = trac * BouPoints(iPxi)%Gq_xXx_C(iGq)
-         ! acumular suma
-         integralEq14 = integralEq14 + trac
-       end do !xXx
-      end if !lejos
-      
-      end function integralEq14
-      
-      ! las tracciones:
-      !
-      !   ,--- componente de la tracción : l
-      !   |,--- (1),(3) dirección de la fuerza : m
-      !   ||    ,--- cara
-      !   ||    |,--- fza
-      !  Txx = Sxx1 nx + Szx1 nz  |___ (1) fza horizontal  .
-      !  Tzx = Szx1 nx + Szz1 nz  |                        . 
-      !  Txz = Sxx3 nx + Szx3 nz |___ (3) fza vertical     .
-      !  Tzz = Szx3 nx + Szz3 nz |                         . 
-      !
-      !  T_lm = S_lkm * n_k
-      !       = S_l1m * n_1 + S_l3m * n3
-      !         __|__         __|__
-      !      s11     s31   s13    s33
-      !      s11     s31   s31    s33  (son equivalentes)
-      !       5       4     4      3   (indice en GT_gq(_,_,i,_) )
-      !       0       1     0      1   (indice de submatriz: l )
-      
+!     function integralEq14(iP_x,i,iPxi,j)
+!        !                                receptor---,       ,--- fuente
+!        !                                        ___|__ ____|_
+!        !  ibemMat(iP_x+l,iPxi+m) = integralEq14(iP_x,i,iPxi,j)
+!     use resultVars, only:BouPoints,nBpts
+!     use Gquadrature, only: Gquad_n
+!     implicit none
+!     complex*16 :: integralEq14,trac
+!     integer, intent(in) :: iP_x,i,iPxi,j
+!     logical :: lejos
+!     integer :: iGq
+!     
+!     integralEq14 = 0
+!     lejos = .false.
+!     
+!     
+!     if (lejos) then
+!     ! no usamos integración gaussiana
+!      ! Asumimos T invariable a lo largo de la longitud,
+!      ! con valor igual al del centro del segmento X
+!        ! dada la fuerza en XI
+!        ! tracción en la dirección l dada la fuerza en direccion m
+!       trac = BouPoints(iP_x)%GT_gq(iPxi,ceiling(Gquad_n/2.),5-i,j+1) * BouPoints(iP_x)%normal(1) + &
+!              BouPoints(iP_x)%GT_gq(iPxi,ceiling(Gquad_n/2.),4-i,j+1) * BouPoints(iP_x)%normal(2)
+!       integralEq14 = trac * BouPoints(iPxi)%length
+!       !stop  "lejos"
+!     else ! cerca
+!     ! usamos integracion gaussiana
+!     
+!      ! En cada punto gaussiano del segmento en X
+!      do iGq = 1,Gquad_n
+!        ! dada la fuerza en el segmento XI en el punto de integración iGq
+!        ! componente i de la Tracción 
+!        !
+!        ! t(n)  =  nx Sxx + nz Szx       t(n)  =  nx Sxz + nz Szz
+!        !    i=x                            i=z
+!        !------------------------
+!        !    i -> x :: Sxx   Szx
+!        !               5     4    (índice de variable)
+!        !      0       5-0   4-0   (fórmula)
+!        !------------------------
+!        !                                   i -> z :: Sxz   Szz
+!        !               (índice de variable)           4     3 
+!        !                          (fórmula)    1     5-1   4-1 
+!        
+!        trac = BouPoints(iP_x)%GT_gq(iPxi,iGq,5-i,j+1) * BouPoints(iP_x)%normal(1) + &
+!               BouPoints(iP_x)%GT_gq(iPxi,iGq,4-i,j+1) * BouPoints(iP_x)%normal(2)
+!        ! multiplicar por peso gaussiano en el segmento de integración (xi)
+!        trac = trac * BouPoints(iPxi)%Gq_xXx_C(iGq)
+!        ! acumular suma
+!        integralEq14 = integralEq14 + trac
+!      end do !xXx
+!     end if !lejos
+!     
+!     end function integralEq14
+!     
+!     ! las tracciones:
+!     !
+!     !   ,--- componente de la tracción : l
+!     !   |,--- (1),(3) dirección de la fuerza : m
+!     !   ||    ,--- cara
+!     !   ||    |,--- fza
+!     !  Txx = Sxx1 nx + Szx1 nz  |___ (1) fza horizontal  .
+!     !  Tzx = Szx1 nx + Szz1 nz  |                        . 
+!     !  Txz = Sxx3 nx + Szx3 nz |___ (3) fza vertical     .
+!     !  Tzz = Szx3 nx + Szz3 nz |                         . 
+!     !
+!     !  T_lm = S_lkm * n_k
+!     !       = S_l1m * n_1 + S_l3m * n3
+!     !         __|__         __|__
+!     !      s11     s31   s13    s33
+!     !      s11     s31   s31    s33  (son equivalentes)
+!     !       5       4     4      3   (indice en GT_gq(_,_,i,_) )
+!     !       0       1     0      1   (indice de submatriz: l )
+!     
       function freefTraction(iP_x,l)
       use resultVars, only:BouPoints!,nBpts
       implicit none
@@ -4469,7 +4456,7 @@
          S = S * exp(-DFREC/2.0 * dt*((/(i,i=1,2*nfrec)/)-1))
       
       !  (3) plot the damn thing
-      if (verbose .ge. 2) then
+      if (verbose .ge. 1) then
       !guardar en texto
          write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
                'S_',nombre(iMec),iP,'[', &
@@ -4626,12 +4613,6 @@
       maxX = MAX(MAX(maxX, 1.0),MAXVAL(X))!; print*,maxX
       minY = MIN(MIN(minY, 0.0),MINVAL(Y))!; print*,minY
       maxY = MAX(MAX(maxY, 2.0),MAXVAL(Y))!; print*,maxY
-      
-      
-      
-!     minX = minX-10.
-!     maxX = maxX+10.
-!     maxY = max(maxY,Z(N+1)+10.)
       
       Iframe = 1
       Fframe = size(Sm(1,1,1,:))
