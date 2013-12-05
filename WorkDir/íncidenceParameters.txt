@@ -9,7 +9,7 @@ Mesh:
 2.0
 Incidence:
       Amplitude function scale
-100.0
+1.0
       Ts
 2.0
       Tp
