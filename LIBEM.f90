@@ -72,6 +72,8 @@
       real   ,save      :: LFREC,Qq
       complex*16, dimension(:), allocatable :: expK
       complex*16, dimension(:,:), allocatable :: Vout
+      real   ,save      :: minKvalueW, minKvalueU
+      integer,save      :: lapse
       end module waveNumVars
       
       module refSolMatrixVars
@@ -90,6 +92,7 @@
       real, save :: Theta !grados
       real, save :: Dt  !segundos
       real, save :: t0
+      integer, save :: tipoPulso ! 0 dirac; 1 ricker
       complex*16, allocatable :: auxUo(:)
       complex*16, dimension(:), allocatable :: Uo
       real, save :: Ts 
@@ -1633,6 +1636,7 @@
       subroutine getMainInput
       use glovars
       use Gquadrature, only : WLmulti
+      use wavenumvars, only : minKvalueW, minKvalueU,lapse
       implicit none
       logical :: lexist
       
@@ -1661,6 +1665,10 @@
       read(35,'(L1)') symmetricProblem; print*,"The problem is symmetric? ", symmetricProblem
       read(35,*)
       read(35,*) periodicdamper; print*,"Periodic sources damping factor ", periodicdamper
+      read(35,*)
+      read(35,*) minKvalueW; print*,"min k para despreciar W= ", minKvalueW
+      read(35,*) minKvalueU; print*,"min k para despreciar W= ", minKvalueU
+      read(35,*) lapse; print*,"number of minimum values commited ", lapse
       close(35)
       
       end subroutine getMainInput
@@ -1843,7 +1851,7 @@
       use soilVars, only : Z,N
       use waveNumVars, only : DK,NMAX
       use resultvars, only: NxXxMpts
-      use wavevars, only: Escala,Ts,Tp
+      use wavevars, only: Escala,Ts,Tp, tipoPulso
       implicit none
       integer, intent(in)          :: outpf!,nJ
       logical                      :: isOnIF
@@ -1873,6 +1881,8 @@
       READ(7,*)
       READ(7,*) Escala
       READ(7,*)
+      READ(7,*) tipoPulso
+      READ(7,*) 
       READ(7,*) Ts
       READ(7,*)
       READ(7,*) Tp
@@ -2835,7 +2845,7 @@
       end  function interpol
       subroutine waveAmplitude(outpf)                                   !    FIX NFREC
       use wavelets !las funciones: ricker, fork
-      use waveVars, only : Dt,Uo
+      use waveVars, only : Dt,Uo, tipoPulso
       use waveNumVars, only : NFREC,DFREC
       use gloVars, only : verbose
       use ploteo10pesos
@@ -2852,8 +2862,11 @@
        write(outpf,'(a)')' '
        write(outpf,'(a)')'Incident wave amplitude: '
       end if
-      
-      call ricker(NFREC*2,outpf) ! the ricker wavelet saved on Uo
+      if (tipoPulso .eq. 0) then
+        allocate(Uo(NFREC*2))
+        Uo=cmplx(1,0,8)
+      else
+        call ricker(NFREC*2,outpf) ! the ricker wavelet saved on Uo
       
       if (verbose >= 1) then
       CALL chdir("outs")
@@ -2900,7 +2913,7 @@
 !      !CALL SYSTEM ('../plotXYcomp rick_frec.txt & 
 !      !            rick_frec_ugly.pdf time[sec] amplitude 1200 800')
       end if
-      
+      end if !tipo
 !     ! test............................................................
 !     ! before anything, we have to beautify the signal
 !     n = size(Uo)
@@ -2950,11 +2963,11 @@
       ! task =  0
       ! Almacena el campo diffractado (estratigrafía) en W y WmovieSiblings
       
-      use gloVars, only: verbose,PI
+      use gloVars, only: verbose,PI, symmetricProblem
       use resultvars, only:nBpts,MecaElem,Punto,Boupoints,Hf,Hk, NxXxMpts
       use sourceVars
       use Gquadrature, only: Gquad_n
-      use waveNumVars, only : NMAX,DK,expK
+      use waveNumVars, only : NMAX,DK,expK, minKvalueW,minKvalueU,lapse
       use refSolMatrixVars, only : B,IPIV,Ak
       use soilVars, only: N
       use meshVars, only: MeshDXmultiplo,nx
@@ -2965,7 +2978,7 @@
       type(Punto), dimension(nPX), intent(inout) :: PX
       integer, dimension(5,2) :: sign
       integer :: renglon,iP_x,ef,GQmx,iGq,dir,ik,iMec,xXx,i
-      logical :: intf
+      logical :: intf,warning
       complex*16, dimension(2*nBpts,2) :: V
       complex*16, dimension(2*nmax,5) :: auxK
       real :: zf,xf,k,factor,peso
@@ -2980,6 +2993,7 @@
       factor = sqrt(2.*NMAX*2)
       renglon = 1
       V = 0 
+      
       do iP_x = 1,nPX ! para cada punto X
       
       if (iPxi .eq. iP_x) then
@@ -3021,6 +3035,7 @@
         end if
      
         auxK = 0
+        warning = .false.
       Do ik=1,nmax+1 !WAVE NUMBER LOOP-
          k = real(ik-1,8) * dK
          if (ik .eq. 1) k = dk * 0.001
@@ -3036,6 +3051,17 @@
                      PX(iP_x)%layer,k,cOME)
         
         auxK(ik,1:5) =  Meca_ff%Rw(1:5) + Meca_diff%Rw(1:5)
+        
+        if (abs(auxK(ik,1)) .lt. minKvalueW .and. & 
+        abs(auxK(ik,2)) .lt. minKvalueU .and. warning .eqv. .true.) exit !--------------------------------esto es arriesgado 
+        
+        if (abs(auxK(ik,1)) .lt. minKvalueW .and. & 
+        abs(auxK(ik,2)) .lt. minKvalueU) then 
+           lapse = lapse - 1
+        else
+           lapse = lapse + 1
+        end if
+        if (lapse .le. 0) warning = .true.
       end do !ik
          ! completar la crepa
       !        calculado              crepa 
@@ -3050,8 +3076,8 @@
         
         ! guardar el FK si es que es interesante verlo
       if (PX(iP_x)%guardarFK) then
-        PX(iP_x)%FK(J,1:nmax,1:5) = auxK(1:nmax,1:5)* nf(dir) + & 
-        PX(iP_x)%FK(J,1:nmax,1:5)
+        PX(iP_x)%FK(J,1:nmax,:) = auxK(1:nmax,:)* nf(dir) + & 
+        PX(iP_x)%FK(J,1:nmax,:)
       end if
         
         ! K -> X
@@ -3119,10 +3145,10 @@
           do i=nmax-(nxXxmpts-1)/2* meshdxmultiplo,nmax+(nxXxmpts-1)/2* meshdxmultiplo,meshdxmultiplo
             if (iPxi .eq. 0) then !fuente real
               if (dir .eq. 1) PX(iP_x)%WmovieSiblings(xXx,J,:) = 0
-              PX(iP_x)%WmovieSiblings(xXx,J,1:5) = auxK(i,1:5) * nf(dir) + &
-              PX(iP_x)%WmovieSiblings(xXx,J,1:5)
+              PX(iP_x)%WmovieSiblings(xXx,J,:) = auxK(i,:) * nf(dir) + &
+              PX(iP_x)%WmovieSiblings(xXx,J,:)
             else ! func de green (sólo desplazamientos)
-              PX(iP_x)%GT_gq_mov(iPxi,iGq,1:5,dir,xXx) = auxK(i,1:5) * nf(dir) !+ &
+              PX(iP_x)%GT_gq_mov(iPxi,iGq,:,dir,xXx) = auxK(i,:) * nf(dir) !+ &
 !             PX(iP_x)%GT_gq_mov(iPxi,iGq,1:2,dir,xXx) 
             end if
             xXx = xXx + 1
@@ -3130,10 +3156,10 @@
         else !es un inquirePoint
           if (iPxi .eq. 0) then !fuente real
             if (dir .eq. 1) PX(iP_x)%W(J,:) = 0
-            PX(iP_x)%W(J,1:5) = auxK(1,1:5) * nf(dir) + &
-            PX(iP_x)%W(J,1:5)
+            PX(iP_x)%W(J,:) = auxK(1,:) * nf(dir) + &
+            PX(iP_x)%W(J,:)
           else ! func de green
-            PX(iP_x)%GT_gq(iPxi,iGq,1:5,dir) = auxK(1,1:5) * nf(dir) !+ &
+            PX(iP_x)%GT_gq(iPxi,iGq,:,dir) = auxK(1,:) * nf(dir) !+ &
 !           PX(iP_x)%GT_gq(iPxi,iGq,1:2,dir) 
           end if
         end if
