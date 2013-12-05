@@ -1,8 +1,8 @@
 Mesh:
-      Mesh Delta on Z (m)
-0.1
-      Mesh minDelta on X (m)
-0.1
+      Mesh Num pixels Z
+20
+      Mesh Num pixels X
+20
       Mesh Max Z (m)
 4.0
       Mesh +-maxX (m)

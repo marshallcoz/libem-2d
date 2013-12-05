@@ -218,7 +218,8 @@
       module meshVars
 !     use gloVars, only: dp
       ! puntos en donde obscultar
-      integer, save :: MeshDXmultiplo
+      integer, save :: npixX,npixZ
+      integer, save :: MeshDXmultiplo, DXmultiploMaxX
       real, save :: MeshDZ,MeshDX,DeltaX
       real, save :: MeshMaxX !from leftmost or rightmost point
       real, save :: MeshMaxZ  
@@ -1861,9 +1862,9 @@
       
       READ(7,*)
       READ(7,*)
-      READ(7,*) MeshDZ
+      READ(7,*) npixZ !num de pixeles
       READ(7,*)
-      READ(7,*) MeshDX
+      READ(7,*) npixX !num de pixeles
       READ(7,*)
       READ(7,*) MeshMaxZ
       READ(7,*)
@@ -1878,67 +1879,46 @@
       close(7)
       
       if (makeVideo .eqv. .false.) return 
-      
-      ! ajustamos dK para ver hasta 4 veces donde se pide
-        DK = 1 / MeshMaxX
-!       DK = DK/(DK**2-1)
-        write(outpf,'(a,F12.8)') "warning, shifted Delta K to: ", DK
-
-      ! con este DK se puede ver hasta Lfrec sin caer en la periodicidad de las fuentes:
+        
         write(outpf,'(a,F12.2,a)') "Lfrec = 2*pi/DK = ",2*PI/DK, "m"
-      ! como usamos la fft en el espacio de k->x solo calculamos en los 
-      ! puntos con x = 0 
-        
-        !la coordenada x depende del numero de onda
-        
-        !ahora MeshDX tiene el valor de Dx deseado
-        MeshDXmultiplo = max(1,nint(MeshDX * (nMax * DK))) !el multiplo
-        
-!       DeltaX = 1.0 / (2.0 * nMax*2 * DK)
         DeltaX = 1.0 / (nMax * DK)
-        MeshDX = DeltaX * MeshDXmultiplo 
-        boundingXp =  1.0 / DK
-        
         write(outpf,'(a,F9.3)')"Delta X = ",DeltaX
-        write(outpf,'(a,F9.3)')"Max X = ",boundingXP
-        
-        if (MeshMaxX .gt. boundingXp) then 
-           MeshMaxX = boundingXp
-           write(outpf,'(a,F9.3)') "warning, video maximum x-coordinate trimmed to ", MeshMaxX
-        end if
+        boundingXp =  1.0 / DK
         boundingXn = - boundingXp
+        if (boundingXp .lt. MeshMaxX) stop "You need to reduce dK"
+        ! encontrmos un multiplo de deltaX que sea mayor o igual a meshmaxX
+        DXmultiploMaxX = int(MeshMaxX/DeltaX) + 1 ! 11
+        ! número de puntos de la película
+        NxXxMpts = 2* DXmultiploMaxX + 1 !23
         
-        nx = nint(MeshMaxX / MeshDX) * MeshDXmultiplo
-        
-!       if (workBoundary) then
-!         boundingZp = max(maxval(Xcoord(:,2)),Z(N+1))
-!         boundingZn = minval(Xcoord(:,2)) 
-!       else
-          boundingZp = MeshMaxZ !Z(N+1)
-          boundingZn = 0. 
-!       end if!
-        NxXxMpts = 2*(nx/MeshDXmultiplo)+1
-        
-        if (verbose >= 1) then
-          Write(outpf,'(a)')"Video bounding box: "
-!         write(outpf,'(a,I0,a)') "nx=(",nx,")"
-          write(outpf,'(a,F9.1,a,F9.1,a,F10.3,a,F10.3,a,I0,a)') & 
-                        "x :[", - nx * DeltaX," ... ", nx * DeltaX, & 
-                  "] @",MeshDX,"m -> (",DeltaX,"m*[",MeshDXmultiplo,"])"
-          write(outpf,'(a,F9.1,a,F9.1,a,F10.3,a)') & 
-                     "z :[",boundingZn," ... ",boundingZp, & 
-                     "] @",MeshDZ,"m"
-          write(outpf,'(a,I0)') "Number of horizontal movie pixels: ", & 
-                              2*(nx/MeshDXmultiplo)+1
+        if (npixx .lt. NxXxMpts) then!             10
+          MeshDXmultiplo = max(1, int(NxXxMpts / npixX)) ! 2
+          NxXxMpts = 2* (int(MeshMaxX/(DeltaX* MeshDXmultiplo)) + 1) + 1
+        else
+          MeshDXmultiplo = 1
         end if
         
-        plusCero = 0           
+        boundingZp = MeshMaxZ !Z(N+1)
+        boundingZn = 0. 
+        plusCero = 0
         if(boundingZn == 0.0) then
           plusCero =1
         end if
-!       nz = int((abs(boundingZn)+abs(boundingZp) & 
-!                  + 1.0 * MeshOffsetZ) / MeshDZ) + plusCero
-        nz = int((abs(boundingZn)+abs(boundingZp)) / MeshDZ) + plusCero
+!       nz = int((abs(boundingZn)+abs(boundingZp)) / MeshDZ) + plusCero
+        MeshDZ = MeshMaxZ / npixZ
+        nz = npixZ + plusCero
+        
+        if (verbose .ge. 1) then
+          Write(outpf,'(a)')"Video bounding box: "
+!         write(outpf,'(a,I0,a)') "nx=(",nx,")"
+          write(outpf,'(a,F9.1,a,F9.1,a,F10.3,a,I0,a,I0,a)') & 
+                        "x :[", - MeshDXmultiplo * DeltaX * (NxXxMpts-1)/2," ... ", &
+                         MeshDXmultiplo * DeltaX * (NxXxMpts-1)/2,"] :: ", DeltaX,"m @[", &
+                         MeshDXmultiplo,"]dk = ", NxXxMpts," puntos"
+          write(outpf,'(a,F9.1,a,F9.1,a,F10.3,a,I0,a)') & 
+                     "z :[",boundingZn," ... ",boundingZp, & 
+                     "] :: ",MeshDZ,"m        = ",nz," puntos"
+        end if
         
         nMpts = nz
         mPtini = iPtfin + 1
@@ -1949,7 +1929,7 @@
         moviePoints(:)%guardarFK = .false.
         moviePoints(:)%guardarMovieSiblings = .true.
         
-        if(verbose>=1)Write(outpf,'(a,I0)') & 
+        if(verbose>=2)Write(outpf,'(a,I0)') & 
         "Number of verical movie pixels: ", nMpts
         iP = 1
         do iz = 1,nz
@@ -1970,13 +1950,15 @@
 
             moviePoints(iP)%center(1) = 0.0
             moviePoints(iP)%center(2) = boundingZn + (iz-1) * MeshDZ
-!           if (verbose >= 1) print*,iP," [", & 
-!              moviePoints(1)%center(iP,1),",", & 
-!              moviePoints(1)%center(iP,2),"]"
             moviePoints(iP)%normal(1) = 1
             moviePoints(iP)%normal(2) = 1
             moviePoints(iP)%layer = currentLayer
             moviePoints(iP)%isOnInterface = isOnIF
+            
+           if (verbose >= 2) print*,iP," [", & 
+               moviePoints(iP)%center(1),",", & 
+               moviePoints(iP)%center(2),"] layer=", moviePoints(iP)%layer
+            
             iP = iP + 1
         end do !iz
         
@@ -3131,10 +3113,10 @@
         ! guardamos el campo difractado
         if(PX(iP_x)%guardarMovieSiblings) then
           ! (1) reordenar la crepa existente en X
-          auxK = cshift(auxK,SHIFT=nmax,DIM=1)
+          auxK = cshift(auxK,SHIFT=nmax+1,DIM=1)
           ! (2) guardar sólo los interesantes
           xXx = 1
-          do i=1,2*nmax,MeshDXmultiplo
+          do i=nmax-(nxXxmpts-1)/2* meshdxmultiplo,nmax+(nxXxmpts-1)/2* meshdxmultiplo,meshdxmultiplo
             if (iPxi .eq. 0) then !fuente real
               if (dir .eq. 1) PX(iP_x)%WmovieSiblings(xXx,J,:) = 0
               PX(iP_x)%WmovieSiblings(xXx,J,1:5) = auxK(i,1:5) * nf(dir) + &
@@ -4139,7 +4121,7 @@
       use DISLIN
       use resultVars
       use wavelets ! FORK(LX,CX,SIGNI,verbose,outpf)
-      use waveVars, only : Dt
+      use waveVars, only : Dt,Uo,t0
       use waveNumVars ! FK,NFREC,DFREC
       use refSolMatrixVars, only : COME
       use gloVars
@@ -4148,11 +4130,11 @@
       use GeometryVars, only : Xcoord,nxi
       implicit none
       integer ,intent(in) :: outpf
-      real       ::  X(2*(nx/MeshDXmultiplo)+1)
-      real       ::                          Y(nz)
-      complex*16 :: Sm(2*(nx/MeshDXmultiplo)+1,nz,imecMax,2*NFREC)      
+      real       ::  X(nxXxmpts)
+      real       ::           Y(nz)
+      complex*16 :: Sm(nxXxmpts,nz,imecMax,2*NFREC)      
       integer  :: iP,iMec
-      integer  :: ix,iz,iT,i,Iframe,Fframe,mecMAx
+      integer  :: ix,iz,iT,i,Iframe,Fframe,mecMAx,t
       real     :: factor,ColorRangeMaximumScale,tlabel
       integer*4 :: lentitle
       character(LEN=3), dimension(5)      :: nombre
@@ -4190,7 +4172,8 @@
 !        FKm = cshift(FKm,SHIFT=nmax/2+1,DIM=1)
       ! (1.1) coordenadas X 
       i = 1
-      do ix=-nx,nx,MeshDXmultiplo
+!     print*,size(x)
+      do ix=-MeshDXmultiplo * (NxXxMpts-1)/2, MeshDXmultiplo * (NxXxMpts-1)/2, MeshDXmultiplo
         X(i) = ix * DeltaX  !;print*,'x=',X(i)
         i = i + 1
       end do
@@ -4204,8 +4187,11 @@
         ! los espectros de cada coordenada ya están ordenaditos
         do iMec = 1,mecMax
         ! (1) crepa
-        Sm(ix,iz,iMec,1:nfrec) = allpoints(iP)%WmovieSiblings(ix,1:nfrec:+1,iMec)
-        Sm(ix,iz,iMec,nfrec+1:nfrec*2) = conjg(allpoints(iP)%WmovieSiblings(ix,nfrec+1:2:-1,iMec))
+        Sm(ix,iz,iMec,1:nfrec) = allpoints(iP)%WmovieSiblings(ix,1:nfrec:+1,iMec)* & 
+      exp(cmplx(0.0,- pi * (/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)
+      
+        Sm(ix,iz,iMec,nfrec+1:nfrec*2) = conjg(allpoints(iP)%WmovieSiblings(ix,nfrec+1:2:-1,iMec))* & 
+      exp(cmplx(0.0,- pi * (/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)
         
         ! (2) pasar al tiempo: fork
           Sm(ix,iz,iMec,:) = Sm(ix,iz,iMec,:) * factor
