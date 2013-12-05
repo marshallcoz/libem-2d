@@ -1,0 +1,22 @@
+verbose [int]
+1
+make a video [logical]
+F
+Solve topography [logical]
+F
+Plot FK [logical]
+T
+max segment length  = R * wavelength  [int :: R] (usar múltiplo de 4)
+5
+Threshold to discriminate the method of integration (Simple or Gaussian quadrature)
+[real :: num_of_wavelengths]
+1.0
+simetrico? [logical]
+T
+periodic sources damping; omega = (omega , -DFREC/fact i) [float :: fact] {recommended 1 or 2}
+2.0
+valor minimo en FK a partir del cual se desprecia el cálculo
+0.001
+0.001
+30
+
