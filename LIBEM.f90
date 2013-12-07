@@ -17,8 +17,8 @@
       real, dimension(2), parameter :: fixedNormal = (/0.0,1.0/)
       complex*16, parameter :: UI = cmplx(0.0,1.0,8), &
                                UR = cmplx(1.0,0.0,8)
-      real*8, parameter :: PI = real(4.0*ATAN(1.0),8)
-      integer, parameter :: Hplot = 700 , Wplot = 1200 
+      real, parameter :: PI = real(4.0*ATAN(1.0),8)
+      integer, parameter :: Hplot = 700 , Wplot = 1200
       end module gloVars
       
       module Gquadrature
@@ -46,7 +46,6 @@
          0.31370664, &
          0.22238104, &
          0.10122854 /)
-         
       end module Gquadrature 
       
       module soilVars
@@ -58,7 +57,8 @@
       
       module sourceVars
       integer :: efsource
-      real    :: xfsource,zfsource,nxfsource,nzfsource
+      real    :: xfsource,zfsource
+      real*8  :: nxfsource,nzfsource
       logical :: intfsource
       end module sourceVars
       
@@ -88,7 +88,7 @@
       
       module waveVars
 !     save
-      real, save :: Escala
+      real, save :: Escala,maxtime
       real, save :: Theta !grados
       real, save :: Dt  !segundos
       real, save :: t0
@@ -111,12 +111,13 @@
       real,save, dimension(:), allocatable :: x,y !subdivided nodes
       
       !                                             ,--Original nodes
-      real,save, dimension(:,:,:), allocatable :: Nodes_xz_n
+      real*8,save, dimension(:,:,:), allocatable :: Nodes_xz_n
       real,save, dimension(:,:), allocatable :: Xcoord 
             
       ! length and normals at midpoint of BigSegments:
       real, allocatable :: midPoint(:,:)
-      real,save, allocatable :: normXI(:,:),lengthXI(:),layerXI(:)
+      real,save, allocatable :: lengthXI(:),layerXI(:)
+      real*8,save, allocatable :: normXI(:,:)
       end module GeometryVars
       
       module resultVars
@@ -142,7 +143,7 @@
         !                 ,--- 1 for x, 2 for z
         real    :: center(2)
         real    :: bord_A(2),bord_B(2)
-        real    :: normal(2)
+        real*8  :: normal(2)
         real    :: length
         integer :: layer
         logical :: isBoundary 
@@ -435,9 +436,11 @@
         i = 0
 !       write(outpf,*)"a:f(",a,")=",af
 !       write(outpf,*)"b:f(",b,")=",bf
-        do while((.not.(bf == real(0,8) )) .and. (abs(a-b) > errorTol ))
+        do while( (abs(bf) > errortol) .and. (abs(a-b) > errorTol ) )
+!       do while((.not.(bf == real(0,8) )) .and. (abs(a-b) > errorTol ))
 !          print*,"go_",i
-          if ((af /= cf) .and. (bf /= cf)) then
+          if ((abs(af-cf) > errorTol) .and. (abs(bf-cf)>errorTol)) then
+!          if ((af /= cf) .and. (bf /= cf)) then
           ! interpolación cuadrática inversa
             s = a * bf * cf / (af-bf) / (af-cf) + & 
             b*af*cf/(bf-af)/(bf-cf)+cx*af*bf/(cf-af)/(cf-bf)
@@ -445,17 +448,17 @@
           ! regla de la secante
             s = b - bf * (b-a)/(bf-af)
           end if
-          tmp2 = (real(3,8)*a + b)/real(4,8)
+          tmp2 = (3.0*a + b)/4.0
           if ( (.not.(((s > tmp2) .and. (s < b)) .or. & 
           ((s < tmp2) .and. (s > b))) ) .or. &
-          (mflag .and. ((abs(s-b)) .ge. (abs(b-cx)/real(2,8) ))) .or. &
-          ((.not. (mflag)) .and. ((abs(s-b)) .ge. (abs(cx-d)/real(2,8) ))) ) then
-            s = (a+b) /real(2,8)
+          (mflag .and. ((abs(s-b)) .ge. (abs(b-cx)/2.0 ))) .or. &
+          ((.not. (mflag)) .and. ((abs(s-b)) .ge. (abs(cx-d)/2.0 ))) ) then
+            s = (a+b) / 2.0
             mflag = .true.
           else
             if ((mflag .and. (abs(b-cx)< errorTol)) .or. &
             ((.not. (mflag)) .and. (abs(cx-d) < errorTol))) then
-              s = (a+b) / real(2,8)
+              s = (a+b) / 2.0
               mflag = .true.
             else
               mflag = .false.
@@ -465,7 +468,8 @@
            d = cx
            cx = b
            cf = bf
-           if (af * sf < real(0,8)) then
+!          if (af * sf < real(0,8)) then
+           if (af * sf < errorTol) then
              b = s
              bf = sf
            else
@@ -483,7 +487,7 @@
            i = i + 1
            if (i> 1000) then
              !error
-             b = real(0.123456789,8)
+             b = real(0.123456789)
              exit
            end if
         end do
@@ -524,7 +528,7 @@
       implicit none
       integer, intent(in)             :: verbose,outpf
       integer, intent(in)                   :: Ln, d
-      integer, parameter             :: dp = selected_real_kind(15, 307)
+!     integer, parameter             :: dp = selected_real_kind(15, 307)
       real, dimension(d+1)              :: polyfit
       real,     dimension(:), intent(in)    :: vx, vy
 !     real(dp), dimension(Ln)               :: vx, vy
@@ -628,11 +632,11 @@
       real, intent(in), dimension(nXI) :: x,y !points coordinates
       
       integer :: i,j
-      real, allocatable :: normalto(:,:) !function result value
-      real, parameter      :: a = real(1,8) ! normal poing up parameter
-      real, parameter      :: tolerance = real(0.001,8) !to tell if its vertical
+      real*8, allocatable :: normalto(:,:) !function result value
+      real*8, parameter      :: a = real(1,8) ! normal poing up parameter
+!     real*8, parameter      :: tolerance = real(0.001,8) !to tell if its vertical
       real*8, dimension(degree) :: fprime !surf_poly derivative coeficients
-      real :: fprimeX, x0, mag 
+      real*8 :: fprimeX, x0, mag 
       
       ALLOCATE (normalto(nXI,2))
       if(verbose >= 2)then
@@ -704,18 +708,18 @@
       character(LEN=9)                             :: logflag
       character(LEN=100)                            :: titleN
       COMPLEX*16, DIMENSION(full_n), intent(in) :: y_in
-      complex,    dimension(n)             :: y
-      
-      real, dimension(n) :: x
+      complex,    dimension(:), allocatable :: y
+      real,       dimension(:), allocatable :: x
       real maxY,minY,maxYc,minYc,xstep,ystep
       integer :: i
       character(LEN=100) :: dumb
       CHARACTER(LEN=6)  :: CBUF
-      character(LEN=100),parameter :: f1='(F50.16,2x,F50.16)'
-      
+!     character(LEN=100),parameter :: f1='(F50.16,2x,F50.16)'
+      allocate(x(n))
+      allocate(y(n))
       DO i = 1,n
         x(i) = Df*(i-1)
-        y(i) = cmplx(real(y_in(i)),aimag(y_in(i))) 
+        y(i) = cmplx(real(y_in(i)),aimag(y_in(i)),4) 
 !       !write(6,*) x(i), y(i)
       END DO
       
@@ -851,9 +855,9 @@
       call errmod ("all", "off") !suppress dislin info
       call disfin()
       
-!     !print*,'plotted ',trim(titleN)
+!     print*,'plotted ',trim(titleN)
 !     !print*,''
-      
+      deallocate(x,y)
       end subroutine plotSpectrum
       
       
@@ -874,14 +878,14 @@
 !     integer :: Modo,nx,ny
       character(LEN=100) :: dumb
       CHARACTER(LEN=30) :: CBUF
-      character(LEN=100),parameter :: f1='(F50.16,2x,F50.16)'
+!     character(LEN=100),parameter :: f1='(F50.16,2x,F50.16)'
       
       
 !     allocate(x(n))
 !     print*,size(y)
       DO i = 1,n
         x(i) = Dt*(i-1)
-        y(i) = cmplx(real(y_in(i)),aimag(y_in(i))) 
+        y(i) = cmplx(real(y_in(i)),aimag(y_in(i)),4) 
 !       write(6,*) x(i), y(i)
       END DO
       
@@ -992,14 +996,14 @@
 !     integer :: Modo,nx,ny
       character(LEN=100) :: dumb
       CHARACTER(LEN=30) :: CBUF
-      character(LEN=100),parameter :: f1='(F50.16,2x,F50.16)'
-      
+!     character(LEN=100),parameter :: f1='(F50.16,2x,F50.16)'
+!     
       
 !     allocate(x(n))
 !     print*,size(y)
       DO i = 1,n
         x(i) = Dt*(i-1)
-        y(i) = cmplx(real(y_in(i)),aimag(y_in(i))) 
+        y(i) = cmplx(real(y_in(i)),aimag(y_in(i)),4) 
 !       write(6,*) x(i), y(i)
       END DO
       
@@ -1158,12 +1162,12 @@
       trim(nombre(iMec))
       
       if (form .eq. 1) then
-       M = real(thisFK(1:NFREC,1:NMAX,iMec))
+       M = real(thisFK(1:NFREC,1:NMAX,iMec),4)
       elseif (form .eq. 2) then
-       M = aimag(thisFK(1:NFREC,1:NMAX,iMec))
+       M = real(aimag(thisFK(1:NFREC,1:NMAX,iMec)),4)
       elseif (form .eq. 3) then
-       M = log(1. + exp(p)*abs(thisFK(1:NFREC,1:NMAX,iMec))) / & 
-           log(exp(p)+1.)
+       M = real(log(1. + exp(p)*abs(thisFK(1:NFREC,1:NMAX,iMec))) / & 
+           log(exp(p)+1.),4)
        M = M / maxval(M)
       end if
       
@@ -1342,7 +1346,7 @@
       use wavelets
       use MeshVars
       use Gquadrature, only: Gquad_n
-      use waveVars, only : Uo,Escala
+!     use waveVars, only : Uo!,Escala
       
       implicit none
       ! output direction   6 : screen      101: log file
@@ -1357,7 +1361,6 @@
       character(LEN=9)  :: xAx,yAx
       real :: factor,k
       complex*16 :: integralEq16,integralEq16mov,freefTraction
-      
       character(10) :: time
       real :: startT,finishT
       call cpu_time(startT)
@@ -1448,17 +1451,24 @@
       call expPIK(expK)
       call waveAmplitude(PrintNum)
       DO J=1,NFREC+1
-        ! complex frecuency for avoiding poles and provide damping
+      ! complex frecuency for avoiding poles and provide damping
         FREC=DFREC*real(J-1)
-        if (J .eq. 1) FREC = DFREC*0.001 
+       
+        if (J .eq. 1)  FREC = DFREC*0.001
+        
         OME=2.0*PI*FREC
-
+        cOME = cmplx(OME, - DFREC / periodicdamper,8) * cmplx(1.0, -1.0/2.0/Qq,8)
+      
+!       ! complex frecuency for avoiding poles and provide damping
+!       FREC=DFREC*real(J-1)
+!       if (J .eq. 1) FREC = DFREC*0.001 
+!       OME=2.0*PI*FREC
 !       OMEI=0.7*PI/TW
 !       OMEI=DFREC / 2.0
         ! Bouchon (2003) OMEI entre -pi/T y -2pi/T ; T= 2pi/DFREC
 !       COME=CMPLX(OME, -OMEI*1.0) !periodic sources damping
 !       COME=COME*(UR - UI/2.0/Qq) !histeretic damping
-        cOME = cmplx(OME, -DFREC / periodicdamper,8) * cmplx(1.0, -1.0/2.0/Qq,8)
+!       cOME = cmplx(OME, -DFREC / periodicdamper,8) * cmplx(1.0, -1.0/2.0/Qq,8)
         
         if(verbose>=1)then
  write(PrintNum,'(A,I0,A,EN13.2,1x,EN13.2,A,EN11.2,a,EN11.1,a)') &
@@ -1473,7 +1483,7 @@
       
       Ak = 0
       Do ik=1,nmax+1 !WAVE NUMBER LOOP-
-         k = real(ik-1,8) * dK
+         k = real(ik-1) * dK
          if (ik .eq. 1) k = dk * 0.001
          call matrixA_borderCond(Ak(:,:,ik),k,cOME,PrintNum)
          call inverseA(Ak(:,:,ik),4*N+2)
@@ -1541,7 +1551,7 @@
       if(info .ne. 0) stop "problem wiht ibem system"
       
       if (verbose .ge. 1) then
-       if(verbose .ge. 2) call showMNmatrixZabs(2*nBpts,1, trac0vec," phi ",PrintNum)
+         if(verbose .ge. 2) call showMNmatrixZabs(2*nBpts,1, trac0vec," phi ",PrintNum)
          CALL chdir("outs")
          write(titleN,'(a,I0,a)') 'phi_',J,'.txt'
          OPEN(351,FILE=titleN,FORM="FORMATTED",ACTION='WRITE')
@@ -1557,9 +1567,9 @@
          write(titleN,'(a,I0,a)')'phi_',J,'v.pdf'
          call plotXYabs(trac0vec(2:2*nBpts:2),1.0,nBpts,titleN, &
          '  phi v  ','abs(phi) ',1200,800)
-         write(titleN,'(a,I0,a)')'phi_',J,'abs.pdf'
-         call plotXYabs(cmplx(abs(trac0vec(1:2*nBpts:2))+abs(trac0vec(2:2*nBpts:2)),0.0,8),1.0,nBpts,titleN, &
-         '  |phi|  ','abs(phi) ',1200,800)
+!        write(titleN,'(a,I0,a)')'phi_',J,'abs.pdf'
+!        call plotXYabs(cmplx(abs(trac0vec(1:2*nBpts:2))+abs(trac0vec(2:2*nBpts:2)),0.0,8),1.0,nBpts,titleN, &
+!        '  |phi|  ','abs(phi) ',1200,800)
          CALL chdir("..")
       end if!
       if(verbose .ge. 2) write(PrintNum,'(a)') "add diffracted field by topography"
@@ -1676,11 +1686,11 @@
       use soilVars
       use waveNumVars
       use waveVars, only : dt,t0
-      use gloVars, only : verbose,PI
+      use gloVars, only : verbose!,PI
       implicit none
       integer, intent(in) :: outpf
       logical :: lexist
-      real*8 :: H, ALF, BET, RO
+      real :: H, ALF, BET, RO
       integer :: J
       
       ! vemos si existen los archivos
@@ -1715,12 +1725,12 @@
       end if
       DO J=1,N
          READ(7,*) H, ALF, BET, RO
-         Z(J+1)=Z(J)+real(H,8)
+         Z(J+1)=Z(J)+real(H)
          AMU(J)=RO*BET**2
          BETA(J)=BET
          ALFA(J)=ALF
          RHO(J) = RO
-         LAMBDA(J)=RHO(J)*ALFA(J)**2 - real(2,8)*AMU(J)
+         LAMBDA(J)=RHO(J)*ALFA(J)**2 - real(2.)*AMU(J)
 !         BEALF=SQRT((0.5-ANU)/(1.0-ANU)) !IF POISSON RATIO IS GIVEN
 !         ALFA(J)=BET/BEALF
        if (verbose >= 1) then
@@ -1734,7 +1744,7 @@
       BETA(N+1)=BET
       ALFA(N+1)=ALF
       RHO(J) = RO
-      LAMBDA(N+1)=RHO(J)*ALFA(N+1)**2 - real(2,8)*AMU(N+1)
+      LAMBDA(N+1)=RHO(J)*ALFA(N+1)**2 - 2*AMU(N+1)
       if (verbose >= 1) then
        write(outpf,'(F7.1,A,5x,F8.2,3x,F7.1,6x,F7.1)') &
        Z(N+1),' - inf.',AMU(N+1),BETA(N+1),ALFA(N+1)
@@ -1851,7 +1861,7 @@
       use soilVars, only : Z,N
       use waveNumVars, only : DK,NMAX
       use resultvars, only: NxXxMpts
-      use wavevars, only: Escala,Ts,Tp, tipoPulso
+      use wavevars, only: Escala,Ts,Tp, tipoPulso,maxtime
       implicit none
       integer, intent(in)          :: outpf!,nJ
       logical                      :: isOnIF
@@ -1886,6 +1896,8 @@
       READ(7,*) Ts
       READ(7,*)
       READ(7,*) Tp
+      READ(7,*)
+      READ(7,*) maxtime
       close(7)
       
       if (makeVideo .eqv. .false.) return 
@@ -1911,7 +1923,8 @@
         boundingZp = MeshMaxZ !Z(N+1)
         boundingZn = 0. 
         plusCero = 0
-        if(boundingZn == 0.0) then
+!       if(boundingZn == 0.0) then
+        if(abs(boundingZn)<errT) then
           plusCero =1
         end if
 !       nz = int((abs(boundingZn)+abs(boundingZp)) / MeshDZ) + plusCero
@@ -1924,10 +1937,10 @@
           write(outpf,'(a,F9.1,a,F9.1,a,F10.3,a,I0,a,I0,a)') & 
                         "x :[", - MeshDXmultiplo * DeltaX * (NxXxMpts-1)/2," ... ", &
                          MeshDXmultiplo * DeltaX * (NxXxMpts-1)/2,"] :: ", DeltaX,"m @[", &
-                         MeshDXmultiplo,"]dk = ", NxXxMpts," puntos"
+                         MeshDXmultiplo,"] = ", NxXxMpts," puntos"
           write(outpf,'(a,F9.1,a,F9.1,a,F10.3,a,I0,a)') & 
                      "z :[",boundingZn," ... ",boundingZp, & 
-                     "] :: ",MeshDZ,"m        = ",nz," puntos"
+                     "] :: ",MeshDZ,"m      = ",nz," puntos"
         end if
         
         nMpts = nz
@@ -1979,7 +1992,7 @@
       use GeometryVars
       use gloVars
       use fitting
-      use soilVars, only : Z,N,BETA
+      use soilVars, only : Z,N!,BETA
       use waveNumVars, only : NMAX,vout
       use ploteo10pesos
       use resultVars, only : BouPoints, nBpts, & 
@@ -2066,7 +2079,8 @@
             end if
          
           ! 
-          if (anint(y(iXI) * 1000.) == anint(Z(e) * 1000.)) then
+!         if (anint(y(iXI) * 1000) == anint(Z(e) * 1000)) then
+          if (abs(anint(y(iXI) * 1000) - anint(Z(e) * 1000)) < errT) then
            if (verbose >= 2) then; write(outpf,*)"equal"; end if
           else 
       ! si es un segmento que se forma recorriendo los puntos hacia Z+
@@ -2259,7 +2273,7 @@
       !add length
       BouPoints(:)%length = lengthXI
       !add layer
-      BouPoints(:)%layer = layerXI
+      BouPoints(:)%layer = int(layerXI)
       BouPoints(:)%isBoundary = .true.
       BouPoints(:)%isOnInterface = isOnIF
       BouPoints(:)%guardarFK = .false.
@@ -2346,7 +2360,7 @@
       use gloVars!, only : verbose, makeVideo, getInquirePointsSol
       use fitting
       use soilVars, only : Z,N,BETA
-      use waveNumVars, only : NFREC,DFREC,NMAX,vout
+      use waveNumVars, only : DFREC,NMAX,vout
       use resultVars, only : BouPoints, nBpts, & 
                              bPtini,bPtfin,iPtini,iPtfin, &
                              allpoints,nPts,mPtini,mPtfin,NxXxMpts, &
@@ -2674,7 +2688,7 @@
       !add length
       BouPoints(:)%length = lengthXI
       !add layer
-      BouPoints(:)%layer = layerXI
+      BouPoints(:)%layer = int(layerXI)
       BouPoints(:)%isBoundary = .true.
       BouPoints(:)%isOnInterface = isOnIF
       BouPoints(:)%guardarFK = .false.
@@ -2781,8 +2795,8 @@
       subroutine allocintegPoints(iJ)
       use soilVars, only : BETA
       use resultVars, only : allpoints,BouPoints,npts,nBpts
-      use waveNumVars, only : NMAX,DFREC
-      use Gquadrature, only: WLmulti,Gqu_n => Gquad_n
+      use waveNumVars, only : DFREC
+      use Gquadrature, only: WLmulti!,Gqu_n => Gquad_n
       
       implicit none
       integer, intent(in) :: iJ
@@ -2861,7 +2875,7 @@
       if (verbose >= 1) then
        write(outpf,'(a)')' '
        write(outpf,'(a)')'Incident wave amplitude: '
-      end if
+      end if!
       if (tipoPulso .eq. 0) then
         allocate(Uo(NFREC*2))
         Uo=cmplx(1,0,8)
@@ -2906,6 +2920,7 @@
        logflag = 'logx     '
        call plotSpectrum(Uo,DFREC,size(Uo),int(size(Uo)/2),titleN,xAx,yAx,logflag,1200,800)
        CALL chdir("..")
+       print*,"plotted "
 !      logflag = 'logy     '
 !      call plotSpectrum(Uo,DFREC,size(Uo),int(size(Uo)/2),titleN,xAx,yAx,logflag,1200,800)
                         
@@ -2914,6 +2929,7 @@
 !      !            rick_frec_ugly.pdf time[sec] amplitude 1200 800')
       end if
       end if !tipo
+      
 !     ! test............................................................
 !     ! before anything, we have to beautify the signal
 !     n = size(Uo)
@@ -2963,14 +2979,14 @@
       ! task =  0
       ! Almacena el campo diffractado (estratigrafía) en W y WmovieSiblings
       
-      use gloVars, only: verbose,PI, symmetricProblem
+      use gloVars, only: verbose,PI!, symmetricProblem!
       use resultvars, only:nBpts,MecaElem,Punto,Boupoints,Hf,Hk, NxXxMpts
       use sourceVars
       use Gquadrature, only: Gquad_n
       use waveNumVars, only : NMAX,DK,expK, minKvalueW,minKvalueU,lapse
-      use refSolMatrixVars, only : B,IPIV,Ak
-      use soilVars, only: N
-      use meshVars, only: MeshDXmultiplo,nx
+      use refSolMatrixVars, only : B,Ak
+!     use soilVars, only: N
+      use meshVars, only: MeshDXmultiplo!,nx
       use wavelets !fork
       implicit none
       integer, intent(in) :: iPxi,nPX,task,J,outpf
@@ -2982,7 +2998,7 @@
       complex*16, dimension(2*nBpts,2) :: V
       complex*16, dimension(2*nmax,5) :: auxK
       real :: zf,xf,k,factor,peso
-      real, dimension(2) :: nf
+      real*8, dimension(2) :: nf
       type(MecaElem)  :: calcMecaAt_xi_zi, Meca_diff, calcFF, Meca_FF
       !  fza horiz     fza vert
       sign(1,1) = -1 ; sign(1,2) = 1  !W        impar           par
@@ -3037,7 +3053,7 @@
         auxK = 0
         warning = .false.
       Do ik=1,nmax+1 !WAVE NUMBER LOOP-
-         k = real(ik-1,8) * dK
+         k = real(ik-1) * dK
          if (ik .eq. 1) k = dk * 0.001
         
         call vectorB_force(B,zf,ef,intf,dir,cOME,k)  
@@ -3063,6 +3079,7 @@
         end if
         if (lapse .le. 0) warning = .true.
       end do !ik
+      
          ! completar la crepa
       !        calculado              crepa 
       !   _________|____________ _______|________  
@@ -3070,9 +3087,18 @@
       ! k= 0 1 2 ... N/2-1 -N/2 ... -3 -2 -1
       do iMec = 1,5
          auxK(nmax+1:nmax*2,iMec) = sign(iMec,dir)* auxK(nmax+1:2:-1,iMec)
-         auxK(:,iMec) = auxK(:,iMec) * expK ** xf / expK ** PX(iP_x)%center(1) * cmplx(Hf(J) * Hk,0.0,8)
+!        auxK(:,iMec) = auxK(:,iMec) * expK ** xf / expK ** PX(iP_x)%center(1) * cmplx(Hf(J) * Hk,0.0,8) ------------- I fucked up here
+         auxK(:,iMec) = auxK(:,iMec) * cmplx(Hf(J) * Hk,0.0,8)
          !                             info X-coord        info X-coord           taper
       end do !iMec
+        
+      ! informacion de la coordeanda X de la fuente y el receptor
+      do imec =1,5
+        auxk(1:nmax,imec) = auxk(1:nmax,imec) * & 
+        exp(cmplx(0.0, -(/((ik-1)*dk,ik=1,nmax)/)*(PX(iP_x)%center(1)-xf) ,8))
+        auxk(nmax+1:nmax*2,imec) = auxk(nmax+1:nmax*2,imec) * & 
+        exp(cmplx(0.0, -(/((-ik)*dk,ik=nmax,1,-1)/)*(PX(iP_x)%center(1)-xf) ,8))
+      end do
         
         ! guardar el FK si es que es interesante verlo
       if (PX(iP_x)%guardarFK) then
@@ -3342,7 +3368,7 @@
       
       subroutine matrixA_borderCond(this_A,k,cOME_i,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
-      use gloVars, only : verbose,UI,UR,PI!,dp
+      use gloVars, only : verbose,UI,UR!,PI!,dp
 !     use waveVars, only : Theta     
 !     use refSolMatrixVars, only : A ! aquí guardamos el resultado 
       use debugStuff  
@@ -3466,9 +3492,9 @@
       
       subroutine vectorB_force(this_B,z_f,e,fisInterf,direction,cOME,k)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA,RHO
-      use gloVars, only : verbose,UR,UI,PI  
+      use gloVars, only : UR,UI,PI  
       use debugStuff   
-      use resultVars, only : allpoints,NPts
+!     use resultVars, only : allpoints,NPts
       implicit none
       
       complex*16,    intent(inout), dimension(4*N+2) :: this_B
@@ -3479,6 +3505,7 @@
       integer :: iIf,nInterf!,iP
       real    :: SGNz,L2M!,x_i
       complex*16 :: gamma,nu,DEN
+      real     :: errT = 0.001
       complex*16 :: omeAlf,omeBet!,AUX
       ! una para cada interfaz (la de arriba [1] y la de abajo [2])
       real,       dimension(2) :: z_loc
@@ -3524,7 +3551,8 @@
       ! en cada interfaz (1 arriba) y (2 abajo)
       do iIf = 1,2
 !         print*,"[",x,",",z_loc(iIf),"]"
-          if (z_loc(iIf) .ne. 0.) then
+!         if (z_loc(iIf) .ne. 0.) then
+          if (abs(z_loc(iIf)) > errT ) then
             SGNz = z_loc(iIf) / ABS(z_loc(iIf))
           else
             SGNz = 0
@@ -3617,8 +3645,8 @@
       end subroutine vectorB_force
       function calcMecaAt_xi_zi(thisIP_B,z_i,e,cOME_i,k,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
-      use gloVars, only : verbose,UI,UR,PI
-      use waveVars, only : Theta
+      use gloVars, only : verbose,UI,UR!,PI
+!     use waveVars, only : Theta
       use resultVars, only : MecaElem
       implicit none
       type (MecaElem)              :: calcMecaAt_xi_zi
@@ -3779,7 +3807,7 @@
       function calcFF(z_f,e_f,dir,zX,eX,k,cOME)
       use soilVars 
       use gloVars  
-      use waveNumVars, only : NFREC,NMAX,DK
+!     use waveNumVars, only : NFREC,NMAX!,DK
       use resultvars, only: Punto,MecaElem
       
       implicit none
@@ -3795,7 +3823,7 @@
       real                       :: L2M
       complex*16                 :: gamma,nu,DEN
       complex*16                 :: omeAlf,omeBet
-      
+      real     :: errT = 0.001
       egamz=cmplx(1.0,0.0,8);enuz=cmplx(1.0,0.0,8);SGNz=0
       calcFF%Rw = cmplx(0.0,0.0,8)
       
@@ -3807,7 +3835,8 @@
       L2M = LAMBDA(e_f) + 2.0*AMU(e_f)
       
       z_i = zX - z_f
-      if (z_i .ne. 0) then
+!     if (z_i .ne. 0) then
+      if (abs(z_i) > errT) then
         SGNz = z_i / ABS(z_i)
       end if
       
@@ -3918,7 +3947,7 @@
       aux(1:nmax) = (/ (i,i=0,nmax-1) /) * DK
       aux(1) = dk * 0.001
       aux(nmax+1:2*nmax) = (/ (nmax-i,i=0,nmax-1) /) * DK * (-1)
-      expK = exp(cmplx(0.0 ,-pi * aux,8))
+      expK = exp(cmplx(0.0 ,-2*pi * aux,8))
       
 !     call showMNmatrixZ (2*nmax,1,expK,"nmax ",6)
       end subroutine expPIK
@@ -4038,7 +4067,7 @@
       subroutine W_to_t(W,iP,coords,outpf)
       use waveNumVars, only : NFREC,DFREC
       use glovars
-      use waveVars, only : dt,t0,Uo
+      use waveVars, only : dt,t0,Uo,maxtime
       use ploteo10pesos
       use wavelets
       implicit none
@@ -4050,7 +4079,7 @@
       character(LEN=3), dimension(5)   :: nombre
       character(LEN=100) :: titleN
       character(LEN=9)   :: logflag
-      integer :: i,iMec,t
+      integer :: i,iMec,t,n_maxtime
       real :: x_i,z_i,factor
       factor = sqrt(2.*NFREC)
       
@@ -4069,10 +4098,10 @@
       ! tenemos:  0 1 2 3 ... N/2-1  N/2
       ! hacemos:  0 1 2 3 ... N/2-1 -N/2 ... -3 -2 -1
       S(      1:nfrec  ) =       W(1:nfrec:+1,  iMec) * & 
-      exp(cmplx(0.0,- pi * (/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)
+      exp(cmplx(0.0,- 2*pi * (/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)
       S(nfrec+1:nfrec*2) = conjg(W(nfrec+1:2:-1,iMec)) * & 
-      exp(cmplx(0.0,- pi * (/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)
-      
+      exp(cmplx(0.0,- 2*pi * (/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)
+!     print*,"here 1"
       
       if (verbose .ge. 2) then
       !guardar en texto
@@ -4092,7 +4121,7 @@
       end if
       
       ! imprimir espectro:
-        if (Verbose .ge. 2) then
+        
          write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
                'f_',nombre(iMec),iP,'[', &
                int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
@@ -4101,24 +4130,30 @@
          call plotXYcomp(S,DFREC,2*nfrec,titleN, & 
          'frec[hz] ','amplitude',1200,800)
          
-        end if
+         if (Verbose .ge. 2) then
          write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
                'fL_',nombre(iMec),iP,'[', &
                int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
                int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].pdf'
          logflag = 'logx     '
+!        print*,"here1.5"
+         end if
          call plotSpectrum(S,DFREC,2*nfrec,nfrec, & 
-                         titleN,'frec[hz]','amplitude',logflag,1200,800)
-
+                         titleN,'frec[hz] ','amplitude',logflag,1200,800)
       !  (1) pasar al tiempo
          S = S*factor
          call fork(2*nfrec,S,+1,verbose,outpf)
          S = S/factor
       !  (2) remover efecto de la frecuencia imaginaria
          S = S * exp(-DFREC/periodicdamper * dt*((/(i,i=1,2*nfrec)/)-1))
-      
+         
+         !tiempo maximo para graficar
+         if(maxtime .lt. dt) maxtime = 5*dt
+         if(maxtime .gt. 1/(dfrec)) maxtime = 1/(dfrec)
+         n_maxtime = int(maxtime/dt)
+         print*,"maxtime = ",maxtime," segs :: @",dt," : ",n_maxtime," puntos"
       !  (3) plot the damn thing
-      if (verbose .ge. 1) then
+      if (verbose .ge. 2) then
       !guardar en texto
          write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
                'S_',nombre(iMec),iP,'[', &
@@ -4129,7 +4164,7 @@
          write(3211,'(I0)') 1
          write(3211,'(a)') "amplitude"
          write(3211,'(F15.8)') DT
-         do i = 1,size(S)
+         do i = 1,n_maxtime
           write(3211,'(ES14.5E2,2x,ES14.5E2)') real(S(i)),aimag(S(i))
          end do
          close (3211) 
@@ -4138,7 +4173,7 @@
                'S_',nombre(iMec),iP,'[', &
                int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
                int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].pdf'
-         call plotXYcomp(S,dt,2*nfrec,titleN, & 
+         call plotXYcomp(S(1:n_maxtime),dt,n_maxtime,titleN, & 
          'time[sec]','amplitude',1200,800)
       
       end do !imec
@@ -4147,9 +4182,9 @@
       use DISLIN
       use resultVars
       use wavelets ! FORK(LX,CX,SIGNI,verbose,outpf)
-      use waveVars, only : Dt,Uo,t0
+      use waveVars, only : Dt,Uo,t0,maxtime
       use waveNumVars ! FK,NFREC,DFREC
-      use refSolMatrixVars, only : COME
+!     use refSolMatrixVars, only : COME
       use gloVars
       use MeshVars
       use soilVars, only : Z,N
@@ -4160,7 +4195,7 @@
       real       ::           Y(nz)
       complex*16 :: Sm(nxXxmpts,nz,imecMax,2*NFREC)      
       integer  :: iP,iMec
-      integer  :: ix,iz,iT,i,Iframe,Fframe,mecMAx,t
+      integer  :: ix,iz,iT,i,Iframe,Fframe,mecMAx,t, n_maxtime
       real     :: factor,ColorRangeMaximumScale,tlabel
       integer*4 :: lentitle
       character(LEN=3), dimension(5)      :: nombre
@@ -4181,6 +4216,12 @@
       nombre(5)= 's11'
       mecMax = 2
       if(workboundary) mecMax = 2
+      
+      !tiempo maximo para graficar
+         if(maxtime .lt. dt) maxtime = 5*dt
+         if(maxtime .gt. 1/(dfrec)) maxtime = 1/(dfrec)
+         n_maxtime = int(maxtime/dt)
+         print*,"maxtime = ",maxtime," segs :: @",dt," : ",n_maxtime," puntos"
       
       if (verbose >= 1) Write(outpf,'(a)') "Will make a movie..."
          CALL chdir("video")
@@ -4214,10 +4255,10 @@
         do iMec = 1,mecMax
         ! (1) crepa
         Sm(ix,iz,iMec,1:nfrec) = allpoints(iP)%WmovieSiblings(ix,1:nfrec:+1,iMec)* & 
-      exp(cmplx(0.0,- pi * (/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)
+      exp(cmplx(0.0,- 2*pi*(/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)
       
         Sm(ix,iz,iMec,nfrec+1:nfrec*2) = conjg(allpoints(iP)%WmovieSiblings(ix,nfrec+1:2:-1,iMec))* & 
-      exp(cmplx(0.0,- pi * (/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)
+      exp(cmplx(0.0,- 2*pi*(/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)
         
         ! (2) pasar al tiempo: fork
           Sm(ix,iz,iMec,:) = Sm(ix,iz,iMec,:) * factor
@@ -4227,7 +4268,9 @@
         ! (2.3) remover efecto de la frecuencia imaginaria
           Sm(ix,iz,iMec,:) = Sm(ix,iz,iMec,:) * & 
                             exp(-DFREC/periodicdamper * Dt*((/(i,i=1,2*nfrec)/)-1))
-        
+          
+          
+          
         end do !iMec
       end do !ix
       iz = iz + 1
@@ -4237,8 +4280,8 @@
       ColorRangeMaximumScale = 0.1
       
   123 do i=1,mecMax
-       maV = maxVal(real(Sm(:,:,i,:)))
-       miV = minVal(real(Sm(:,:,i,:)))
+       maV = maxVal(real(Sm(:,:,i,:),4))
+       miV = minVal(real(Sm(:,:,i,:),4))
        maV = max(maV,abs(miV))
        miV = - maV
        
@@ -4281,7 +4324,8 @@
       maxY = MAX(MAX(maxY, 2.0),MAXVAL(Y))!; print*,maxY
       
       Iframe = 1
-      Fframe = size(Sm(1,1,1,:))
+      Fframe = n_maxtime !size(Sm(1,1,1,:))
+      
       print *, char(7)
       write(6,'(a,I0,a)')'Look at the seismograms, I will plot ',Fframe,&
       'frames. Proceed [Y] or change frame range [else]'

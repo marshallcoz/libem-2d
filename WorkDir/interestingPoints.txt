@@ -1,11 +1,12 @@
 Additional points of interest
-8   <- Por lo menos (2)
+5   <- Por lo menos (2)
  X        Z          nx       nz      guardarFK
-0.0      3.0        0.0      -1.0      0        <- coord de la fuente
+0.0     3.0        0.0     -1.0      0        <- coord de la fuente
 -3.0     0.0        0.0      1.0      1
 -2.0     0.0        0.0      1.0      1
 -1.0     0.0        0.0      1.0      1 
 0.0     1.0        0.0      1.0      1 
+
 1.0     0.0        0.0      1.0      1 
 2.0     0.0        0.0      1.0      1 
 3.0     0.0        0.0      1.0      1
