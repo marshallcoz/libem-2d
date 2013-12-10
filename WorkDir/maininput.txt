@@ -1,7 +1,7 @@
 verbose [int]
 1
 make a video [logical]
-T
+F
 Solve topography [logical]
 F
 Plot FK [logical]
@@ -16,7 +16,7 @@ T
 periodic sources damping; omega = (omega , -DFREC/fact i) [float :: fact] {recommended 1 or 2}
 2.0
 valor minimo en FK a partir del cual se desprecia el cálculo
-0.000001
-0.000001
+0.0001
+0.0001
 30
 

@@ -1447,7 +1447,7 @@
                             "source is at (",xfsource,",",zfsource,")"
       end if
       
-      call makeTaperFuncs(20,0.8,0.8)
+      call makeTaperFuncs(20,0.8,0.6)
       call expPIK(expK)
       call waveAmplitude(PrintNum)
       DO J=1,NFREC+1
@@ -2983,7 +2983,7 @@
       use resultvars, only:nBpts,MecaElem,Punto,Boupoints,Hf,Hk, NxXxMpts
       use sourceVars
       use Gquadrature, only: Gquad_n
-      use waveNumVars, only : NMAX,DK,expK, minKvalueW,minKvalueU,lapse
+      use waveNumVars, only : NMAX,DK, minKvalueW,minKvalueU,lapse
       use refSolMatrixVars, only : B,Ak
 !     use soilVars, only: N
       use meshVars, only: MeshDXmultiplo!,nx
@@ -3066,7 +3066,7 @@
                      PX(iP_x)%center(2),& 
                      PX(iP_x)%layer,k,cOME)
         
-        auxK(ik,1:5) =  Meca_ff%Rw(1:5) + Meca_diff%Rw(1:5)
+        auxK(ik,1:5) = Meca_diff%Rw(1:5) ! + Meca_ff%Rw(1:5)
         
         if (abs(auxK(ik,1)) .lt. minKvalueW .and. & 
         abs(auxK(ik,2)) .lt. minKvalueU .and. warning .eqv. .true.) exit !--------------------------------esto es arriesgado 
@@ -3088,16 +3088,21 @@
       do iMec = 1,5
          auxK(nmax+1:nmax*2,iMec) = sign(iMec,dir)* auxK(nmax+1:2:-1,iMec)
 !        auxK(:,iMec) = auxK(:,iMec) * expK ** xf / expK ** PX(iP_x)%center(1) * cmplx(Hf(J) * Hk,0.0,8) ------------- I fucked up here
-         auxK(:,iMec) = auxK(:,iMec) * cmplx(Hf(J) * Hk,0.0,8)
-         !                             info X-coord        info X-coord           taper
+         
       end do !iMec
         
       ! informacion de la coordeanda X de la fuente y el receptor
       do imec =1,5
         auxk(1:nmax,imec) = auxk(1:nmax,imec) * & 
-        exp(cmplx(0.0, -(/((ik-1)*dk,ik=1,nmax)/)*(PX(iP_x)%center(1)-xf) ,8))
+        exp(cmplx(0.0,  (/((ik-1)*dk,ik=1,nmax)/)*   1* (PX(iP_x)%center(1)-xf) ,8))/(2*pi)
+        
+        auxK(1     ,imec) = auxk(1     ,imec) * &
+        exp(cmplx(0.0,  0.001*dk                 *   1* (PX(iP_x)%center(1)-xf) ,8))/(2*pi)
+        
         auxk(nmax+1:nmax*2,imec) = auxk(nmax+1:nmax*2,imec) * & 
-        exp(cmplx(0.0, -(/((-ik)*dk,ik=nmax,1,-1)/)*(PX(iP_x)%center(1)-xf) ,8))
+        exp(cmplx(0.0,  (/((-ik)*dk,ik=nmax,1,-1)/)* 1* (PX(iP_x)%center(1)-xf) ,8))/(2*pi)
+        
+        auxK(:,iMec) = auxK(:,iMec) * cmplx(Hf(J) * Hk,0.0,8)!    taper
       end do
         
         ! guardar el FK si es que es interesante verlo
@@ -3165,10 +3170,15 @@
         ! guardamos el campo difractado
         if(PX(iP_x)%guardarMovieSiblings) then
           ! (1) reordenar la crepa existente en X
-          auxK = cshift(auxK,SHIFT=nmax+1,DIM=1)
+!         auxK = cshift(auxK,SHIFT=nmax+1,DIM=1)
+!         ! (2) guardar sólo los interesantes
+!         xXx = 1
+!         do i=nmax-(nxXxmpts-1)/2* meshdxmultiplo,nmax+(nxXxmpts-1)/2* meshdxmultiplo,meshdxmultiplo
+          
+          auxK = cshift(auxK,SHIFT=nmax,DIM=1)
           ! (2) guardar sólo los interesantes
           xXx = 1
-          do i=nmax-(nxXxmpts-1)/2* meshdxmultiplo,nmax+(nxXxmpts-1)/2* meshdxmultiplo,meshdxmultiplo
+          do i=nmax+1-(nxXxmpts-1)/2* meshdxmultiplo,nmax+1+(nxXxmpts-1)/2* meshdxmultiplo,meshdxmultiplo
             if (iPxi .eq. 0) then !fuente real
               if (dir .eq. 1) PX(iP_x)%WmovieSiblings(xXx,J,:) = 0
               PX(iP_x)%WmovieSiblings(xXx,J,:) = auxK(i,:) * nf(dir) + &
@@ -3933,6 +3943,7 @@
          Hk(1:nmax) = (/ (i,i=0,nmax-1) /) * DK
          Hk(nmax+1:2*nmax) = (/ (nmax-i,i=0,nmax-1) /) * DK 
          HK = 1.0/sqrt(1.0+(Hk/(cutoff_fracKmax*NMAX*DK))**(2*Npol))
+         
       end subroutine makeTaperFuncs  
       
       subroutine expPIK(expK)
@@ -4098,9 +4109,13 @@
       ! tenemos:  0 1 2 3 ... N/2-1  N/2
       ! hacemos:  0 1 2 3 ... N/2-1 -N/2 ... -3 -2 -1
       S(      1:nfrec  ) =       W(1:nfrec:+1,  iMec) * & 
-      exp(cmplx(0.0,- 2*pi * (/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)
+      exp(cmplx(0.0,- 2*pi * (/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)/(2*pi)
+      
+      S(1) = W(1,iMec) * & 
+      exp(cmplx(0.0,- 2*pi * 0.001*dfrec * t0,8)) * Uo(1)/(2*pi)
+      
       S(nfrec+1:nfrec*2) = conjg(W(nfrec+1:2:-1,iMec)) * & 
-      exp(cmplx(0.0,- 2*pi * (/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)
+      exp(cmplx(0.0,- 2*pi * (/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)/(2*pi)
 !     print*,"here 1"
       
       if (verbose .ge. 2) then
@@ -4255,10 +4270,13 @@
         do iMec = 1,mecMax
         ! (1) crepa
         Sm(ix,iz,iMec,1:nfrec) = allpoints(iP)%WmovieSiblings(ix,1:nfrec:+1,iMec)* & 
-      exp(cmplx(0.0,- 2*pi*(/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)
+      exp(cmplx(0.0,- 2*pi*(/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)/(2*pi)
+      
+        Sm(ix,iz,iMec,1      ) = allpoints(iP)%WmovieSiblings(ix,1         ,iMec) * & 
+      exp(cmplx(0.0,- 2*pi * 0.001*dfrec * t0,8)) * Uo(1)/(2*pi)
       
         Sm(ix,iz,iMec,nfrec+1:nfrec*2) = conjg(allpoints(iP)%WmovieSiblings(ix,nfrec+1:2:-1,iMec))* & 
-      exp(cmplx(0.0,- 2*pi*(/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)
+      exp(cmplx(0.0,- 2*pi*(/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)/(2*pi)
         
         ! (2) pasar al tiempo: fork
           Sm(ix,iz,iMec,:) = Sm(ix,iz,iMec,:) * factor

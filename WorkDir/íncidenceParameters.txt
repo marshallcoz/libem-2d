@@ -1,12 +1,12 @@
 Mesh:
       Mesh Num pixels Z
-50
+40
       Mesh Num pixels X
-50
+40
       Mesh Max Z (m)
-6.0
-      Mesh +-maxX (m)
 3.0
+      Mesh +-maxX (m)
+1.5
 Incidence:
       Amplitude function scale
 1.0
@@ -17,5 +17,5 @@ Incidence:
       Tp
 1.5
      max time
-20.0
+3.0
 KEEP CALM AND THE FILE FORMAT
