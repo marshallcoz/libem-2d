@@ -1493,7 +1493,7 @@
       call expPIK(expK)
       call waveAmplitude(PrintNum)
       
-      call preparePointerTable(.true.,0.0,PrintNum)
+      call preparePointerTable(.true.,PrintNum)
       DO J=1,NFREC+1
       ! complex frecuency for avoiding poles and provide damping
         FREC=DFREC*real(J-1)
@@ -1523,8 +1523,9 @@
       if (workBoundary) then 
          call subdivideTopo(J,PrintNum)
          call allocintegPoints(J)
+         call preparePointerTable(.false.,PrintNum)
       end if
-      
+         
       Ak = 0
       Do ik=1,nmax+1 !WAVE NUMBER LOOP-
          k = real(ik-1) * dK
@@ -2442,17 +2443,14 @@
       allocate(IPIVbem(2*nBpts))
       
       end subroutine getTopography
-      subroutine preparePointerTable(firstTime,zf,outpf)
+      subroutine preparePointerTable(firstTime,outpf)
       use resultVars, only : nPts,allpoints,nBpts,BouPoints,auxpota,pota,fixedpota,nZs,Punto
       use debugstuff
       use Gquadrature, only : Gquad_n
       use glovars, only : workBoundary
-      ! tabla con las coordenadas Z (sin repetir) de los puntos donde se
-      ! obtien la solución, los estratos donde están y apuntadores a los
-      ! puntos que comparten cada coordeanda Z.
+      ! tabla con las coordenadas Z (sin repetir).
       implicit none
       logical,intent(in) :: firstTime
-      real, intent(in)   :: zf
       integer,intent(in) :: outpf
       integer :: i,j,iP
       logical :: nearby,esnueva
@@ -2504,35 +2502,51 @@
        ! fuerza virtual [zf] y los centros de los segmentos restantes. 
        if (outpf >=2) write(outpf,*) "updating master table"
        if (allocated(pota)) deallocate(pota)
-       allocate(auxpota(nZs + nBpts * Gquad_n, maxval(pota(:,1)) + nBpts * Gquad_n))
-       j = maxval(fixedpota(:,1))
+       if (allocated(auxpota)) deallocate(auxpota)
+!      print*,"max size:  ",nZs + nBpts * Gquad_n," x ",2 + maxval(fixedPota(:,1)) + nBpts * Gquad_n
+       allocate(auxpota(nZs + nBpts * Gquad_n, 2 + maxval(fixedPota(:,1)) + nBpts * Gquad_n))
+       auxpota = 0
+       j = maxval(fixedPota(:,1))
        auxpota(1:nZs,1:2+j) = fixedPota
+!      print*,"nBpts=",nBpts
        do iP = 1,nBpts
+!        print*,"ip:",ip
          esnueva = .true.
          do i = 1,nZs
           ! diferenciar de que grupo es la coordenda
            if (associated(PX)) then 
-              nullify(PX) 
+              nullify(PX)
            end if!
            if (auxpota(i,3) .gt. 0) then
-             PX => allpoints(auxpota(i,3))
+             PX => allpoints(auxpota(i,3))!; print*,"allp "
            else
-             PX => boupoints(abs(auxpota(i,3)))
+             PX => boupoints(abs(auxpota(i,3)))!; print*,"boup "
            end if
           ! revisar si existe
            if (nearby(boupoints(iP)%center(2),PX%center(2),0.001)) then
-             !agregar a coordenada Z existente
+!            print*,"estan cerca"
+             if (auxpota(i,3) .lt. 0) then 
+               if (.not.(nearby(PX%length,boupoints(iP)%length,0.01)) .or. &
+              (.not.(nearby(real(abs(PX%normal(1)),4),real(abs(boupoints(iP)%normal(1)),4),0.01)))) then
+                 esnueva = .true. ;print*," they are different"
+                 exit
+               end if
+             end if
+             !inscribir a coordenada Z existente
              auxpota(i,2) = 1 + auxpota(i,2)
              auxpota(i,auxpota(i,1) + auxpota(i,2) + 2) = - iP
              esnueva = .false.
+!            print*,"inscrito. renglon:",i,"(",auxpota(i,1)," ",auxpota(i,2),")"
              exit
            end if
          end do ! i
          if (esnueva) then
            !nueva coordenada Z
            nZs = nZs + 1
+           auxpota(nZs,1) = 0
            auxpota(nZs,2) = 1
            auxpota(nZs,3) = - iP
+!          print*,"nuevo Z ahora son ",nZs
          end if
        end do ! iP
        j = maxval(auxpota(:,1) + auxpota(:,2))
@@ -2540,8 +2554,9 @@
        Pota = auxpota(1:nZs,1:2+j)
        deallocate(auxpota)
       end if
-      
+      ! done
       if (outpf >=2) call showMNmatrixI(nZs,2+j,pota,"po_ta",outpf)
+      if (firstTime .eqv. .false.) stop "preparePointerTable"
       end subroutine preparePointerTable
       
       function nearby(a,b,bola)
@@ -2552,8 +2567,8 @@
       if ((b-bola .le. a) .and. (a .le. b+bola)) then 
         nearby = .true.
       end if
-      print*, b-bola, "<=", a, "<=",b+bola ," :: ", nearby
-      end function nearby
+!     print*, b-bola, "<=", a, "<=",b+bola ," :: ", nearby
+      end function nearby 
       subroutine subdivideTopo(iJ,outpf)
       !Read coordinates of collocation points and fix if there are
       !intersections with inferfaces. Also find normal vectors of segments.
