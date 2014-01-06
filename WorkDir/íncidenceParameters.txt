@@ -1,21 +1,10 @@
 Mesh:
       Mesh Num pixels Z
-40
+10
       Mesh Num pixels X
-40
+10
       Mesh Max Z (m)
 3.0
       Mesh +-maxX (m)
 1.5
-Incidence:
-      Amplitude function scale
-1.0
-      Tipo de funcion 0 dirac; 1 ricker
-0
-      Ts
-0.0
-      Tp
-1.5
-     max time
-3.0
 KEEP CALM AND THE FILE FORMAT

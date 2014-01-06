@@ -23,29 +23,70 @@
       
       module Gquadrature
       real :: WLmulti ! una o dos longitudes de onda
-      integer, parameter :: Gquad_n = 8 ! número par
+      integer, parameter :: Gquad_n = 8 ! número par para no pegarle a la
+      ! singularidad en el punto de aplicación de la fuerza
       
-!     real, parameter, dimension(1) :: Gqu_t_8 = (/1.0/)
-!     real, parameter, dimension(1) :: Gqu_A_8 =(/1.0/)
+      ! courtesy of http://pomax.github.io/bezierinfo/legendre-gauss.html
+!     real, parameter, dimension(7) :: Gqu_t_7 = & 
+!     (/ -0.9491079123427585, &
+!        -0.7415311855993945, &
+!        -0.4058451513773972, &
+!         0.0000000000000000, &
+!        +0.4058451513773972, &
+!        +0.7415311855993945, &
+!        +0.9491079123427585 /)
+!     
+!     real, parameter, dimension(7) :: Gqu_A_7 = & 
+!     (/  0.1294849661688697, &
+!         0.2797053914892766, &
+!         0.3818300505051189, &
+!         0.4179591836734694, &
+!         0.3818300505051189, &
+!         0.2797053914892766, &
+!         0.1294849661688697 /)
+      
       real, parameter, dimension(8) :: Gqu_t_8 = & 
-      (/ -0.96028986, &
-         -0.79666648, &
-         -0.52553242, &
-         -0.18343464, &
-         +0.18343464, &
-         +0.52553242, &
-         +0.79666648, &
-         +0.96028986 /)
+      (/ -0.9602898564975363, &
+         -0.7966664774136267, &
+         -0.5255324099163290, &
+         -0.1834346424956498, &
+          0.1834346424956498, &
+          0.5255324099163290, &
+          0.7966664774136267, &
+          0.9602898564975363 /)
       
       real, parameter, dimension(8) :: Gqu_A_8 = &
-      (/ 0.10122854, &
-         0.22238104, &
-         0.31370664, &
-         0.36268378, &
-         0.36268378, &
-         0.31370664, &
-         0.22238104, &
-         0.10122854 /)
+      (/ 0.1012285362903763, &
+         0.2223810344533745, &
+         0.3137066458778873, &
+         0.3626837833783620, &
+         0.3626837833783620, &
+         0.3137066458778873, &
+         0.2223810344533745, &
+         0.1012285362903763 /)
+         
+!     real, parameter, dimension(9) :: Gqu_t_9 = & 
+!     (/ -0.9681602395076261, &
+!        -0.8360311073266358, &
+!        -0.6133714327005904, &
+!        -0.3242534234038089, &
+!         0.0000000000000000, &
+!         0.3242534234038089, &
+!         0.6133714327005904, &
+!         0.8360311073266358, &
+!         0.9681602395076261 /)
+!     
+!     real, parameter, dimension(9) :: Gqu_A_9 = & 
+!     (/  0.0812743883615744, &
+!         0.1806481606948574, &
+!         0.2606106964029354, &
+!         0.3123470770400029, &
+!         0.3302393550012598, &
+!         0.3123470770400029, &
+!         0.2606106964029354, &
+!         0.1806481606948574, &
+!         0.0812743883615744 /)
+         
       end module Gquadrature 
       
       module soilVars
@@ -192,10 +233,10 @@
       
        end type Punto   
       ! bondary elements:     ,--- POINT index / x (receptor)
-      type (Punto), dimension(:), allocatable, save :: allpoints
+      type (Punto), dimension(:), allocatable, save, target :: allpoints
       type (Punto), dimension(:), allocatable, save :: inqPoints
       type (Punto), dimension(:), allocatable, save :: moviePoints
-      type (Punto), dimension(:), allocatable, save :: BouPoints !xi
+      type (Punto), dimension(:), allocatable, save, target :: BouPoints !xi
             
       integer, save :: nIpts, nMpts, NxXxMpts, nBpts, nPts,&
                        iPtini,iPtfin,mPtini,mPtfin,bPtini,bPtfin
@@ -203,9 +244,6 @@
       !                     ,-,--- nBpts x nBpts (considering 1 direction)
       complex*16, dimension(:,:), allocatable :: ibemMat
       complex*16, dimension(:), allocatable :: trac0vec 
-!     complex*16, dimension(:,:,:), allocatable :: ibemPHI
-      !                       | `--- m
-      !                       `--- i
       integer, dimension(:), allocatable :: IPIVbem
       
       !                                          ,--- ix
@@ -214,9 +252,18 @@
       !                                          | | | ,--- foto{2*Nfrec}
       complex*16, allocatable, save :: Sismogram(:,:,:,:)
       complex*16, dimension(:), allocatable :: auxKvect
-!     real*8,dimension(NFREC+1) :: Hf
-!     real*8,dimension(NMAX*2) :: Hk
       real*8,dimension(:), allocatable :: Hf,Hk !filtros 
+      
+      !type pointerTable
+      !  real :: z
+      !  integer :: e
+      !  type (Punto) :: Pt(:)
+      !  integer :: nXs
+      !end type pointerTable
+      !type (pointerTable), pointer :: PoTa(:),auxPoTa(:)
+      integer, allocatable, dimension(:,:), save :: fixedPoTa,pota,auxpota
+      integer :: nZs
+
       end module resultVars
               
       module meshVars
@@ -1435,12 +1482,7 @@
       end if
       
       ! source application point:
-      xfsource = allpoints(1)%center(1)
-      zfsource = allpoints(1)%center(2)
-      efsource = allpoints(1)%layer
-      intfsource = allpoints(1)%isOnInterface
-      nxfsource = allpoints(1)%normal(1)
-      nzfsource = allpoints(1)%normal(2)
+      call getsource
       
       if (verbose .ge. 1) then
         write(PrintNum,'(a,F8.2,a,F8.2,a)') & 
@@ -1450,6 +1492,8 @@
       call makeTaperFuncs(20,0.8,0.6)
       call expPIK(expK)
       call waveAmplitude(PrintNum)
+      
+      call preparePointerTable(.true.,0.0,PrintNum)
       DO J=1,NFREC+1
       ! complex frecuency for avoiding poles and provide damping
         FREC=DFREC*real(J-1)
@@ -1784,13 +1828,12 @@
       end subroutine getSoilProps
       subroutine getInquirePoints(outpf)
       use resultVars, only : inqPoints, nIpts, iPtini,iPtfin
-      use soilVars, only : Z,N
+!     use soilVars, only : Z,N
 !     use gloVars, only : dp
       implicit none
       integer, intent(in) :: outpf
-      integer :: i,e
-      logical :: lexist
-      real ::  errT = 0.001
+      integer :: i,thelayeris
+      logical :: lexist, tellisoninterface
       integer :: auxGuardarFK
       
       ! read file
@@ -1826,33 +1869,79 @@
                 inqPoints(i)%normal(1), inqPoints(i)%normal(2), auxGuardarFK
 !     print*,'[',inquirePoints(i)%center%X,inquirePoints(i)%center%Z,']'
       
-      !encontrar el alyer en el que estan o 0 si está sobre la interfaz
+      !encontrar el layer en el que estan o 0 si está sobre la interfaz
 !          print*,"z=",nonBoundPoints(1)%center(i,2),"....."
-           do e=1,N
-!            print*,"at ",real(Z(e+1))
-             if(real(inqPoints(i)%center(2)) .lt. Z(e+1)) then
-!              print*,"ok", e
-               exit
-             end if
-           end do
-!          print*,"e=",e," --- z=",nonBoundPoints(1)%center(i,2)
-           inqPoints(i)%layer = e
+           inqPoints(i)%layer = thelayeris(real(inqPoints(i)%center(2)))
+           
            if (auxGuardarFK .eq. 1 ) then
               inqPoints(i)%guardarFK = .true.
            end if
            
-           do e=1,N+1
-             if((Z(e)-errT .lt. real(inqPoints(i)%center(2))) & 
-             .and. (real(inqPoints(i)%center(2)) .lt. Z(e)+errT)) then
-!               print*,real(nonBoundPoints(1)%center(i,2))," is on the interface"
-                inqPoints(i)%isOnInterface = .true.
-             end if
-           end do
+           inqPoints(i)%isOnInterface = tellisoninterface(real(inqPoints(i)%center(2)))
       end do
 !     stop 0
       end subroutine getInquirePoints   
       
+      function thelayeris(zi)
+      use soilVars, only : Z,N
+      implicit none
+      integer :: e,thelayeris
+      real :: zi
+      do e=1,N
+         if(real(zi) .lt. Z(e+1)) then
+            exit
+         end if
+      end do
+      thelayeris = e
+      end function thelayeris
       
+      function tellisoninterface(zi)
+      use soilVars, only : Z,N
+      implicit none
+      real ::  errT = 0.001
+      integer :: e
+      real :: zi
+      logical :: tellisoninterface
+      tellisoninterface = .false.
+      do e=1,N+1
+        if((Z(e)-errT .lt. real(zi)) & 
+             .and. (real(zi) .lt. Z(e)+errT)) then
+           tellisoninterface = .true.
+        end if
+      end do
+      
+      end function tellisoninterface
+      subroutine getsource
+      use wavevars, only: Escala,Ts,Tp, tipoPulso,maxtime
+      use sourceVars
+      implicit none
+      integer :: thelayeris
+      logical :: lexist, tellisoninterface
+      
+      inquire(file="source.txt",exist=lexist)
+      if (lexist) then
+        OPEN(77,FILE="source.txt",FORM="FORMATTED")
+      else
+        write(6,'(a)') 'There is a missing input file. '
+        stop 'Check "source.txt" on Working directory' 
+      end if
+      READ(77,*)      
+      READ(77,*) xfsource, zfsource, nxfsource, nzfsource
+      READ(77,*)      
+      READ(77,*) Escala
+      READ(77,*)
+      READ(77,*) tipoPulso
+      READ(77,*) 
+      READ(77,*) Ts
+      READ(77,*)
+      READ(77,*) Tp
+      READ(77,*)
+      READ(77,*) maxtime
+      close(77)
+      
+      efsource = thelayeris(real(zfsource))
+      intfsource = tellisoninterface(real(zfsource))
+      end subroutine getsource
       subroutine getVideoPoints(outpf)
       use resultVars, only : moviePoints, nMpts, & 
                              iPtfin,mPtini,mPtfin
@@ -1861,7 +1950,7 @@
       use soilVars, only : Z,N
       use waveNumVars, only : DK,NMAX
       use resultvars, only: NxXxMpts
-      use wavevars, only: Escala,Ts,Tp, tipoPulso,maxtime
+!     use wavevars, only: Escala,Ts,Tp, tipoPulso,maxtime
       implicit none
       integer, intent(in)          :: outpf!,nJ
       logical                      :: isOnIF
@@ -1887,23 +1976,23 @@
       READ(7,*) MeshMaxZ
       READ(7,*)
       READ(7,*) MeshMaxX
-      READ(7,*)
-      READ(7,*)
-      READ(7,*) Escala
-      READ(7,*)
-      READ(7,*) tipoPulso
-      READ(7,*) 
-      READ(7,*) Ts
-      READ(7,*)
-      READ(7,*) Tp
-      READ(7,*)
-      READ(7,*) maxtime
+!     READ(7,*)
+!     READ(7,*)
+!     READ(7,*) Escala
+!     READ(7,*)
+!     READ(7,*) tipoPulso
+!     READ(7,*) 
+!     READ(7,*) Ts
+!     READ(7,*)
+!     READ(7,*) Tp
+!     READ(7,*)
+!     READ(7,*) maxtime
       close(7)
       
       if (makeVideo .eqv. .false.) return 
         
         write(outpf,'(a,F12.2,a)') "Lfrec = 2*pi/DK = ",2*PI/DK, "m"
-        DeltaX = 1.0 / (nMax * DK)
+        DeltaX = 2.0 / (nMax * DK)
         write(outpf,'(a,F9.3)')"Delta X = ",DeltaX
         boundingXp =  1.0 / DK
         boundingXn = - boundingXp
@@ -2353,6 +2442,118 @@
       allocate(IPIVbem(2*nBpts))
       
       end subroutine getTopography
+      subroutine preparePointerTable(firstTime,zf,outpf)
+      use resultVars, only : nPts,allpoints,nBpts,BouPoints,auxpota,pota,fixedpota,nZs,Punto
+      use debugstuff
+      use Gquadrature, only : Gquad_n
+      use glovars, only : workBoundary
+      ! tabla con las coordenadas Z (sin repetir) de los puntos donde se
+      ! obtien la solución, los estratos donde están y apuntadores a los
+      ! puntos que comparten cada coordeanda Z.
+      implicit none
+      logical,intent(in) :: firstTime
+      real, intent(in)   :: zf
+      integer,intent(in) :: outpf
+      integer :: i,j,iP
+      logical :: nearby,esnueva
+      type(Punto), pointer :: PX
+      ! si es la primera vez que corre sólo agregamos los allpoints 
+      if (firstTime) then
+       if (outpf >=2) write(outpf,*) "generating master table"
+       allocate(auxpota(npts,npts+2))
+       auxpota = 0
+       ! siempre agregamos el primer punto [ allpoints(1)% ]
+       nZs = 1
+       auxpota(1,1) = 1 !nXs allpoints
+!      auxpota(1,2) = 0 !nXs boupoints
+       auxpota(1,3) = 1 !4,5,6 ... allpoints -7,-8,-9 ... boupoints
+       !         '--- el (3) siempre está
+       ! agregamos los demás sin repetir
+       if (nPts>=2) then 
+       do iP = 2,nPts
+         esnueva = .true.
+         do i = 1,nZs
+           if (nearby(allpoints(iP)%center(2),allpoints(auxpota(i,3))%center(2),0.001)) then
+             !agregar a coordenada Z existente
+             auxpota(i,1) = 1 + auxpota(i,1)
+             auxpota(i,auxpota(i,1) + 2) = iP
+             esnueva = .false.
+             exit
+           end if
+         end do
+         if (esnueva) then
+           !nueva coordenada Z
+           nZs = nZs + 1
+           auxpota(nZs,1) = 1
+           auxpota(nZs,3) = iP
+         end if
+       end do
+       end if
+       j = maxval(auxpota(:,1))
+       
+       allocate(PoTa(nZs,2+j))
+       Pota = auxpota(1:nZs,1:2+j)
+       deallocate(auxpota)
+       if (workBoundary) then
+         allocate(fixedPoTa(nZs,2+j))
+         fixedPota = Pota
+       end if
+      else
+       ! Dada la tabla de los puntos fijos.
+       ! Agregar los puntos gaussianos de los segmentos cercanos a la
+       ! fuerza virtual [zf] y los centros de los segmentos restantes. 
+       if (outpf >=2) write(outpf,*) "updating master table"
+       if (allocated(pota)) deallocate(pota)
+       allocate(auxpota(nZs + nBpts * Gquad_n, maxval(pota(:,1)) + nBpts * Gquad_n))
+       j = maxval(fixedpota(:,1))
+       auxpota(1:nZs,1:2+j) = fixedPota
+       do iP = 1,nBpts
+         esnueva = .true.
+         do i = 1,nZs
+          ! diferenciar de que grupo es la coordenda
+           if (associated(PX)) then 
+              nullify(PX) 
+           end if!
+           if (auxpota(i,3) .gt. 0) then
+             PX => allpoints(auxpota(i,3))
+           else
+             PX => boupoints(abs(auxpota(i,3)))
+           end if
+          ! revisar si existe
+           if (nearby(boupoints(iP)%center(2),PX%center(2),0.001)) then
+             !agregar a coordenada Z existente
+             auxpota(i,2) = 1 + auxpota(i,2)
+             auxpota(i,auxpota(i,1) + auxpota(i,2) + 2) = - iP
+             esnueva = .false.
+             exit
+           end if
+         end do ! i
+         if (esnueva) then
+           !nueva coordenada Z
+           nZs = nZs + 1
+           auxpota(nZs,2) = 1
+           auxpota(nZs,3) = - iP
+         end if
+       end do ! iP
+       j = maxval(auxpota(:,1) + auxpota(:,2))
+       allocate(PoTa(nZs,2+j))
+       Pota = auxpota(1:nZs,1:2+j)
+       deallocate(auxpota)
+      end if
+      
+      if (outpf >=2) call showMNmatrixI(nZs,2+j,pota,"po_ta",outpf)
+      end subroutine preparePointerTable
+      
+      function nearby(a,b,bola)
+      implicit none
+      real, intent(in) :: a,b,bola
+      logical :: nearby
+      nearby = .false.
+      if ((b-bola .le. a) .and. (a .le. b+bola)) then 
+        nearby = .true.
+      end if
+      print*, b-bola, "<=", a, "<=",b+bola ," :: ", nearby
+      end function nearby
       subroutine subdivideTopo(iJ,outpf)
       !Read coordinates of collocation points and fix if there are
       !intersections with inferfaces. Also find normal vectors of segments.
@@ -3010,6 +3211,16 @@
       renglon = 1
       V = 0 
       
+      ! en el llenado por columnas, se toma una fuente virtual y se obtiene
+      ! la integral de la G de tracción en todos los puntos X 
+      !   
+      !   x - - - - -   x0
+      !   - x - - - -   x0
+      !   - - x - - -   x0
+      !   - - - x - - = x0
+      !   - - - - x -   x0
+      !   - - - - - x   x0
+      
       do iP_x = 1,nPX ! para cada punto X
       
       if (iPxi .eq. iP_x) then
@@ -3066,7 +3277,7 @@
                      PX(iP_x)%center(2),& 
                      PX(iP_x)%layer,k,cOME)
         
-        auxK(ik,1:5) = Meca_diff%Rw(1:5) ! + Meca_ff%Rw(1:5)
+        auxK(ik,1:5) = Meca_ff%Rw(1:5) ! + Meca_diff%Rw(1:5) 
         
         if (abs(auxK(ik,1)) .lt. minKvalueW .and. & 
         abs(auxK(ik,2)) .lt. minKvalueU .and. warning .eqv. .true.) exit !--------------------------------esto es arriesgado 
@@ -3094,15 +3305,15 @@
       ! informacion de la coordeanda X de la fuente y el receptor
       do imec =1,5
         auxk(1:nmax,imec) = auxk(1:nmax,imec) * & 
-        exp(cmplx(0.0,  (/((ik-1)*dk,ik=1,nmax)/)*   1* (PX(iP_x)%center(1)-xf) ,8))/(2*pi)
+        exp(cmplx(0.0,  (/((ik-1)*dk,ik=1,nmax)/)*   1* (PX(iP_x)%center(1)-xf) ,8))
         
         auxK(1     ,imec) = auxk(1     ,imec) * &
-        exp(cmplx(0.0,  0.001*dk                 *   1* (PX(iP_x)%center(1)-xf) ,8))/(2*pi)
+        exp(cmplx(0.0,  0.001*dk                 *   1* (PX(iP_x)%center(1)-xf) ,8))
         
         auxk(nmax+1:nmax*2,imec) = auxk(nmax+1:nmax*2,imec) * & 
-        exp(cmplx(0.0,  (/((-ik)*dk,ik=nmax,1,-1)/)* 1* (PX(iP_x)%center(1)-xf) ,8))/(2*pi)
+        exp(cmplx(0.0,  (/((-ik)*dk,ik=nmax,1,-1)/)* 1* (PX(iP_x)%center(1)-xf) ,8))
         
-        auxK(:,iMec) = auxK(:,iMec) * cmplx(Hf(J) * Hk,0.0,8)!    taper
+        auxK(:,iMec) = auxK(:,iMec) * cmplx(Hf(J) * Hk,0.0,8)/(2*pi)!    taper
       end do
         
         ! guardar el FK si es que es interesante verlo
