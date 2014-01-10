@@ -1,5 +1,5 @@
 Additional points of interest
-3   <- Por lo menos (2)
+1   <- Por lo menos (1)
  X        Z          nx       nz      guardarFK
 1.0     1.0        0.0      1.0      1
 0.0     1.0        0.0      1.0      1
