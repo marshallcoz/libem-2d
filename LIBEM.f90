@@ -1156,7 +1156,7 @@
       !                     | ,--- -k...+k
       !                     | | ,--- iMec: 1:5
       !                     | | | 
-      complex*16, dimension(NFREC+1,2*NMAX,imecMax),intent(in) :: thisFK
+      complex*16, dimension(NFREC+1,2*NMAX,2),intent(in) :: thisFK
       real, dimension(2), intent(in) :: coords
       character(LEN=10),intent(in) :: tt
       character(LEN=9), intent(in) :: xAx,yAx
@@ -1204,7 +1204,7 @@
 !     do iP = 1,nIP 
 !        x_i=coords(iP,1)
 !        z_i=coords(iP,2)
-      do iMec = 1,imecMax!min(2,imecMax) !podrian ser más pero meh      
+      do iMec = 1,2!min(2,imecMax) !podrian ser más pero meh      
       write(titulo,'(a,a,I0,a,I0,a,I0,a,I0,a,a)') trim(tt),'[', &
       int(coords(1)),'.',abs(int((coords(1)-int(coords(1)))*10)),';', & 
       int(coords(2)),'.',abs(int((coords(2)-int(coords(2)))*10)),']', & 
@@ -1440,6 +1440,7 @@
       call getVideoPoints(PrintNum)
       if (workBoundary) call getTopography(PrintNum)
       NPts = nIpts + nMpts
+      write(PrintNum,'(a,I0)') 'Number of fixed receptors: ',npts
       allocate (allpoints(Npts))
       allocate (Ak(4*N+2,4*N+2,nmax+1))
       ALLOCATE (B (4*N+2,nmax+1)) ! una sola fuente
@@ -1553,7 +1554,7 @@
       if (verbose .ge. 1) then
         call showMNmatrixZabs(2*nBpts,1, trac0vec ,"tindp",PrintNum)
       end if
-      stop "only the vector"
+      stop !stop "only the vector"
       do iz = 1,nZs
         if (thereisavirtualsourceat(iz)) then
           call crunch(iz,J,cOME,PrintNum)
@@ -3168,7 +3169,7 @@
        write(outpf,'(A,I4)') ' Ricker(w) signal size is :',size(Uo)
       end if
       end subroutine waveAmplitude
-      subroutine crunch(iz,J,cOME,outpf)
+      subroutine crunch(i_zfuente,J,cOME,outpf)
       ! esta función es llamada con cada profundidad donde hay
       ! por lo menos una fuente.
       use gloVars, only: verbose,PI,workboundary
@@ -3189,10 +3190,9 @@
           integer :: ix,iz
         end subroutine asociar
         
-        subroutine doesanyoneneedsGQ(needsGQ,anyone,zi,ei, & 
+        subroutine doesanyoneneedsGQ(anyone,zi,ei, & 
                                    PXs,nPXs,iz,nx,xf,zf,ef)
           use resultVars, only : Punto
-          logical, dimension(nx), intent(out) :: needsGQ
           logical, intent(out) :: anyone
           real, intent(out) :: zi
           integer, intent(out) :: ei
@@ -3212,16 +3212,15 @@
       end interface
       
       
-      integer, intent(in) :: iz,J
+      integer, intent(in) :: i_zfuente,J
       complex*16, intent(in)  :: cOME
       integer, intent(in) :: outpf
-      integer :: iGq,iGq_med,mecStart,mecEnd,miniRow,xXx
-      integer :: iiz,ik,ef,dir,nGqs,ei,iMec,nPXs,ix,ixi,nxis,i
+      integer :: iGq,iGq_med,mecStart,mecEnd,miniRow,xXx,dirStart,dirEnd
+      integer :: i_zRcptrs,ik,ef,dir,nGqs,ei,iMec,nPXs,ix,ixi,nxis,i,thislapse
       real :: k,zf,xf,zi,factor,peso
       logical :: intf
-      type(Punto), pointer :: pXi
+      type(Punto), pointer :: pXi,p_x
       type(Punto), pointer :: pXs(:)
-      logical,dimension(:),allocatable :: needsGQ
       logical :: anyone,warning
       real*8, dimension(2) :: nf
       type(MecaElem)  :: calcMecaAt_xi_zi, Meca_diff, calcFF, Meca_FF
@@ -3240,55 +3239,66 @@
         ibemMat = 0
       end if
       ! indice ix de la fuente en la tabla
-      if (iz .eq. 0) then
+      if (i_zfuente .eq. 0) then
         ix = 3
       else
-        ix = 2 + pota(iz,1) + 1 ! la primer fuente virtual
+        ix = 2 + pota(i_zfuente,1) + 1 ! la primer fuente virtual
       end if!;print*,"here"
-      call asociar(pXi,iz,ix) !po, allpoint, boupoint
+      call asociar(pXi, i_zfuente,ix) !po, allpoint, boupoint
       ef = pXi%layer
       intf = pXi%isOnInterface
       nf(1) = pXi%normal(1)
       nf(2) = pXi%normal(2)
-      allocate(needsGQ(size(pota(1,:))-2))
-      if (iz .eq. 0) then; nGqs = 1; else; nGqs = Gquad_n; end if
+      if (i_zfuente .eq. 0) then; nGqs = 1; else; nGqs = Gquad_n; end if
       iGq_med = ceiling(nGqs/2.0) ! i de Punto para integración lineal.
-      
-      do dir =1,2 ! componete de Fuerza horizontal; vertical .............
+      dirStart = 1; dirEnd = 2
+      if (i_zfuente .eq. 0) then
+        if (abs(nf(1)) .lt. 0.001) then
+          dirStart = 2
+        end if
+        if (abs(nf(2)) .lt. 0.001) then
+          dirEnd = 1
+        end if
+      end if
+      print*,"dirs", dirStart," -> ",dirEnd
+      do dir =dirStart,dirEnd! componete de Fuerza horizontal; vertical....
 !       print*,"dir ",dir
-      do iGq = 1,nGqs ! cada punto de integración / centro ...............
-!       print*,"iGq ",iGq,"/",nGqs
+      do iGq = 1,nGqs ! cada punto de integración / centro ................
+        print*,"iGq ",iGq,"/",nGqs
       ! amplitud de las ondas planas dada la profundidad de la fuente
         xf = pXi%Gq_xXx_coords(iGq,1) ! = xfsource si iz = 0
         zf = pXi%Gq_xXx_coords(iGq,2) ! = zfsource si iz = 0
-!       print*,"xi : (",xf,",",zf,")"
+        print*,"xi : (",xf,",",zf,")"
        do ik = 1,nmax+1 ! amplitud de ondas planas dada fuente en Z .......
         k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.001
         call vectorB_force(B(:,ik),zf,ef,intf,dir,cOME,k)  
         B(:,ik) = matmul(AK(:,:,ik),B(:,ik))
        end do ! ik
       
-      ! resultados para cada Z donde hay receptores ......................
-      do iiz = 1,nZs !(en la tabla pota todos los puntos son receptores)
-!       print*,"receptores en iiz = ",iiz
+      ! resultados para cada Z donde hay receptores .......................
+      do i_zRcptrs = 1,nZs !(en la tabla pota todos los puntos son receptores)
+        print*,"receptores en i_zRcptrs = ",i_zRcptrs
         ! ¿En este Z hay algún punto que requiera integración gaussiana?
         ! si : acumulamos resultado con este iGq
         ! no : esperamos a que iGq sea iGq_med
-      call doesanyoneneedsGQ(needsGQ,anyone,zi,ei, & 
+      call doesanyoneneedsGQ(anyone,zi,ei, & 
                                pXs,nPXs,& 
-                               iiz,size(pota(1,:))-2, & 
+                               i_zRcptrs,size(pota(1,:))-2, & 
                                xf,zf,ef)
             ! con este if logramos excluir calculos innecesarios cuando
             ! a esta profundidad sólo existen receptores que requieren
             ! integración lineal dada una fuente virtual.
-           
         if (anyone .or. (iGq .eq. iGq_med)) then
             ! ¿calcular sólo G, sólo T o ambos?
             mecStart = 1
             mecEnd = 5
-            if(pota(iiz,2) .eq. 0) mecStart =  4 ! no T
-            if(pota(iiz,1) .eq. 0) mecEnd = 3 ! no G 
+            if(pota(i_zRcptrs,2) .eq. 0) mecEnd = 2 ! no T
+            if(pota(i_zRcptrs,1) .eq. 0) mecStart = 3 ! no G 
+            if (verbose .ge. 2) write(outpf,'(a,I0,a,I0,a)') & 
+                                "mec Range {",mecStart,"...",mecEnd,"}"
             auxK = cmplx(0.0,0.0,8)
+            warning = .false.
+            thislapse = lapse
           do ik = 1,nmax+1 ! k loop calculando elem mecanicos.............
             k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.001
             ! difractado por estratos
@@ -3301,6 +3311,7 @@
                      k,cOME) ! ------------------------------------------- cambiar por solución analítica
             auxK(ik,mecStart:mecEnd) = Meca_ff%Rw(mecStart:mecEnd) + &
                                      Meca_diff%Rw(mecStart:mecEnd)
+                                     
 !           auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd)
 !           auxK(ik,mecStart:mecEnd) = Meca_ff%Rw(mecStart:mecEnd)                          
             ! trim K domain if it is cool
@@ -3310,11 +3321,11 @@
         
             if (abs(auxK(ik,mecStart)) .lt. minKvalueW .and. & 
                 abs(auxK(ik,mecEnd)) .lt. minKvalueU) then 
-                   lapse = lapse - 1
+                   thislapse = thislapse - 1
             else
-                   lapse = lapse + 1
+                   thislapse = thislapse + 1
             end if!
-            if (lapse .le. 0) warning = .true.
+            if (thislapse .le. 0) warning = .true.
           end do ! ik
           
          ! doblar la crepa ...............................................
@@ -3326,51 +3337,51 @@
          auxK(nmax+1:nmax*2,iMec) = sign(iMec,dir)* auxK(nmax+1:2:-1,iMec)         
         end do !iMec
         
+        !*****************************************************************
         ! Ahora nos concentramos en las coordenadas X ....................
-        if (iz .eq. 0) then
-          nXis = 1
-          ! y la fuente es pXi, asociado al principio
+        if (i_zfuente .eq. 0) then
+          nXis = 1 ! y la fuente real es una
         else
-          nXis = pota(iz,2)
-          ! y la primera fuente virtual pXi se asoció al principio
+          nXis = pota(i_zfuente,2) ! puede haber varias vuentes virtuales
         end if
-        ! para cada fuente sobre X a la profundidad iz ...................
+        ! para cada fuente a la profundidad iz ...................
 !       print*,"nXis ",nXis
         do iXi = 1,nXis
-         if (iz .ne. 0) then ! si no es la fuente real, son las virtuales
-             ix = 2 + pota(iz,1) + iXi
-             call asociar(pXi,iz,ix)
+         if (i_zfuente .ne. 0) then ! si no es la fuente real, son las virtuales
+             ix = 2 + pota(i_zfuente,1) + iXi
+             call asociar(pXi, i_zfuente,ix)
              xf = pXi%Gq_xXx_coords(iGq,1)
              nf(dir) = pXi%normal(dir)
          end if!
 !        if (iz .ne. 0) then
 !          print*,"xi : ",pXi%boundaryIndex," (",pXi%center(1),",",pXi%center(2),")"
 !        end if
-        ! para cada X receptor a la profundidad iiz ......................
+        ! para cada X receptor a la profundidad i_zRcptrs ......................
 !        print*,"nPXs ",nPXs
-            do ix=1,nPXs 
-!             print*,"x : (", pXs(ix)%center(1),",", pXs(ix)%center(2),")"
-!             if ((iz .eq. iiz) .and. (iXi .eq. ix)) then
-              if (pXs(ix)%isBoundary) then
-                if (pXi%boundaryIndex .eq. pXs(ix)%boundaryIndex)  then
+            do ix=1,nPXs
+              
+              call asociar(p_x,i_zRcptrs,2+ix)
+!             print*,"x : (", p_x%center(1),",", p_x%center(2),")"
+!             if ((iz .eq. i_zRcptrs) .and. (iXi .eq. ix)) then
+              if (p_x%isBoundary) then
+                if (pXi%boundaryIndex .eq. p_x%boundaryIndex)  then
+                ! fuente y receptor son virtules y están en el mismo lugar
 !               print*,"x = xi ::: ibemat"
-!             if (.false.) then
-                ! la fuente es virtual
-                ! fuente y receptor están en el mismo lugar
+               
 !               print*,"xi : (",xf,",",zf,")"
-!               print*,"x : (", pXs(ix)%center(1),",", pXs(ix)%center(2),")"
+!               print*,"x : (", p_x%center(1),",", p_x%center(2),")"
 !               print*,".................................................."
                   ! el receptor también está en la frontera .: es el caso
                   ! de la matriz ibem con x = xi
                     if (dir .eq. 1) then
-                       ibemMat(pXs(ix)%boundaryIndex *2 -(1 - 0), & 
+                       ibemMat(p_x%boundaryIndex *2 -(1 - 0), & 
                                    pXi%boundaryIndex *2 -(2 - dir)) = 0.5
-                       ibemMat(pXs(ix)%boundaryIndex *2 -(1 - 1), & 
+                       ibemMat(p_x%boundaryIndex *2 -(1 - 1), & 
                                    pXi%boundaryIndex *2 -(2 - dir)) = 0            
                     else ! dir = 2
-                       ibemMat(pXs(ix)%boundaryIndex *2 -(1 - 0), & 
+                       ibemMat(p_x%boundaryIndex *2 -(1 - 0), & 
                                    pXi%boundaryIndex *2 -(2 - dir)) = 0
-                       ibemMat(pXs(ix)%boundaryIndex *2 -(1 - 1), & 
+                       ibemMat(p_x%boundaryIndex *2 -(1 - 1), & 
                                    pXi%boundaryIndex *2 -(2 - dir)) = 0.5
                     end if
                 ! tracción en el receptor con la normal del receptor
@@ -3382,25 +3393,25 @@
               do imec = mecStart,mecEnd
                 auxk(1:nmax,imec) = auxk(1:nmax,imec) * & 
                 exp(cmplx(0.0,(/((ik-1)*dk,ik=1,nmax)/)  * & 
-                    2*pi* (pXs(ix)%center(1)-xf) ,8))
+                    2*pi* (p_x%center(1)-xf) ,8))
         
                 auxK(1     ,imec) = auxk(1     ,imec) * &
                 exp(cmplx(0.0,0.001*dk * & 
-                    2*pi* (pXs(ix)%center(1)-xf) ,8))
+                    2*pi* (p_x%center(1)-xf) ,8))
         
                 auxk(nmax+1:nmax*2,imec) = auxk(nmax+1:nmax*2,imec) * & 
                 exp(cmplx(0.0,(/((-ik)*dk,ik=nmax,1,-1)/)* & 
-                    2*pi* (pXs(ix)%center(1)-xf) ,8))
+                    2*pi* (p_x%center(1)-xf) ,8))
         
                 auxK(:,iMec) = auxK(:,iMec)* & 
                     cmplx(Hf(J)* Hk,0.0,8)/(2*pi)! taper
               end do !imec
               
               ! guardar el FK si es que es interesante verlo
-              if(iz .eq. 0) then ; if (pXs(ix)%guardarFK) then
-                pXs(ix)%FK(J,1:nmax,mecStart:mecEnd) = &
-                pXs(ix)%FK(J,1:nmax,mecStart:mecEnd) + &
-                auxK(1:nmax,mecStart:mecEnd)* nf(dir)
+              if(i_zfuente .eq. 0) then ; if (p_x%guardarFK) then
+                p_x%FK(J,1:nmax,1:2) = &
+                p_x%FK(J,1:nmax,1:2) + &
+                auxK(1:nmax,1:2)* nf(dir)
               end if ; end if !guardar
               
               ! K -> X
@@ -3410,7 +3421,7 @@
               end do
               auxK = auxK / factor
               
-              !          ,--- k->x = 0 (x del receptor)
+              !          ,--- k->  x = 0 (x del receptor)
               !          |
               RW => auxK(1,:)
 !             print*,sum(RW)
@@ -3422,25 +3433,25 @@
               !   fuente real      |     W,U   |  term. indep.
               !   fuente virtual   |      G    |      T
               
-              if (iz .eq. 0) then !fuente real (no hay integral GQ).......
-                if (pXs(ix)%isBoundary) then ! term. indep.
+              if (i_zfuente .eq. 0) then !fuente real (no hay integral GQ).......
+                if (p_x%isBoundary) then ! term. indep.
 !                    print*,"term indep"
                      ! el indice en el vector de terms indep depende
                      ! del punto receptor sobre la frontera
                      !  | Tx |
                      !  | Tz |
                      do miniRow = 0,1 ! Tx, Tz
-                   trac0vec(pXs(ix)%boundaryIndex * 2 - (1 - miniRow)) = &
-                   trac0vec(pXs(ix)%boundaryIndex * 2 - (1 - miniRow)) + &
-                    (-1.0 * Traction(RW* nf(dir), pXs(ix)%normal,miniRow))
+                   trac0vec(p_x%boundaryIndex * 2 - (1 - miniRow)) = &
+                   trac0vec(p_x%boundaryIndex * 2 - (1 - miniRow)) + &
+                    (-1.0 * Traction(RW * nf(dir), p_x%normal,miniRow))
                     
-!                    print*,"trac0[",pXs(ix)%boundaryIndex * 2 - (1 - miniRow), &
-!                    "} when X = ",  pXs(ix)%boundaryIndex
+                     print*,"trac0[", p_x%boundaryIndex * 2 - (1 - miniRow), &
+                     "} when X = ",  p_x%boundaryIndex
                      end do 
-!                    print*,"_"
+                     print*,"_"
                 else ! W,U
 !                    print*,"W,U"
-                     if (pXs(ix)%guardarMovieSiblings) then
+                     if (p_x%guardarMovieSiblings) then
                        ! (1) reordenar la crepa existente en X
                        auxK = cshift(auxK,SHIFT=nmax,DIM=1)
                        ! (2) guardar sólo los interesantes
@@ -3449,20 +3460,25 @@
                             nmax+1+(nxXxmpts-1)/2* meshdxmultiplo, & 
                             meshdxmultiplo
 
-              pXs(ix)%WmovieSiblings(xXx,J,:) = auxK(i,4:5) * nf(dir) + &
-              pXs(ix)%WmovieSiblings(xXx,J,:)
+              p_x%WmovieSiblings(xXx,J,1:2) = auxK(i,1:2) * nf(dir) + &
+              p_x%WmovieSiblings(xXx,J,1:2)
 
                             xXx = xXx + 1
                        end do
                      else !no movie
-                       if (dir .eq. 2) then
-                       pXs(ix)%W(J,:) = &
-                       pXs(ix)%W(J,:) + RW(4:5) * nf(dir)
-                       print*,"(",pXs(ix)%center(1),",",pXs(ix)%center(2),")"
-                       print*,pXs(ix)%W(J,:)
-                       print*,"(",allpoints(1)%center(1),",",allpoints(1)%center(2),")"
-                       print*,allpoints(1)%W(J,:)
-                       end if
+                      
+                       p_x%W(J,1:2) = &
+                       p_x%W(J,1:2) + RW(1:2) * nf(dir)
+                       
+!                      print*,"(", p_x%center(1),",", p_x%center(2),")"
+!                      print*,size(p_x%W(J,:))
+!                      print*, p_x%W(J,:)
+!                      print*,"(",allpoints(1)%center(1),",",allpoints(1)%center(2),")"
+!                      print*,size(allpoints(1)%W(J,:))
+!                      print*,allpoints(1)%W(J,:)
+!                      if (dir .eq. 2) then
+!                         stop 2
+!                      end if
                      end if ! movie?
                 end if
               else !fuente virtual (puede haber integral GQ)..............
@@ -3471,7 +3487,7 @@
                 else
                   peso = pXi%Gq_xXx_C(iGq)
                 end if!
-                if (pXs(ix)%isBoundary) then ! T
+                if (p_x%isBoundary) then ! T
 !                    print*,"T"
                      ! obtener func. Green de tracciones y
                      ! llenar la matriz del ibem
@@ -3480,21 +3496,21 @@
                      !  |  Tzx Tzz  |
                      ! macro columna: pX%boundaryIndex         (fuente)
                      ! miniCol::dir 1 -> X ; 2 -> Z          (dir fuente)
-                     ! macro renglón: pXs(ix)%boundaryIndex   (receptor)
+                     ! macro renglón: p_x%boundaryIndex   (receptor)
                      ! miniRow::                 (componente de tracción)
                      cycle
                      do miniRow = 0,1 ! Tx_, Tz_
-                       ibemMat(pXs(ix)%boundaryIndex *2 -(1 - miniRow), & 
+                       ibemMat(p_x%boundaryIndex *2 -(1 - miniRow), & 
                                    pXi%boundaryIndex *2 -(2 - dir))   = &
-                       ibemMat(pXs(ix)%boundaryIndex *2 -(1 - miniRow), & 
+                       ibemMat(p_x%boundaryIndex *2 -(1 - miniRow), & 
                                    pXi%boundaryIndex *2 -(2 - dir)) + &
-                       (Traction(RW, pXs(ix)%normal,miniRow) * peso)
+                       (Traction(RW, p_x%normal,miniRow) * peso)
                 ! tracción en el receptor con la normal del receptor
                 ! multiplicado por el peso de integración de la fuente
                      end do
                 else ! G
 !                    print*,"G"
-                     if (pXs(ix)%guardarMovieSiblings) then
+                     if (p_x%guardarMovieSiblings) then
                        ! (1) reordenar la crepa existente en X
                        auxK = cshift(auxK,SHIFT=nmax,DIM=1)
                        ! (2) guardar sólo los interesantes
@@ -3504,16 +3520,16 @@
                             meshdxmultiplo
 
                        ! func de green (sólo desplazamientos)
-                            pXs(ix)%GT_gq_mov(pXi%boundaryIndex,:,dir,xXx) = & 
-                            pXs(ix)%GT_gq_mov(pXi%boundaryIndex,:,dir,xXx) + &
-                            auxK(i,4:5) * peso
+                            p_x%GT_gq_mov(pXi%boundaryIndex,1:2,dir,xXx) = & 
+                            p_x%GT_gq_mov(pXi%boundaryIndex,1:2,dir,xXx) + &
+                            auxK(i,1:2) * peso
             
                             xXx = xXx + 1
                        end do
                      else !no movie
-                       pXs(ix)%GT_gq(pXi%boundaryIndex,:,dir) = &
-                       pXs(ix)%GT_gq(pXi%boundaryIndex,:,dir) + &
-                       RW(4:5) * peso
+                       p_x%GT_gq(pXi%boundaryIndex,1:2,dir) = &
+                       p_x%GT_gq(pXi%boundaryIndex,1:2,dir) + &
+                       RW(1:2) * peso
                 ! desplazamientos en el receptor
                 ! multiplicado por el peso de integración de la fuente
                      end if ! movie?
@@ -3523,7 +3539,7 @@
           end do !iXi (fuente)
           
         end if ! anyone      
-      end do ! iiz (receptor)
+      end do ! i_zRcptrs (receptor)
       
       
       end do ! iGq (fuente)
@@ -3534,7 +3550,7 @@
       
       end subroutine crunch
       
-      subroutine doesAnyOneNeedsGQ(needsGQ,anyone,zi,ei, & 
+      subroutine doesAnyOneNeedsGQ(anyone,zi,ei, & 
                                    PXs,nPXs,iz,nx,xf,zf,ef)
       use resultvars, only : pota,punto,allpoints,boupoints,nBpts,npts
       use soilVars, only : beta
@@ -3553,7 +3569,6 @@
       
       type(Punto), pointer :: PX
       type(Punto), pointer :: PXs(:)
-      logical, dimension(nx), intent(out) :: needsGQ
       logical, intent(out) :: anyone
       integer, intent(out) :: ei,nPXs
       integer, intent(in) :: iz,nx,ef
@@ -3562,23 +3577,34 @@
       real, intent(in) :: xf,zf
       real :: MinWaveLenght,distance
       
-      needsGQ = .false.
+!     needsGQ = .false.
       anyone = .false.
-      if (associated(PXs)) then 
+!     if (associated(PXs)) then 
          nullify(PXs)
-      end if!
+!     end if!
       if (iz .eq. 0) then 
          call asociar(px,iz,0)
          zi = PX%center(2)
          ei = PX%layer
-         if (workboundary) then
-            PXs = (/ allpoints(:),boupoints(:) /)
-         else
-            PXs => allpoints(:)
-         end if
          nPXs = nPts + nBpts
+         allocate(pXs(npxs))
+!        do ix = 1,nPts
+           pxs(1 : npts) => allpoints(:)
+!        end do
+         if (workboundary) then
+!          do ix = 1,nBpts
+             pxs(1 + npts : nbpts + npts) => boupoints(:)
+!          end do
+         end if
+         
+!        if (workboundary) then
+!           PXs = (/ allpoints(:),boupoints(:) /)
+!        else
+!           PXs => allpoints(:)
+!        end if
+        
          return
-      end if
+      end if 
       maxix = pota(iz,1) + pota(iz,2)
       allocate(PXs(maxix)) !sin las dos columnas iniciales de indices
       nPXs = maxix
@@ -3589,7 +3615,6 @@
         distance = sqrt((PX%center(1) - xf)**2 + &
                         (PX%center(2) - zf)**2)
         if (distance .lt. MinWaveLenght * WLmulti) then !use quadratura
-          needsGQ(ix-2) = .true.
           anyone = .true.
         end if
       end do !ix
@@ -3603,9 +3628,9 @@
       type(Punto), pointer :: PX
       integer :: ix,iz
       ! apuntador al punto en la tabla
-        if (associated(PX)) then 
+!       if (associated(PX)) then 
           nullify(PX)
-        end if!
+!       end if!
         if (iz .ne. 0) then
           if (pota(iz,ix) .gt. 0) then
              PX => allpoints(pota(iz,ix))!; print*,"allp "
@@ -3985,11 +4010,11 @@
         end if
         resD = matmul(subMatD,partOfXX)
         resS = matmul(subMatS,partOfXX)
-        calcMecaAt_xi_zi%Rw(1) = resD(1,1)
-        calcMecaAt_xi_zi%Rw(2) = resD(2,1)
-        calcMecaAt_xi_zi%Rw(3) = resS(1,1)
-        calcMecaAt_xi_zi%Rw(4) = resS(2,1)
-        calcMecaAt_xi_zi%Rw(5) = resS(3,1)
+        calcMecaAt_xi_zi%Rw(1) = resD(1,1) !W
+        calcMecaAt_xi_zi%Rw(2) = resD(2,1) !U
+        calcMecaAt_xi_zi%Rw(3) = resS(1,1) !s33
+        calcMecaAt_xi_zi%Rw(4) = resS(2,1) !s31
+        calcMecaAt_xi_zi%Rw(5) = resS(3,1) !s11
           
       end function calcMecaAt_xi_zi
       
@@ -4138,11 +4163,11 @@
                     + (2.0*amu(e_f)*k*nu)* enuz & 
                     )
      
-        calcFF%RW(1) = G31
-        calcFF%RW(2) = G11
-        calcFF%RW(3) = S331
-        calcFF%RW(4) = S131
-        calcFF%RW(5) = S111
+        calcFF%RW(1) = G31 !W
+        calcFF%RW(2) = G11 !U
+        calcFF%RW(3) = S331!s33
+        calcFF%RW(4) = S131!s31
+        calcFF%RW(5) = S111!s11
       end if
 !       calcFF%RW = calcFF%RW * exp(-UI * k * xX)
       end function calcFF            
@@ -4484,7 +4509,7 @@
       nombre(4)= 's31'
       nombre(5)= 's11'
       mecMax = 2
-      if(workboundary) mecMax = 2
+!     if(workboundary) mecMax = 2
       
       !tiempo maximo para graficar
          if(maxtime .lt. dt) maxtime = 5*dt
@@ -4501,7 +4526,7 @@
       
       factor = sqrt(real(2.*NFREC))
       
-      allocate(Sismogram(size(X),size(Y),5,2*NFREC))
+      allocate(Sismogram(size(X),size(Y),2,2*NFREC))
       Sismogram = 0
       ! (0) salir de K --- listo en FKtoFX
       ! (1) reordenar creapa exitente en X para encontrarlos más facil
@@ -4521,7 +4546,7 @@
         Y(iz) = allpoints(IP)%center(2) !;print*,iP,'z=',Y(iz)
         
         ! los espectros de cada coordenada ya están ordenaditos
-        do iMec = 1,mecMax
+        do iMec = 1,2
         ! (1) crepa
         Sm(ix,iz,iMec,1:nfrec) = allpoints(iP)%WmovieSiblings(ix,1:nfrec:+1,iMec)* & 
       exp(cmplx(0.0,- 2*pi*(/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)/(2*pi)
@@ -4551,7 +4576,7 @@
       !color table boundaries
       ColorRangeMaximumScale = 0.1
       
-  123 do i=1,mecMax
+  123 do i=1,2
        maV = maxVal(real(Sm(:,:,i,:),4))
        miV = minVal(real(Sm(:,:,i,:),4))
        maV = max(maV,abs(miV))
@@ -4614,7 +4639,7 @@
       
       
       do iT=Iframe,Fframe !cada fotograma
-      do iMec=1,mecMax !cada elemento mecanico 
+      do iMec=1,2 !cada elemento mecanico 
        write(auxTxt,'(F8.3,30x)') Dt*(iT-1)
        if (verbose >= 2) then
         write(textoTimeStamp,'(a,a,a,a)') & 
