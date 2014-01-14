@@ -356,6 +356,71 @@
 
       end module
       
+      module hank
+      contains
+      
+      SUBROUTINE HANKELS(Z,H0,H1)
+!     Z = COMPLEX ARGUMENT
+!
+!     COMPUTE SECOND KIND HANKEL FUNCTIONS H0 AND H1
+!
+      COMPLEX*16 :: Z,H0,H1,C,A,E,E2,ZH,P
+      real*8 :: X,Y,R,PHI,J,AR
+      X=REAL(Z)
+      Y=AIMAG(Z)
+      R=SQRT(X*X+Y*Y)
+      PHI=ATAN2(Y,X)
+      IF(R.LE.10.0)GO TO 20
+      J=2.0*R
+      C=(0.0,0.1250)/Z
+      K=2
+      P=C*C
+      A=4.5*P
+      P=7.5*P
+      H0=1.0+C+A
+      H1=1.0-3.0*C-P
+10    I=4*K
+      K=K+1
+      DI=I
+      DK=K
+      A=A*C*(DI+1.0/DK)
+      P=P*C*(DI-3.0/DK)
+      H0=H0+A
+      H1=H1-P
+      AR=ABS(REAL(P))+ABS(AIMAG(P))
+      IF(AR.GT.1.E-16.AND.K.LT.J)GO TO 10
+      AR=0.785398163397448-X-PHI/2.0
+      E=0.0
+      IF(Y.GT.-160.0) E=0.7978845608028650/SQRT(R)*EXP(Y)*CMPLX(COS(AR),SIN(AR),8)
+!     IF(X.EQ.0.0)E=CMPLX(0.0,AIMAG(E))
+      IF(abs(X) .lt. 0.00001)E=CMPLX(0.0,AIMAG(E),8)
+      H0=H0*E
+      H1=H1*E*(0.0,1.0)
+      GO TO 23
+20    ZH=Z/2.0
+      C=-ZH*ZH
+      E=CMPLX(0.0,0.3183098861837910,8)
+      E2=E*2.0
+      A=1.0-E2*(0.5772156649015330+LOG(R/2.0))+PHI*0.636619772367582
+      P=1.0
+      K=1
+      H0=A
+      H1=A+E*(1.0-1.0/C)
+25    A=A+E2/K
+      P=P*C
+      H0=H0+A*P
+      K=K+1
+      P=P/(K*K)
+      H1=H1+(A*K+E)*P
+      IF(ABS(REAL(P))+ABS(AIMAG(P)).GT.1.E-16)GO TO 25
+      H1=H1*ZH
+!     IF(X.NE.0.0)GO TO 23
+      IF(abs(X) .gt. 0.00001)GO TO 23
+      H0=CMPLX(0.0,AIMAG(H0),8)
+      H1=CMPLX(REAL(H1),0.0,8)
+23    RETURN
+      END SUBROUTINE HANKELS
+      end module hank
       module debugStuff
       contains
       
@@ -1551,7 +1616,7 @@
       
       !            ´--- the real source
       if (workboundary) then
-      if (verbose .ge. 1) then
+      if (verbose .ge. 2) then
         call showMNmatrixZabs(2*nBpts,1, trac0vec ,"tindp",PrintNum)
       end if
       stop !stop "only the vector"
@@ -1561,10 +1626,10 @@
         end if 
       end do !iz
       
-      if (verbose .ge. 1) then
+      if (verbose .ge. 2) then
         call showMNmatrixZ(2*nBpts,2*nBpts,ibemMat,"ibMat",PrintNum)
       end if
-      stop "nice"
+!     stop "nice"
       ! resolver ibem
       iPIVbem = 2*nBpts
       call zgesv(2*nBpts,1,ibemMat,2*nBpts,IPIVbem,trac0vec,2*nBpts,info)
@@ -3175,7 +3240,7 @@
       use gloVars, only: verbose,PI,workboundary
       use resultVars, only : pota,Punto,nZs, & 
                              MecaElem,Hf,Hk, NxXxMpts, & 
-                             trac0vec,ibemMat, NxXxMpts, allpoints
+                             trac0vec,ibemMat, NxXxMpts
       use Gquadrature, only : Gquad_n
       use refSolMatrixVars, only : B,Ak
       use waveNumVars, only : NMAX,DK, minKvalueW,minKvalueU,lapse
@@ -3184,22 +3249,23 @@
       implicit none
       
       interface !porque 'asociar' recibe un puntero como argumento
-        subroutine asociar(px,iz,ix)
+        subroutine asociar(px, itabla_z, itabla_x)
           use resultVars, only : Punto
           type(Punto), pointer :: PX
-          integer :: ix,iz
+          integer :: itabla_x, itabla_z
         end subroutine asociar
         
-        subroutine doesanyoneneedsGQ(anyone,zi,ei, & 
-                                   PXs,nPXs,iz,nx,xf,zf,ef)
+        subroutine doesanyoneneedsGQ(anyone,zi,ei,nPXs, & 
+                                   itabla_z,& 
+                                   xf,zf,ef)
           use resultVars, only : Punto
           logical, intent(out) :: anyone
           real, intent(out) :: zi
           integer, intent(out) :: ei
-          type(Punto), pointer :: PXs(:)
+!         type(Punto), pointer :: PXs(:)
           integer, intent(out) :: nPXs
-          integer, intent(in) :: iz
-          integer, intent(in) :: nx
+          integer, intent(in) :: itabla_z
+!         integer, intent(in) :: nx
           real, intent(in) :: xf,zf
           integer, intent(in) :: ef
         end subroutine doesanyoneneedsGQ
@@ -3216,17 +3282,18 @@
       complex*16, intent(in)  :: cOME
       integer, intent(in) :: outpf
       integer :: iGq,iGq_med,mecStart,mecEnd,miniRow,xXx,dirStart,dirEnd
-      integer :: i_zRcptrs,ik,ef,dir,nGqs,ei,iMec,nPXs,ix,ixi,nxis,i,thislapse
+      integer :: itabla_z,itabla_x,ik,ef,dir,nGqs,ei,iMec,nPXs,ixi,nxis,i,thislapse
       real :: k,zf,xf,zi,factor,peso
       logical :: intf
       type(Punto), pointer :: pXi,p_x
-      type(Punto), pointer :: pXs(:)
+!     type(Punto), pointer :: pXs(:)
       logical :: anyone,warning
       real*8, dimension(2) :: nf
       type(MecaElem)  :: calcMecaAt_xi_zi, Meca_diff, calcFF, Meca_FF
-      complex*16, dimension(2*nmax,5), target :: auxK
+      complex*16, dimension(2*nmax,5), target :: auxK,savedAuxK
       integer, dimension(5,2) :: sign
       complex*16, dimension (:), pointer :: RW
+      complex*16, dimension(5),target   :: freef
       !  fza horiz     fza vert       !(para la crepa)
       sign(1,1) = -1 ; sign(1,2) = 1  !W        impar           par
       sign(2,1) = 1  ; sign(2,2) = -1 !U          par           impar
@@ -3238,13 +3305,13 @@
         trac0vec = 0
         ibemMat = 0
       end if
-      ! indice ix de la fuente en la tabla
+      ! indice itabla_x de la fuente en la tabla
       if (i_zfuente .eq. 0) then
-        ix = 3
+        itabla_x = 3
       else
-        ix = 2 + pota(i_zfuente,1) + 1 ! la primer fuente virtual
+        itabla_x = 2 + pota(i_zfuente,1) + 1 ! la primer fuente virtual
       end if!;print*,"here"
-      call asociar(pXi, i_zfuente,ix) !po, allpoint, boupoint
+      call asociar(px = pXi, itabla_z  = i_zfuente, itabla_x  = itabla_x) !po, allpoint, boupoint
       ef = pXi%layer
       intf = pXi%isOnInterface
       nf(1) = pXi%normal(1)
@@ -3255,20 +3322,20 @@
       if (i_zfuente .eq. 0) then
         if (abs(nf(1)) .lt. 0.001) then
           dirStart = 2
-        end if
+        end if!
         if (abs(nf(2)) .lt. 0.001) then
           dirEnd = 1
         end if
-      end if
-      print*,"dirs", dirStart," -> ",dirEnd
+      end if!
+      if (verbose .ge. 2) print*,"dirs", dirStart," -> ",dirEnd
       do dir =dirStart,dirEnd! componete de Fuerza horizontal; vertical....
 !       print*,"dir ",dir
       do iGq = 1,nGqs ! cada punto de integración / centro ................
-        print*,"iGq ",iGq,"/",nGqs
+        if (verbose .ge. 2) print*,"iGq ",iGq,"/",nGqs
       ! amplitud de las ondas planas dada la profundidad de la fuente
         xf = pXi%Gq_xXx_coords(iGq,1) ! = xfsource si iz = 0
         zf = pXi%Gq_xXx_coords(iGq,2) ! = zfsource si iz = 0
-        print*,"xi : (",xf,",",zf,")"
+        if (verbose .ge. 2) print*,"xi : (",xf,",",zf,")"
        do ik = 1,nmax+1 ! amplitud de ondas planas dada fuente en Z .......
         k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.001
         call vectorB_force(B(:,ik),zf,ef,intf,dir,cOME,k)  
@@ -3276,15 +3343,16 @@
        end do ! ik
       
       ! resultados para cada Z donde hay receptores .......................
-      do i_zRcptrs = 1,nZs !(en la tabla pota todos los puntos son receptores)
-        print*,"receptores en i_zRcptrs = ",i_zRcptrs
-        ! ¿En este Z hay algún punto que requiera integración gaussiana?
+      do itabla_z = 1,nZs !(en la tabla pota todos los puntos son receptores)        
+      ! ¿En este Z hay algún punto que requiera integración gaussiana?
         ! si : acumulamos resultado con este iGq
         ! no : esperamos a que iGq sea iGq_med
-      call doesanyoneneedsGQ(anyone,zi,ei, & 
-                               pXs,nPXs,& 
-                               i_zRcptrs,size(pota(1,:))-2, & 
+      call doesanyoneneedsGQ(anyone,zi,ei,nPXs, & 
+                               itabla_z, & 
                                xf,zf,ef)
+        if (verbose .ge. 2) write(outpf,*) "receptores en itabla_z = ", & 
+                                           itabla_z, " -> ",zi,"m"
+
             ! con este if logramos excluir calculos innecesarios cuando
             ! a esta profundidad sólo existen receptores que requieren
             ! integración lineal dada una fuente virtual.
@@ -3292,8 +3360,8 @@
             ! ¿calcular sólo G, sólo T o ambos?
             mecStart = 1
             mecEnd = 5
-            if(pota(i_zRcptrs,2) .eq. 0) mecEnd = 2 ! no T
-            if(pota(i_zRcptrs,1) .eq. 0) mecStart = 3 ! no G 
+            if(pota(itabla_z,2) .eq. 0) mecEnd = 2 ! no T
+            if(pota(itabla_z,1) .eq. 0) mecStart = 3 ! no G 
             if (verbose .ge. 2) write(outpf,'(a,I0,a,I0,a)') & 
                                 "mec Range {",mecStart,"...",mecEnd,"}"
             auxK = cmplx(0.0,0.0,8)
@@ -3309,20 +3377,24 @@
             Meca_ff = calcFF(zf,ef,dir, & 
                      zi,ei,& 
                      k,cOME) ! ------------------------------------------- cambiar por solución analítica
-            auxK(ik,mecStart:mecEnd) = Meca_ff%Rw(mecStart:mecEnd) + &
-                                     Meca_diff%Rw(mecStart:mecEnd)
+!           auxK(ik,mecStart:mecEnd) = Meca_ff%Rw(mecStart:mecEnd) + &
+!                                    Meca_diff%Rw(mecStart:mecEnd)
                                      
 !           auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd)
-!           auxK(ik,mecStart:mecEnd) = Meca_ff%Rw(mecStart:mecEnd)                          
+            auxK(ik,mecStart:mecEnd) = Meca_ff%Rw(mecStart:mecEnd) 
+                        
             ! trim K domain if it is cool
             if (abs(auxK(ik,mecStart)) .lt. minKvalueW .and. & 
                 abs(auxK(ik,mecEnd)) .lt. minKvalueU .and. & 
-                warning .eqv. .true.) exit ! ----------------------------- esto es arriesgado 
-        
+                warning .eqv. .true.) then 
+                   print*,"trim loop at ik = ",ik
+                   exit ! ----------------------------- esto es arriesgado 
+            end if!
             if (abs(auxK(ik,mecStart)) .lt. minKvalueW .and. & 
                 abs(auxK(ik,mecEnd)) .lt. minKvalueU) then 
                    thislapse = thislapse - 1
             else
+                   if (thislapse .lt. lapse) &
                    thislapse = thislapse + 1
             end if!
             if (thislapse .le. 0) warning = .true.
@@ -3346,23 +3418,26 @@
         end if
         ! para cada fuente a la profundidad iz ...................
 !       print*,"nXis ",nXis
+         ! guardar auxK
+         savedAuxK = auxK
         do iXi = 1,nXis
+        
          if (i_zfuente .ne. 0) then ! si no es la fuente real, son las virtuales
-             ix = 2 + pota(i_zfuente,1) + iXi
-             call asociar(pXi, i_zfuente,ix)
+             itabla_x = 2 + pota(i_zfuente,1) + iXi
+             call asociar(px = pXi, itabla_z  = i_zfuente, itabla_x  = itabla_x)
              xf = pXi%Gq_xXx_coords(iGq,1)
              nf(dir) = pXi%normal(dir)
          end if!
 !        if (iz .ne. 0) then
 !          print*,"xi : ",pXi%boundaryIndex," (",pXi%center(1),",",pXi%center(2),")"
 !        end if
-        ! para cada X receptor a la profundidad i_zRcptrs ......................
-!        print*,"nPXs ",nPXs
-            do ix=1,nPXs
+        ! para cada X receptor a la profundidad itabla_z ......................
+         if (verbose .ge. 2) print*,"nPXs ",nPXs
+            do itabla_x =1,nPXs
+              call asociar(px = p_x, itabla_z  = itabla_z, itabla_x  = 2+ itabla_x)
               
-              call asociar(p_x,i_zRcptrs,2+ix)
 !             print*,"x : (", p_x%center(1),",", p_x%center(2),")"
-!             if ((iz .eq. i_zRcptrs) .and. (iXi .eq. ix)) then
+!             if ((iz .eq. itabla_z) .and. (iXi .eq. itabla_x)) then
               if (p_x%isBoundary) then
                 if (pXi%boundaryIndex .eq. p_x%boundaryIndex)  then
                 ! fuente y receptor son virtules y están en el mismo lugar
@@ -3389,8 +3464,13 @@
                     cycle !skip to the next receptor if any
                 end if
               end if
+              
+              ! reponer auxK (cambia cada ciclo)
+              auxK = savedAuxK
+             
               ! información X de fuente y receptor
               do imec = mecStart,mecEnd
+!             go to 12
                 auxk(1:nmax,imec) = auxk(1:nmax,imec) * & 
                 exp(cmplx(0.0,(/((ik-1)*dk,ik=1,nmax)/)  * & 
                     2*pi* (p_x%center(1)-xf) ,8))
@@ -3406,7 +3486,7 @@
                 auxK(:,iMec) = auxK(:,iMec)* & 
                     cmplx(Hf(J)* Hk,0.0,8)/(2*pi)! taper
               end do !imec
-              
+           
               ! guardar el FK si es que es interesante verlo
               if(i_zfuente .eq. 0) then ; if (p_x%guardarFK) then
                 p_x%FK(J,1:nmax,1:2) = &
@@ -3421,9 +3501,18 @@
               end do
               auxK = auxK / factor
               
+              ! ya se está en frecuencia - espacioX                                      . -. .-d. -d.fs-.fsfas d
               !          ,--- k->  x = 0 (x del receptor)
               !          |
               RW => auxK(1,:)
+              
+               ! agregar la solución de campo libre en el estrato de la fuerza
+              if (p_x%layer .eq. pXi%layer) then
+                auxK = cmplx(0.0,0.0,8) !	
+                call calcFreeField(freef,dir,p_x%center,pXi%center,p_x%layer,cOME)
+                RW => freef
+              end if
+              
 !             print*,sum(RW)
               ! decidimos que hacer con el resultado dependiendo del
               ! tipo de receptor y el tipo de fuente
@@ -3435,22 +3524,22 @@
               
               if (i_zfuente .eq. 0) then !fuente real (no hay integral GQ).......
                 if (p_x%isBoundary) then ! term. indep.
-!                    print*,"term indep"
+                     if (verbose .ge. 2) print*,"term indep"
                      ! el indice en el vector de terms indep depende
                      ! del punto receptor sobre la frontera
                      !  | Tx |
                      !  | Tz |
                      do miniRow = 0,1 ! Tx, Tz
+!                    print*,"mini row",miniRow," sent RW: ",RW*nf(dir)
                    trac0vec(p_x%boundaryIndex * 2 - (1 - miniRow)) = &
                    trac0vec(p_x%boundaryIndex * 2 - (1 - miniRow)) + &
                     (-1.0 * Traction(RW * nf(dir), p_x%normal,miniRow))
-                    
-                     print*,"trac0[", p_x%boundaryIndex * 2 - (1 - miniRow), &
+                     if (verbose .ge. 2) print*,"trac0[", & 
+                     p_x%boundaryIndex * 2 - (1 - miniRow), &
                      "} when X = ",  p_x%boundaryIndex
                      end do 
-                     print*,"_"
                 else ! W,U
-!                    print*,"W,U"
+                     if (verbose .ge. 2) print*,"W,U"
                      if (p_x%guardarMovieSiblings) then
                        ! (1) reordenar la crepa existente en X
                        auxK = cshift(auxK,SHIFT=nmax,DIM=1)
@@ -3466,10 +3555,10 @@
                             xXx = xXx + 1
                        end do
                      else !no movie
-                      
+!                      print*, "first W: ", p_x%W(J,:)
                        p_x%W(J,1:2) = &
                        p_x%W(J,1:2) + RW(1:2) * nf(dir)
-                       
+!                      print*, "now W:   ", p_x%W(J,:); print*," "
 !                      print*,"(", p_x%center(1),",", p_x%center(2),")"
 !                      print*,size(p_x%W(J,:))
 !                      print*, p_x%W(J,:)
@@ -3535,11 +3624,11 @@
                      end if ! movie?
                 end if
               end if !tipo de fuente
-            end do !ix (receptor)
+            end do ! itabla_x (receptor)
           end do !iXi (fuente)
           
         end if ! anyone      
-      end do ! i_zRcptrs (receptor)
+      end do ! itabla_z (receptor)
       
       
       end do ! iGq (fuente)
@@ -3550,28 +3639,30 @@
       
       end subroutine crunch
       
-      subroutine doesAnyOneNeedsGQ(anyone,zi,ei, & 
-                                   PXs,nPXs,iz,nx,xf,zf,ef)
-      use resultvars, only : pota,punto,allpoints,boupoints,nBpts,npts
+      subroutine doesAnyOneNeedsGQ(anyone,zi,ei,nPXs, & 
+                                   itabla_z, & 
+                                   xf,zf,ef)
+                                   
+      use resultvars, only : pota,punto,nBpts,npts
       use soilVars, only : beta
       use waveNumVars, only : Frec
       use Gquadrature, only: WLmulti
-      use glovars, only : workboundary
+!     use glovars, only : workboundary
       implicit none
       
       interface !porque 'asociar' recibe un puntero como argumento
-        subroutine asociar(px,iz,ix)
+        subroutine asociar(px, itabla_z, itabla_x)
           use resultVars, only : Punto
           type(Punto), pointer :: PX
-          integer :: ix,iz
+          integer :: itabla_x, itabla_z
         end subroutine asociar
       end interface
       
       type(Punto), pointer :: PX
-      type(Punto), pointer :: PXs(:)
+!     type(Punto), pointer :: PXs(:)
       logical, intent(out) :: anyone
       integer, intent(out) :: ei,nPXs
-      integer, intent(in) :: iz,nx,ef
+      integer, intent(in) :: itabla_z,ef
       real, intent(out) :: zi
       integer :: ix,maxix
       real, intent(in) :: xf,zf
@@ -3580,22 +3671,22 @@
 !     needsGQ = .false.
       anyone = .false.
 !     if (associated(PXs)) then 
-         nullify(PXs)
+!        nullify(PXs)
 !     end if!
-      if (iz .eq. 0) then 
-         call asociar(px,iz,0)
+      if (itabla_z .eq. 0) then 
+         call asociar(px,itabla_z,0)
          zi = PX%center(2)
          ei = PX%layer
          nPXs = nPts + nBpts
-         allocate(pXs(npxs))
+!        allocate(pXs(npxs))
 !        do ix = 1,nPts
-           pxs(1 : npts) => allpoints(:)
+!          pxs(1 : npts) => allpoints(:)
 !        end do
-         if (workboundary) then
+!        if (workboundary) then
 !          do ix = 1,nBpts
-             pxs(1 + npts : nbpts + npts) => boupoints(:)
+!            pxs(1 + npts : nbpts + npts) => boupoints(:)
 !          end do
-         end if
+!        end if
          
 !        if (workboundary) then
 !           PXs = (/ allpoints(:),boupoints(:) /)
@@ -3605,17 +3696,18 @@
         
          return
       end if 
-      maxix = pota(iz,1) + pota(iz,2)
-      allocate(PXs(maxix)) !sin las dos columnas iniciales de indices
+      maxix = pota(itabla_z,1) + pota(itabla_z,2)
+!     allocate(PXs(maxix)) !sin las dos columnas iniciales de indices
       nPXs = maxix
       do iX = 3,maxix+2
-        call asociar(PX,iz,ix)
-        PXs(ix-2) = PX
+        call asociar(PX,itabla_z,ix)
+!       PXs(ix-2) = PX
         MinWaveLenght = min(BETA(PX%layer),BETA(ef)) / FREC
         distance = sqrt((PX%center(1) - xf)**2 + &
                         (PX%center(2) - zf)**2)
         if (distance .lt. MinWaveLenght * WLmulti) then !use quadratura
           anyone = .true.
+          exit
         end if
       end do !ix
       zi = PX%center(2)
@@ -3623,19 +3715,19 @@
 !     print*,"anyone:", needsGQ
       end subroutine doesanyoneneedsGQ
       
-      subroutine asociar(PX,iz,ix)
+      subroutine asociar(PX,itabla_z, itabla_x)
       use resultVars, only : pota,Punto,allpoints,boupoints,Po
       type(Punto), pointer :: PX
-      integer :: ix,iz
+      integer :: itabla_x, itabla_z
       ! apuntador al punto en la tabla
 !       if (associated(PX)) then 
           nullify(PX)
 !       end if!
-        if (iz .ne. 0) then
-          if (pota(iz,ix) .gt. 0) then
-             PX => allpoints(pota(iz,ix))!; print*,"allp "
+        if (itabla_z .ne. 0) then
+          if (pota(itabla_z, itabla_x) .gt. 0) then
+             PX => allpoints(pota(itabla_z, itabla_x))!; print*,"allp "
           else
-             PX => boupoints(abs(pota(iz,ix)))!; print*,"boup "
+             PX => boupoints(abs(pota(itabla_z, itabla_x)))!; print*,"boup "
           end if
         else
           PX => Po
@@ -4171,6 +4263,105 @@
       end if
 !       calcFF%RW = calcFF%RW * exp(-UI * k * xX)
       end function calcFF            
+      subroutine calcFreeField(freef,j,p_X,pXi,e,cOME)
+      !                      |  |   |  |__ estrato de fuente y receptor
+      !                      |  |   |__ coordenadsa de la fuente (2)
+      !                      |  |__ coordenadsa del receptor (2)
+      !                      |__ dirección de la fuerza (1;2) :: (X,Z)
+      ! solucion de campo libre para fuente y receptor en el mismo estrato
+      
+      ! Kaussel, Fundamental solutions in elastodynamics... pag 38
+      use soilVars ,only : alfa,beta,amu,lambda
+      use gloVars  
+!     use waveNumVars, only : NFREC,NMAX!,DK
+      use hank
+      implicit none
+      real,       intent(in)     :: p_X(2),pXi(2)
+      integer,    intent(in)     :: j,e
+      complex*16, intent(in)     :: cOME
+      complex*16, dimension(5)   :: freef
+      
+      real*8 :: r,gamma(2)
+      complex*16 :: omeP,omeS,psi,Dpsi,chi,Dchi !preliminary
+      complex*16 :: dg1j1,dg1j3,dg3j1,dg3j3 !complenetary
+      complex*16 :: H0s,H1s,H2s,H0p,H1p,H2p !Hankel 
+      complex*16 :: i_4, b_a_2 !auxiliar
+      integer :: i,k,deltaij
+      freef = 0
+      ! preliminary functions
+      r = sqrt((p_x(1)-pXi(1))**2 + (p_x(2)-pXi(2))**2)
+      gamma(1) = (p_X(1) - pXi(1)) / r
+      gamma(2) = (p_X(2) - pXi(2)) / r
+      omeP = cOME * r / alfa(e)
+      omeS = cOME * r / beta(e)
+      i_4 = cmplx(0.0,0.25,8) ! i/4
+      b_a_2 = (beta(e)/alfa(e))**2 ! (beta/alfa)**2
+      
+      ! funcs de Hankel de segunda especie
+      call hankels(omeP,H0p,H1p)
+      H2p = -H0p + 2/omeP * H1p
+      call hankels(omeS,H0s,H1s)
+      H2s = -H0s + 2/omeS * H1s
+      
+      ! psi, Dpsi, chi, Dchi
+      psi = i_4 * (((H1s/omeS) - b_a_2 * (H1p/omeP)) - H0s)
+      chi = i_4 * (b_a_2 * H2p - H2s)
+      
+      ! W =>  i = 2     g3j
+      freef(1) = 1/amu(e)* (psi * deltaij(2,j) + chi * gamma(2) * gamma(j))
+      ! U =>  i = 1     g1j
+      freef(2) = 1/amu(e)* (psi * deltaij(1,j) + chi * gamma(1) * gamma(j))
+      
+      ! complementary
+      Dpsi = chi/r + i_4/r * omeS * H1s
+      Dchi = i_4/r * (b_a_2 * omeP * H1p - omeS * H1s) - 2 * chi / r
+      ! d(gij)/dxk
+      i = 1 !componente
+      k = 1 !derivada
+      dg1j1 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
+                               (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
+                     chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))
+      i = 1 !componente
+      k = 2 !derivada
+      dg1j3 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
+                               (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
+                     chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))
+      i = 2 !componente
+      k = 1 !derivada
+      dg3j1 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
+                               (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
+                     chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))   
+      i = 2 !componente
+      k = 2 !derivada
+      dg3j3 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
+                               (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
+                     chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))            
+      ! szz
+      freef(3) = lambda(e) * (dg3j3 + dg1j1) + 2* amu(e) * dg3j3
+      ! szx
+      freef(4) = amu(e) * (dg3j1 + dg1j3)
+      ! sxx
+      freef(5) = lambda(e) * (dg3j3 + dg1j1) + 2* amu(e) * dg1j1
+      
+      end subroutine calcFreeField
+      
+      function deltaij(i,j)
+      integer :: deltaij,i,j
+      ! i : dirección del receptor {1;2} x,z
+      ! j : dirección de la fuente {1;2} x,z
+      
+      deltaij = 0
+      ! 1,1
+      if (i .eq. j) then
+        deltaij = 1
+!       return
+      end if
+      ! 3,2
+!     if ((i .eq. 3) .and. (j .eq. 2)) then
+!       deltaij = 1
+!       return
+!     end if 
+      end function deltaij
       subroutine inverseA(A,n)
       integer, intent(in) :: n
       complex*16, dimension(n,n), intent(inout) :: A
@@ -4233,11 +4424,11 @@
       complex*16 :: Traction,RW(:)
       real*8, intent(in), dimension(2) :: normal
       integer, intent(in) :: l
-      
+!     print*,"got this RW ",RW
       Traction = RW(5-l) * normal(1) + &
                  RW(4-l) * normal(2)
       ! las tracciones:
-      !
+!     print*,"Traction: ",Traction
       !   ,--- componente de la tracción : m
       !   |     ,--- cara
       !   |     |
