@@ -114,7 +114,7 @@
       complex*16, dimension(:), allocatable :: expK
       complex*16, dimension(:,:), allocatable :: Vout
       real   ,save      :: minKvalueW, minKvalueU
-      integer,save      :: lapse
+      integer,save      :: lapse,KtrimStart
       end module waveNumVars
       
       module refSolMatrixVars
@@ -162,6 +162,10 @@
       end module GeometryVars
       
       module resultVars
+       type FFres
+         complex*16 :: W,U,Tx,Tz
+       end type FFres
+      
 !     use gloVars, only: dp
        type Pointe
         real :: X,Z
@@ -1284,9 +1288,9 @@
            log(exp(p)+1.),4)
        M = M / maxval(M)
       end if
-      
-      miV = minval(M)
-      maV = maxval(M)
+      print *,titulo
+      miV = minval(M);print *, "min",miV
+      maV = maxval(M);print *, "max",maV
       Vstep = (maV-miV)/40.0
       DO i = 1,41
         ZLVRAY(i) = miV + Vstep * (i-1)
@@ -1501,6 +1505,7 @@
       nIpts=0; nMpts=0; nBpts = 0
       iPtfin = 0
       mPtfin = 0
+      KtrimStart = 1
       allocate(vout(1,2))
       if (getInquirePointsSol) call getInquirePoints(PrintNum)
       call getVideoPoints(PrintNum)
@@ -1524,7 +1529,8 @@
       
       ! Espectro - numero de onda
       do iP=1,Npts; if (allpoints(iP)%guardarFK)then
-          allocate(allpoints(iP)%FK(NFREC+1,NMAX,5))
+          allocate(allpoints(iP)%FK(NFREC+1,NMAX,2))
+          allpoints(iP)%FK = 0
       end if; end do!
       
       do iP=iPtini,iPtfin !solo inquirepoints:
@@ -1559,7 +1565,7 @@
                             "source is at (",xfsource,",",zfsource,")"
       end if
       
-      call makeTaperFuncs(20,0.8,0.6)
+      call makeTaperFuncs(20,0.8,0.8)
       call expPIK(expK)
       call waveAmplitude(PrintNum)
       
@@ -1576,10 +1582,10 @@
       DO J=1,NFREC+1
       ! complex frecuency for avoiding poles and provide damping
         FREC=DFREC*real(J-1)
-        if (J .eq. 1)  FREC = DFREC*0.001
+        if (J .eq. 1)  FREC = DFREC*0.01
         call cpu_time(tstart)
         OME=2.0*PI*FREC
-        cOME = cmplx(OME, - DFREC / periodicdamper,8) * cmplx(1.0, -1.0/2.0/Qq,8)
+        cOME = cmplx(OME, - DFREC / periodicdamper*10,8) * cmplx(1.0, -1.0/2.0/Qq,8)
       
 !       ! complex frecuency for avoiding poles and provide damping
 !       FREC=DFREC*real(J-1)
@@ -1612,6 +1618,7 @@
          k = real(ik-1) * dK
          if (ik .eq. 1) k = dk * 0.001
          call matrixA_borderCond(Ak(:,:,ik),k,cOME,PrintNum)
+         
          call inverseA(Ak(:,:,ik),4*N+2)
       end do ! ik
       
@@ -1627,7 +1634,7 @@
 !     NMAX=2*NMAX+100                                !EMPIRICAL (improve)
       
       call crunch(0,J,cOME,PrintNum)
-      
+!     cycle
 !     print*,allpoints(1)%W(J,:)
       
       !            ´--- the real source
@@ -1793,7 +1800,7 @@
       implicit none
       integer, intent(in) :: outpf
       logical :: lexist
-      real :: H, ALF, BET, RO
+      real :: H, ALF, BET, RO!, rKmax
       integer :: J
       
       ! vemos si existen los archivos
@@ -1857,8 +1864,15 @@
 !      ALFA(N+1)=BET/BEALF
       
       READ(7,*)
-      READ(7,*)DFREC,NFREC,DK,NMAX,Qq,t0
+      READ(7,*)DFREC,NFREC,DK,nmax,Qq,t0 !nmax now is estimated
       close(7)
+      
+      ! decidimos el máximo número de onda a partir
+      ! de la frecuencia máxima y la velocidad de propagación
+      ! mínima en el medio mas 20% por si a caso.
+!     rKmax = (DFREC * NFREC)/(minval(beta))
+!     rKmax = rKmax/DK
+!     nMAX = ceiling(rKmax)
       
       !Max frequency should be adjusted to a 2**N value
          NFREC= int(log10(real(NFREC)) / log10(2.)+0.99 )
@@ -3275,13 +3289,14 @@
       use gloVars, only: verbose,PI
       use resultVars, only : pota,Punto,nZs, & 
                              MecaElem,Hf,Hk, NxXxMpts, & 
-                             trac0vec,ibemMat, NxXxMpts
+                             trac0vec,ibemMat, NxXxMpts,FFres
       use Gquadrature, only : Gquad_n
       use refSolMatrixVars, only : B,Ak
-      use waveNumVars, only : NMAX,DK, minKvalueW,minKvalueU,lapse
+      use waveNumVars, only : NMAX,DK, minKvalueW,minKvalueU,lapse,KtrimStart
       use wavelets !fork
       use meshVars, only: MeshDXmultiplo
       use meshVars, only: DeltaX, MeshDXmultiplo
+      use dislin
       implicit none
       
       interface !porque 'asociar' recibe un puntero como argumento
@@ -3317,7 +3332,7 @@
       integer, intent(in) :: i_zfuente,J
       complex*16, intent(in)  :: cOME
       integer, intent(in) :: outpf
-      integer :: iGq,iGq_med,mecStart,mecEnd,miniRow,xXx,dirStart,dirEnd
+      integer :: iGq,iGq_med,mecStart,mecEnd,xXx,dirStart,dirEnd
       integer :: itabla_z,itabla_x,ik,ef,dir,nGqs,ei,iMec,nPXs,ixi,nxis,i,thislapse
       real :: k,zf,xf,zi,factor,peso,mov_x
       logical :: intf
@@ -3325,11 +3340,12 @@
 !     type(Punto), pointer :: pXs(:)
       logical :: anyone,warning
       real*8, dimension(2) :: nf
-      type(MecaElem)  :: calcMecaAt_xi_zi, Meca_diff
+      type(MecaElem)  :: calcMecaAt_xi_zi, Meca_diff!, Meca_ff,calcff
       complex*16, dimension(2*nmax,5), target :: auxK,savedAuxK
       integer, dimension(5,2) :: sign
       complex*16, dimension (:), pointer :: RW
-      complex*16, dimension(5),target   :: freef
+      type(FFres),target :: FF
+      character(LEN=90) :: nombre
       !  fza horiz     fza vert       !(para la crepa)
       sign(1,1) = -1 ; sign(1,2) = 1  !W        impar           par
       sign(2,1) = 1  ; sign(2,2) = -1 !U          par           impar
@@ -3352,17 +3368,18 @@
       if (i_zfuente .eq. 0) then; nGqs = 1; else; nGqs = Gquad_n; end if
       iGq_med = nGqs +1!ceiling(nGqs/2.0) ! i de Punto para integración lineal.
       dirStart = 1; dirEnd = 2
-      if (i_zfuente .eq. 0) then
+      if (i_zfuente .eq. 0) then !ahorramos si la fuente tiene un componente nulo
         if (abs(nf(1)) .lt. 0.001) then
           dirStart = 2
         end if!
         if (abs(nf(2)) .lt. 0.001) then
           dirEnd = 1
         end if
-      end if!
+      end if!      
       if (verbose .ge. 3) print*,"dirs", dirStart," -> ",dirEnd
-      do dir =dirStart,dirEnd! componete de Fuerza horizontal; vertical....
-!       print*,"dir ",dir
+      
+
+      do dir =dirStart,dirEnd! componete de Fuerza horizontal; vertical......
       do iGq = 1,nGqs+1 ! cada punto de integración / centro ................
         if (verbose .ge. 3) print*,"iGq ",iGq,"/",nGqs
       ! amplitud de las ondas planas dada la profundidad de la fuente
@@ -3372,10 +3389,11 @@
         else
         xf = pXi%center(1) 
         zf = pXi%center(2) 
-        end if
+        end if!
         if (verbose .ge. 3) print*,"xi : (",xf,",",zf,")"
+        
        do ik = 1,nmax+1 ! amplitud de ondas planas dada fuente en Z .......
-        k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.001
+        k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.01
         call vectorB_force(B(:,ik),zf,ef,intf,dir,cOME,k)  
         B(:,ik) = matmul(AK(:,:,ik),B(:,ik))
        end do ! ik
@@ -3402,15 +3420,31 @@
             if(pota(itabla_z,1) .eq. 0) mecStart = 3 ! no G 
             if (verbose .ge. 3) write(outpf,'(a,I0,a,I0,a)') & 
                                 "mec Range {",mecStart,"...",mecEnd,"}"
-            auxK = cmplx(0.0,0.0,8)
+            auxK = cmplx(0.0d0,0.0d0,8)
             warning = .false.
             thislapse = lapse
+            
           do ik = 1,nmax+1 ! k loop calculando elem mecanicos.............
-            k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.001
+            k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.1
             ! difractado por estratos
             Meca_diff = calcMecaAt_xi_zi(B(:,ik),&  
                      zi,ei,& 
                      cOME,k,outpf) ! -------------------------------------  G, T o los dos
+            auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd)
+            
+                     
+            ! aguas con NAN
+!           do imec=mecStart,mecEnd
+!             if (isnan(real(Meca_diff%RW(imec)))) then
+!               print*, "J",J,"ik",ik,"imec",imec,"real"
+!               Meca_diff%RW(imec) = 0
+!             end if
+!             if (isnan(aimag(Meca_diff%RW(imec)))) then
+!               print*, "J",J,"ik",ik,"imec",imec,"imag"
+!               Meca_diff%RW(imec) = 0
+!             end if
+!           end do
+                     
             ! campo libre en estrato de la fuerza
 !           Meca_ff = calcFF(zf,ef,dir, & 
 !                    zi,ei,& 
@@ -3418,14 +3452,15 @@
 !           auxK(ik,mecStart:mecEnd) = Meca_ff%Rw(mecStart:mecEnd) + &
 !                                    Meca_diff%Rw(mecStart:mecEnd)
                                      
-            auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd)
+!           auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd)
 !           auxK(ik,mecStart:mecEnd) = Meca_ff%Rw(mecStart:mecEnd) 
-                        
-            ! trim K domain if it is cool
+            cycle
+            ! trim K integration domain if it is zero 
             if (abs(auxK(ik,mecStart)) .lt. minKvalueW .and. & 
                 abs(auxK(ik,mecEnd)) .lt. minKvalueU .and. & 
                 warning .eqv. .true.) then 
-                   if (verbose .ge. 3) print*,"trim loop at ik = ",ik
+                   if (verbose .ge. 1) print*,"trim loop at ik = ",ik
+                   KtrimStart = max(KtrimStart,ik)
                    exit ! ----------------------------- esto es arriesgado 
             end if!
             if (abs(auxK(ik,mecStart)) .lt. minKvalueW .and. & 
@@ -3447,49 +3482,33 @@
          auxK(nmax+1:nmax*2,iMec) = sign(iMec,dir)* auxK(nmax+1:2:-1,iMec)         
         end do !iMec
         
-        !*****************************************************************
-        ! Ahora nos concentramos en las coordenadas X ....................
+        ! Coordenada X ....................
         if (i_zfuente .eq. 0) then
           nXis = 1 ! y la fuente real es una
         else
           nXis = pota(i_zfuente,2) ! puede haber varias vuentes virtuales
         end if
         ! para cada fuente a la profundidad iz ...................
-!       print*,"nXis ",nXis
-         ! guardar auxK
+
+        ! guardar auxK
          savedAuxK = auxK
         do iXi = 1,nXis
-        
          if (i_zfuente .ne. 0) then ! si no es la fuente real, son las virtuales
              itabla_x = 2 + pota(i_zfuente,1) + iXi
              call asociar(px = pXi, itabla_z  = i_zfuente, itabla_x  = itabla_x)
              xf = pXi%Gq_xXx_coords(iGq,1)
-!            print*,xf,zf
-!            zf = pXi%Gq_xXx_coords(iGq,2)
-!            print*,xf,zf
-!            stop "zf"
              nf(dir) = pXi%normal(dir)
          end if!
-!        if (iz .ne. 0) then
-!          print*,"xi : ",pXi%boundaryIndex," (",pXi%center(1),",",pXi%center(2),")"
-!        end if
         ! para cada X receptor a la profundidad itabla_z ......................
          if (verbose .ge. 3) print*,"nPXs ",nPXs
             do itabla_x =1,nPXs
+              ! reponer auxK (cambia cada ciclo)
+              auxK = savedAuxK
               call asociar(px = p_x, itabla_z  = itabla_z, itabla_x  = 2+ itabla_x)
               
-!             print*,"x : (", p_x%center(1),",", p_x%center(2),")"
-!             if ((iz .eq. itabla_z) .and. (iXi .eq. itabla_x)) then
               if (p_x%isBoundary) then
                 if (pXi%boundaryIndex .eq. p_x%boundaryIndex)  then
                 ! fuente y receptor son virtules y están en el mismo lugar
-!               print*,"x = xi ::: ibemat"
-               
-!               print*,"xi : (",xf,",",zf,")"
-!               print*,"x : (", p_x%center(1),",", p_x%center(2),")"
-!               print*,".................................................."
-                  ! el receptor también está en la frontera .: es el caso
-                  ! de la matriz ibem con x = xi
                     if (dir .eq. 1) then
                        ibemMat(p_x%boundaryIndex *2 -(1 - 0), & 
                                    pXi%boundaryIndex *2 -(2 - dir)) = 0.5
@@ -3501,34 +3520,66 @@
                        ibemMat(p_x%boundaryIndex *2 -(1 - 1), & 
                                    pXi%boundaryIndex *2 -(2 - dir)) = 0.5
                     end if
-                ! tracción en el receptor con la normal del receptor
-                ! multiplicado por el peso de integración de la fuente
                     cycle !skip to the next receptor if any
                 end if
               end if
               
-              ! reponer auxK (cambia cada ciclo)
-              auxK = savedAuxK
-             
+!             p_X%center(1) = xf             
               ! información X de fuente y receptor
               do imec = mecStart,mecEnd
-!             go to 13
                 auxk(1:nmax,imec) = auxk(1:nmax,imec) * & 
-                exp(cmplx(0.0,(/((ik-1)*dk,ik=1,nmax)/)  * & 
-                    2*pi* (p_x%center(1)-xf) ,8))
+                exp(cmplx(0.0,(-1)*(/((ik-1)*dk,ik=1,nmax)/)  * & 
+                    pi* (p_x%center(1)-xf) ,8))
         
-                auxK(1     ,imec) = auxk(1     ,imec) * &
-                exp(cmplx(0.0,0.001*dk * & 
-                    2*pi* (p_x%center(1)-xf) ,8))
+                auxk(1     ,imec) = auxk(1     ,imec) * &
+                exp(cmplx(0.0,0.01*dk * & 
+                    pi* (-1)*(p_x%center(1)-xf) ,8))*0.01
         
                 auxk(nmax+1:nmax*2,imec) = auxk(nmax+1:nmax*2,imec) * & 
                 exp(cmplx(0.0,(/((-ik)*dk,ik=nmax,1,-1)/)* & 
-                    2*pi* (p_x%center(1)-xf) ,8))
+                    pi* (-1)*(p_x%center(1)-xf) ,8))
         
-                auxK(:,iMec) = auxK(:,iMec)* & 
-                    cmplx(Hf(J)* Hk,0.0,8)/(pi)! taper                       - ?
+                auxk(:,iMec) = auxk(:,iMec)* & 
+                    cmplx(Hf(J)* Hk,0.0,8)!/(pi)! taper     -------------  ? 
+!               auxk(:,iMec) = auxk(:,iMec) / pi
               end do !imec
            
+!          do ik = 1,nmax*2
+!          do imec=mecStart,mecEnd
+!             if (isnan(real(auxK(ik,imec)))) then
+!               print*, "J",J,"ik",ik,"imec",imec,"real"
+!               auxk(ik,imec) = 0
+!             end if
+!             if (isnan(aimag(auxk(ik,imec)))) then
+!               print*, "J",J,"ik",ik,"imec",imec,"imag"
+!               auxk(ik,imec) = 0
+!             end if
+!           end do
+!          end do
+!          CALL METAFL('PDF')
+!          write(nombre,'(a,I0,a)'),"W",J,".pdf"
+!          CALL SETFIL(trim(adjustl(nombre)))
+!          call disini
+!          call qplot((/((ik-1)*dk,ik=1,nmax)/),real(auxk(1:nmax,1),4),nmax)
+!          call system("open W.pdf")
+
+           
+!          open(88,file="out1.txt")
+!          do ik=1,size(auxK(:,1))
+!          write(88,*) real(auxK(ik,1)),aimag(auxK(ik,1))
+!          end do !ik
+!          close (88)
+!          open(88,file="out2.txt")
+!          do ik=1,size(auxK(:,2))
+!          write(88,*) real(auxK(ik,2)),aimag(auxK(ik,2))
+!          end do !ik
+!          close (88)
+!          stop "file"
+!          return
+              
+              
+              
+              
               ! guardar el FK si es que es interesante verlo
               if(i_zfuente .eq. 0) then ; if (p_x%guardarFK) then
                 p_x%FK(J,1:nmax,1:2) = &
@@ -3537,19 +3588,29 @@
               end if ; end if !guardar
               
               ! K -> X
-              auxK = auxK * factor
+!             auxK = auxK * factor
               do iMec = mecStart,mecEnd
                 call fork(2*nmax,auxK(:,iMec),+1,verbose,outpf)
               end do
-              auxK = auxK / factor
+!             auxK = auxK / factor
               
               ! ya se está en frecuencia - espacioX   
               !          ,--- k->  x = 0 (x del receptor)
               !          |
-              RW => auxK(1,:)
-
-                        auxK = cmplx(0.0,0.0,8)  !                                          . -. .-d. -d.fs-.fsfas d
-
+              RW => auxK(1,1:5)
+              
+!             do imec=mecStart,mecEnd
+!             if (isnan(real(RW(imec)))) then
+!               print*, "J",J,"ik",ik,"imec",imec,"real"
+!               RW(imec) = 0
+!             end if
+!             if (isnan(aimag(RW(imec)))) then
+!               print*, "J",J,"ik",ik,"imec",imec,"imag"
+!               RW(imec) = 0
+!             end if
+!             end do
+              
+      ! Repartir resultado         
               ! decidimos que hacer con el resultado dependiendo del
               ! tipo de receptor y el tipo de fuente
               !
@@ -3565,27 +3626,46 @@
                      ! del punto receptor sobre la frontera
                      !  | Tx |
                      !  | Tz |
-                     if (p_x%layer .eq. pXi%layer) then !agregar campo libre
-                        call calcFreeField(freef,dir,p_x%center,pXi%center & 
-                                           ,p_x%layer,cOME,mecStart,mecEnd)
-                     ! 3,4,5
-                       freef = freef + auxK(1,:)
-                       RW => freef
-                     else
-                       RW => auxK(1,:)
-                     end if
-                     
-                     do miniRow = 0,1 ! Tx, Tz
-!                    print*,"mini row",miniRow," sent RW: ",RW*nf(dir)
-                   trac0vec(p_x%boundaryIndex * 2 - (1 - miniRow)) = &
-                   trac0vec(p_x%boundaryIndex * 2 - (1 - miniRow)) + &
-                    (-1.0 * Traction(RW * nf(dir), p_x%normal,miniRow))
-                     if (verbose .ge. 3) print*,"trac0[", & 
-                     p_x%boundaryIndex * 2 - (1 - miniRow), &
-                     "} when X = ",  p_x%boundaryIndex
-!                    print*,trac0vec
 !                    print*,""
-                     end do
+!                    print*,dir
+!                    p_x%center = (/-10.0,10.0/); print*,p_x%center
+!                    pxi%center = (/0.0,0.0/); print*,pxi%center
+!                    mecStart = 1
+!                    mecEnd = 5
+!                    p_x%normal = (/-1.0/(2**0.5),1.0/(2**0.5)/)
+!                    p_x%normal = (/0.0,1.0/)
+!                    p_x%normal = (/1.0,0.0/)
+!                    print*,p_x%normal
+                     FF%Tx = 0
+                     FF%Tz = 0
+                     if (p_x%layer .eq. pXi%layer) then !agregar campo libre
+                        print*,"Free field stuff"
+                        call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
+                        pXi%center,p_x%layer,cOME,mecStart,mecEnd)
+                        
+                                               
+!                       print*,"W",FF%W,abs(FF%W)
+!                       print*,"U",FF%U,abs(FF%U)
+!                       print*,"Tz",FF%Tz,abs(FF%Tz)
+!                       print*,"Tx",FF%Tx,abs(FF%Tx)
+!                       stop "trac0vec"
+                     end if
+!                    FF%Tx = 0
+!                    FF%Tz = 0
+                     trac0vec(p_x%boundaryIndex * 2 - (1 - 0)) = &
+                   trac0vec(p_x%boundaryIndex * 2 - (1 - 0)) - &
+                    (Traction(RW * nf(dir), p_x%normal,0) + FF%Tx * nf(dir))
+                   
+                   trac0vec(p_x%boundaryIndex * 2 - (1 - 1)) = &
+                   trac0vec(p_x%boundaryIndex * 2 - (1 - 1)) - &
+                    (Traction(RW * nf(dir), p_x%normal,1) + FF%Tz * nf(dir))
+!                    print*,abs(RW(1))
+!                    print*,abs(RW(2))
+!                    print*,abs(RW(:))
+!                    print*,abs(Traction(RW , p_x%normal,0))
+!                    print*,abs(Traction(RW , p_x%normal,1))
+!                    print*,abs(trac0vec)
+!                    stop "trac0vec"
                 else ! W,U
                      if (verbose .ge. 3) print*,"W,U"
                      if (p_x%guardarMovieSiblings) then
@@ -3594,46 +3674,48 @@
                        auxK = cshift(auxK,SHIFT=nmax,DIM=1)
                        ! (2) guardar sólo los interesantes
                        xXx = 1
-                       do i=nmax+1-(nxXxmpts-1)/2* meshdxmultiplo, & 
-                            nmax+1+(nxXxmpts-1)/2* meshdxmultiplo, & 
-                            meshdxmultiplo
+                       do i=nmax+1-(nxXxmpts-1)* meshdxmultiplo, & 
+                            nmax+1+(nxXxmpts-1)* meshdxmultiplo, & 
+                            meshdxmultiplo*2
+                            FF%W = 0
+                            FF%U = 0
                             if (p_x%layer .eq. pXi%layer) then !agregar campo libre
                               ! la coord X de este hermanito
                               mov_x = -(nmax+1-i) * DeltaX * MeshDXmultiplo
                               if (verbose .ge. 3) print*,i,"--",mov_x
-                              call calcFreeField(freef,dir,& 
-                                   (/mov_x,p_x%center(2)/),pXi%center & 
-                                    ,p_x%layer,cOME,mecStart,mecEnd) 
-                              auxK(i,:) = auxK(i,:) + freef(:)
+                              ! el campo libre
+                              call calcFreeField(FF,dir,(/mov_x,p_x%center(2)/),p_X%normal, & 
+                        pXi%center,p_x%layer,cOME,mecStart,mecEnd)
+                              
                             end if
-              p_x%WmovieSiblings(xXx,J,1:2) = auxK(i,1:2) * nf(dir) + &
-              p_x%WmovieSiblings(xXx,J,1:2)
+!                           FF%W = 0
+!                           FF%U = 0
+              p_x%WmovieSiblings(xXx,J,1) = (auxK(i,1) + FF%W)* nf(dir) + &
+              p_x%WmovieSiblings(xXx,J,1)
+              
+              p_x%WmovieSiblings(xXx,J,2) = (auxK(i,2) + FF%U)* nf(dir) + &
+              p_x%WmovieSiblings(xXx,J,2)              
+                            
                             xXx = xXx + 1
                        end do
                      else !no movie
+                       FF%W = 0
+                       FF%U = 0
 !                      print*, "first W: ", p_x%W(J,:)
                      if (p_x%layer .eq. pXi%layer) then !agregar campo libre
-                        call calcFreeField(freef,dir,p_x%center,pXi%center & 
-                                           ,p_x%layer,cOME,mecStart,mecEnd)
-                     ! 3,4,5
-                       freef = freef + auxK(1,:)
-                       RW => freef
-                     else
-                       RW => auxK(1,:)
+                     call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
+                        pXi%center,p_x%layer,cOME,mecStart,mecEnd)
+!                       print*,"W",FF%W,abs(FF%W)
+!                       print*,"U",FF%U,abs(FF%U)
+!                       print*,"Tz",FF%Tz,abs(FF%Tz)
+!                       print*,"Tx",FF%Tx,abs(FF%Tx)                        
                      end if
-                       
-                       p_x%W(J,1:2) = &
-                       p_x%W(J,1:2) + RW(1:2) * nf(dir)
-!                      print*, "now W:   ", p_x%W(J,:); print*," "
-!                      print*,"(", p_x%center(1),",", p_x%center(2),")"
-!                      print*,size(p_x%W(J,:))
-!                      print*, p_x%W(J,:)
-!                      print*,"(",allpoints(1)%center(1),",",allpoints(1)%center(2),")"
-!                      print*,size(allpoints(1)%W(J,:))
-!                      print*,allpoints(1)%W(J,:)
-!                      if (dir .eq. 2) then
-!                         stop 2
-!                      end if
+!                      FF%W = 0
+!                      FF%U = 0
+                       p_x%W(J,1) = &
+                       p_x%W(J,1) + (RW(1)+ FF%W) * nf(dir)
+                       p_x%W(J,2) = &
+                       p_x%W(J,2) + (RW(2)+ FF%U) * nf(dir)
                      end if ! movie?
                 end if
               else !fuente virtual (puede haber integral GQ)..........................
@@ -3653,24 +3735,27 @@
                      ! miniCol::dir 1 -> X ; 2 -> Z          (dir fuente)
                      ! macro renglón: p_x%boundaryIndex   (receptor)
                      ! miniRow::                 (componente de tracción)
+                     FF%Tx = 0
+                     FF%Tz = 0
                     if (p_x%layer .eq. pXi%layer) then !agregar campo libre
-                        call calcFreeField(freef,dir,p_x%center,(/xf,zf/) & 
-                                           ,p_x%layer,cOME,mecStart,mecEnd)
-                     ! 3,4,5
-                       freef = freef + auxK(1,:)
-                       RW => freef
-                     else
-                       RW => auxK(1,:)
+                       call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
+                        (/xf,zf/),p_x%layer,cOME,mecStart,mecEnd)
                      end if
-                     do miniRow = 0,1 ! Tx_, Tz_
-                       ibemMat(p_x%boundaryIndex *2 -(1 - miniRow), & 
-                                   pXi%boundaryIndex *2 -(2 - dir))   = &
-                       ibemMat(p_x%boundaryIndex *2 -(1 - miniRow), & 
-                                   pXi%boundaryIndex *2 -(2 - dir)) + &
-                       (Traction(RW, p_x%normal,miniRow) * peso)
+                     
                 ! tracción en el receptor con la normal del receptor
                 ! multiplicado por el peso de integración de la fuente
-                     end do
+                     ibemMat(p_x%boundaryIndex *2 -(1 - 0), & 
+                             pXi%boundaryIndex *2 -(2 - dir)) = &
+                     ibemMat(p_x%boundaryIndex *2 -(1 - 0), & 
+                             pXi%boundaryIndex *2 -(2 - dir)) + &
+                       ((Traction(RW, p_x%normal,0) + FF%Tx) * peso)
+                       
+                    ibemMat(p_x%boundaryIndex *2 -(1 - 1), & 
+                            pXi%boundaryIndex *2 -(2 - dir)) = &
+                    ibemMat(p_x%boundaryIndex *2 -(1 - 1), & 
+                            pXi%boundaryIndex *2 -(2 - dir)) + &
+                       ((Traction(RW, p_x%normal,1) + FF%Tz) * peso)
+                     
                 else ! G
 !                    print*,"G"
                      if (p_x%guardarMovieSiblings) then
@@ -3678,39 +3763,41 @@
                        auxK = cshift(auxK,SHIFT=nmax,DIM=1)
                        ! (2) guardar sólo los interesantes
                        xXx = 1
-                       do i=nmax+1-(nxXxmpts-1)/2* meshdxmultiplo, & 
-                            nmax+1+(nxXxmpts-1)/2* meshdxmultiplo, & 
-                            meshdxmultiplo
+                       do i=nmax+1-(nxXxmpts-1)* meshdxmultiplo, & 
+                            nmax+1+(nxXxmpts-1)* meshdxmultiplo, & 
+                            meshdxmultiplo*2
+                            FF%W = 0
+                            FF%U = 0
                             if (p_x%layer .eq. pXi%layer) then !agregar campo libre
                               ! la coord X de este hermanito
                               mov_x = -(nmax+1-i) * DeltaX * MeshDXmultiplo
                               if (verbose .ge. 3) print*,i,"--",mov_x
-                              call calcFreeField(freef,dir,& 
-                                   (/mov_x,p_x%center(2)/),(/xf,zf/) & 
-                                    ,p_x%layer,cOME,mecStart,mecEnd) 
-                              auxK(i,:) = auxK(i,:) + freef(:)
+                              call calcFreeField(FF,dir,(/mov_x,p_x%center(2)/),p_X%normal, & 
+                              (/xf,zf/),p_x%layer,cOME,mecStart,mecEnd)
                             end if
                        ! func de green (sólo desplazamientos)
-                            p_x%GT_gq_mov(pXi%boundaryIndex,1:2,dir,xXx) = & 
-                            p_x%GT_gq_mov(pXi%boundaryIndex,1:2,dir,xXx) + &
-                            auxK(i,1:2) * peso
+                            p_x%GT_gq_mov(pXi%boundaryIndex,1,dir,xXx) = & 
+                            p_x%GT_gq_mov(pXi%boundaryIndex,1,dir,xXx) + &
+                            (auxK(i,1) + FF%W) * peso
+                            p_x%GT_gq_mov(pXi%boundaryIndex,2,dir,xXx) = & 
+                            p_x%GT_gq_mov(pXi%boundaryIndex,2,dir,xXx) + &
+                            (auxK(i,2) + FF%U) * peso
             
                             xXx = xXx + 1
                        end do
                      else !no movie
+                        FF%W = 0
+                        FF%U = 0
                      if (p_x%layer .eq. pXi%layer) then !agregar campo libre
-                        call calcFreeField(freef,dir,p_x%center,(/xf,zf/) & 
-                                           ,p_x%layer,cOME,mecStart,mecEnd)
-                     ! 3,4,5
-                       freef = freef + auxK(1,:)
-                       RW => freef
-                     else
-                       RW => auxK(1,:)
+                     call calcFreeField(FF,dir,p_x%center,p_X%normal, & 
+                              (/xf,zf/),p_x%layer,cOME,mecStart,mecEnd)
                      end if
-                     
-                       p_x%GT_gq(pXi%boundaryIndex,1:2,dir) = &
-                       p_x%GT_gq(pXi%boundaryIndex,1:2,dir) + &
-                       RW(1:2) * peso
+                       p_x%GT_gq(pXi%boundaryIndex,1,dir) = &
+                       p_x%GT_gq(pXi%boundaryIndex,1,dir) + &
+                       (RW(1) + FF%W) * peso
+                       p_x%GT_gq(pXi%boundaryIndex,2,dir) = &
+                       p_x%GT_gq(pXi%boundaryIndex,2,dir) + &
+                       (RW(2) + FF%U) * peso
                 ! desplazamientos en el receptor
                 ! multiplicado por el peso de integración de la fuente
                      end if ! movie?
@@ -3857,7 +3944,7 @@
       DO e = 1,N+1
           
           ! algunas valores constantes para todo el estrato
-          gamma = sqrt(cOME_i**2/ALFA(e)**2 - k**2)
+          gamma = sqrt(cOME_i**2/ALFA(e)**2 - k**2)  
           nu = sqrt(cOME_i**2/BETA(e)**2 - k**2)
           ! Se debe cumplir que la parte imaginaria del número de onda 
           ! vertical debe ser menor que cero. La parte imaginaria contri-
@@ -4004,7 +4091,7 @@
           ! Se debe cumplir que la parte imaginaria del número de onda 
           ! vertical debe ser menor que cero. La parte imaginaria contri-
           ! buye a tener ondas planas inhomogéneas con decaimiento expo-
-          ! nencial a medida que z es mayor que cero.
+          ! nencial a medida que z crece.
           if(aimag(gamma).gt.0.0)gamma = -gamma
           if(aimag(nu).gt.0.0)nu=-nu
           
@@ -4302,9 +4389,14 @@
       
         gamma = sqrt(omeAlf - k**2.0)
         nu = sqrt(omeBet - k**2.0)
-        if(aimag(gamma).gt.0.0)gamma = -gamma
-        if(aimag(nu).gt.0.0)nu=-nu
-         
+        if(aimag(gamma).gt.0.0) then 
+           gamma = -gamma
+        end if!
+        if(aimag(nu).gt.0.0) then 
+           nu=-nu
+        end if 
+        
+        
           egamz = exp(-UI*gamma*ABS(z_i))
           enuz = exp(-UI*nu*ABS(z_i)) 
           
@@ -4355,39 +4447,50 @@
       end if
 !       calcFF%RW = calcFF%RW * exp(-UI * k * xX)
       end function calcFF            
-      subroutine calcFreeField(freef,j,p_X,pXi,e,cOME,mecStart,mecEnd)
+      subroutine calcFreeField(FF,j,p_X,nX,pXi,e,cOME,mecStart,mecEnd)
       !                      |  |   |  |__ estrato de fuente y receptor
       !                      |  |   |__ coordenadsa de la fuente (2)
+      !                               normal al receptor
       !                      |  |__ coordenadsa del receptor (2)
       !                      |__ dirección de la fuerza (1;2) :: (X,Z)
       ! solucion de campo libre para fuente y receptor en el mismo estrato
       
       ! Kaussel, Fundamental solutions in elastodynamics... pag 38
-      use soilVars ,only : alfa,beta,amu,lambda
+      use soilVars ,only : alfa,beta,amu,lambda,rho
       use gloVars  
 !     use waveNumVars, only : NFREC,NMAX!,DK
       use hank
+      use resultvars, only : FFres
       implicit none
       real,       intent(in)     :: p_X(2),pXi(2)
       integer,    intent(in)     :: j,e,mecStart,mecEnd
       complex*16, intent(in)     :: cOME
-      complex*16, dimension(5)   :: freef
-      
+!     complex*16, dimension(5)   :: freef
+      real*8,     intent(in)     :: nX(2)
+      type (FFres), intent(out) :: FF
       real*8 :: r,gamma(2)
-      complex*16 :: omeP,omeS,psi,Dpsi,chi,Dchi !preliminary
-      complex*16 :: dg1j1,dg1j3,dg3j1,dg3j3 !complenetary
+      complex*16 :: A,B,C,Dqr,Dkr
+      complex*16 :: omeP,omeS!,psi,Dpsi,chi,Dchi !preliminary
+!     complex*16 :: dg1j1,dg1j3,dg3j1,dg3j3 !complenetary
       complex*16 :: H0s,H1s,H2s,H0p,H1p,H2p !Hankel 
-      complex*16 :: i_4, b_a_2 !auxiliar
-      integer :: i,k,deltaij
-      freef = 0
+!     complex*16 :: i_4, b_a_2 !auxiliar
+      integer :: i,deltaij!,k      
+      
+      
+      
+!     complex*16 :: omeP,omeS,psi,Dpsi,chi,Dchi !preliminary
+!     freef = 0
+
       ! preliminary functions
       r = sqrt((p_x(1)-pXi(1))**2 + (p_x(2)-pXi(2))**2)
       gamma(1) = (p_X(1) - pXi(1)) / r
       gamma(2) = (p_X(2) - pXi(2)) / r
+!     print*,r
+!     print*,gamma
       omeP = cOME * r / alfa(e)
       omeS = cOME * r / beta(e)
-      i_4 = cmplx(0.0,0.25,8) ! i/4
-      b_a_2 = (beta(e)/alfa(e))**2 ! (beta/alfa)**2
+!     i_4 = cmplx(0.0,0.25,8) ! i/4
+!     b_a_2 = (beta(e)/alfa(e))**2 ! (beta/alfa)**2
       
       ! funcs de Hankel de segunda especie
       call hankels(omeP,H0p,H1p)
@@ -4395,49 +4498,95 @@
       call hankels(omeS,H0s,H1s)
       H2s = -H0s + 2/omeS * H1s
       
-      ! psi, Dpsi, chi, Dchi
-      psi = i_4 * (((H1s/omeS) - b_a_2 * (H1p/omeP)) - H0s)
-      chi = i_4 * (b_a_2 * H2p - H2s)
+!     print*,"j",j
+!     nX = (/1.0/(2.0**0.5),1.0/(2.0**0.5)/)
+      
+      A = H0p/alfa(e)**2 + H0s/beta(e)**2
+      B = H2p/alfa(e)**2 - H2s/beta(e)**2
       
       if (mecStart .eq. 1) then
-      ! W =>  i = 2     g3j
-      freef(1) = 1/amu(e)* (psi * deltaij(2,j) + chi * gamma(2) * gamma(j))
-      ! U =>  i = 1     g1j
-      freef(2) = 1/amu(e)* (psi * deltaij(1,j) + chi * gamma(1) * gamma(j))
+      ! W
+      i = 2
+      FF%W = 1/(cmplx(0.0,8.0,8)*rho(e))*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
+!     print*,"W == ",FF%W, ":",abs(FF%W)
+      
+      ! U
+      i = 1
+      FF%U = 1/(cmplx(0.0,8.0,8)*rho(e))*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
+!     print*,"U == ",FF%U, ":",abs(FF%U)
       end if!
+      
       if (mecEnd .eq. 5) then
-      ! complementary
-      Dpsi = chi/r + i_4/r * omeS * H1s
-      Dchi = i_4/r * (b_a_2 * omeP * H1p - omeS * H1s) - 2 * chi / r
-      ! d(gij)/dxk
-      i = 1 !componente
-      k = 1 !derivada
-      dg1j1 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
-                               (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
-                     chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))
-      i = 1 !componente
-      k = 2 !derivada
-      dg1j3 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
-                               (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
-                     chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))
-      i = 2 !componente
-      k = 1 !derivada
-      dg3j1 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
-                               (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
-                     chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))   
-      i = 2 !componente
-      k = 2 !derivada
-      dg3j3 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
-                               (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
-                     chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))            
-      ! szz
-!     print*,"lambda ",lambda(e)
-      freef(3) = lambda(e) * (dg3j3 + dg1j1) + 2* amu(e) * dg3j3
-      ! szx
-      freef(4) = amu(e) * (dg3j1 + dg1j3)
-      ! sxx
-      freef(5) = lambda(e) * (dg3j3 + dg1j1) + 2* amu(e) * dg1j1
+      Dqr = omeP*H1p
+      Dkr = omeS*H1s
+      C = Dqr/alfa(e)**2 -Dkr/beta(e)**2
+      ! TZ
+      i = 2
+      FF%Tz = cmplx(0.0,amu(e),8)/(2*rho(e)*r)*((B+(lambda(e)*Dqr)/(2*amu(e)*alfa(e)**2))*gamma(j)*nX(i) &
+      + (B + Dkr/(2*beta(e)**2))*(gamma(i)*nX(j) + (gamma(1)*nX(1) + gamma(2)*nX(2))*deltaij(i,j)) + &
+      (C-4*B)*gamma(i)*gamma(j)*(gamma(1)*nX(1) + gamma(2)*nX(2)))
+!     print*," Tz == ",FF%Tz, ":",abs(FF%Tz)
+      
+      ! TX
+      i = 1
+      FF%Tx = cmplx(0.0,amu(e),8)/(2*rho(e)*r)*((B+(lambda(e)*Dqr)/(2*amu(e)*alfa(e)**2))*gamma(j)*nX(i) &
+      + (B + Dkr/(2*beta(e)**2))*(gamma(i)*nX(j) + (gamma(1)*nX(1) + gamma(2)*nX(2))*deltaij(i,j)) + &
+      (C-4*B)*gamma(i)*gamma(j)*(gamma(1)*nX(1) + gamma(2)*nX(2)))
+!     print*," Tx == ",FF%Tx, ":",abs(FF%Tx)
       end if
+      
+!      Kausell
+!     ! psi, Dpsi, chi, Dchi
+!     psi = i_4 * (((H1s/omeS) - b_a_2 * (H1p/omeP)) - H0s)
+!     chi = i_4 * (b_a_2 * H2p - H2s)
+!     
+!     if (mecStart .eq. 1) then
+!     ! W =>  i = 2     g3j
+!     freef(1) = 1/amu(e)* (psi * deltaij(2,j) + chi * gamma(2) * gamma(j))
+!     ! U =>  i = 1     g1j
+!     freef(2) = 1/amu(e)* (psi * deltaij(1,j) + chi * gamma(1) * gamma(j))
+!     end if!
+!     if (mecEnd .eq. 5) then
+!     
+!     
+!     
+!     ! complementary
+!     Dpsi = chi/r + i_4/r * omeS * H1s
+!     Dchi = i_4/r * (b_a_2 * omeP * H1p - omeS * H1s) - 2 * chi / r
+!     ! d(gij)/dxk
+!     i = 1 !componente
+!     k = 1 !derivada
+!     dg1j1 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
+!                              (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
+!                    chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))
+!     print*,"dg1j1",dg1j1
+!     i = 1 !componente
+!     k = 2 !derivada
+!     dg1j3 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
+!                              (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
+!                    chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))
+!     print*,"dg1j3", dg1j3
+!     i = 2 !componente
+!     k = 1 !derivada
+!     dg3j1 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
+!                              (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
+!                    chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))   
+!     print*,"dg3j1", dg3j1
+!     i = 2 !componente
+!     k = 2 !derivada
+!     dg3j3 = 1/amu(e) * (gamma(k)*(Dpsi * deltaij(i,j) + & 
+!                              (Dpsi - 2 * chi / r)*gamma(i)*gamma(j)) + & 
+!                    chi/r * (deltaij(i,k)*gamma(j) + deltaij(j,k)*gamma(i)))            
+!     ! szz
+!     print*,"dg3j3", dg3j3
+!     print*,"lambda ",lambda(e)
+!     print*,"mu ",amu(e)
+!     freef(3) = lambda(e) * (dg3j3 + dg1j1) + 2* amu(e) * dg3j3
+!     ! szx
+!     freef(4) = amu(e) * (dg3j1 + dg1j3)
+!     ! sxx
+!     freef(5) = lambda(e) * (dg3j3 + dg1j1) + 2* amu(e) * dg1j1
+!     end if
       end subroutine calcFreeField
       
       function deltaij(i,j)
@@ -4451,6 +4600,7 @@
         deltaij = 1
 !       return
       end if
+!     print*,"delta",i,j,"=",deltaij
       ! 3,2
 !     if ((i .eq. 3) .and. (j .eq. 2)) then
 !       deltaij = 1
@@ -4469,8 +4619,14 @@
       allocate(ipiv(n+1))
       lwork = n*n
       allocate(work(lwork))
+      
+!     call dpsv
+      
+      
       call zgetrf(n,n,A,n,ipiv,info)
       if(info .ne. 0) stop "Problem at LU factorization of matrix "
+      
+      
       call zgetri(n,a,n,ipiv,work,lwork,info)
       if(info .ne. 0) stop "Problem at inverse of matrix "
       
@@ -4643,7 +4799,7 @@
       subroutine W_to_t(W,iP,coords,outpf)
       use waveNumVars, only : NFREC,DFREC
       use glovars
-      use waveVars, only : dt,t0,Uo,maxtime
+      use waveVars, only : dt,t0,maxtime!,Uo
       use ploteo10pesos
       use wavelets
       implicit none
@@ -4674,14 +4830,16 @@
       !           1 2 3 4 ... Nfrec Nfrec+1
       ! tenemos:  0 1 2 3 ... N/2-1  N/2
       ! hacemos:  0 1 2 3 ... N/2-1 -N/2 ... -3 -2 -1
-      S(      1:nfrec  ) =       W(1:nfrec:+1,  iMec) * & 
-      exp(cmplx(0.0,- 2*pi * (/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)/(2*pi)
+      S(      1:nfrec+1  ) =       W(1:nfrec+1:+1,  iMec) * & 
+      exp(cmplx(0.0,- 2*pi * (/((t-1)*dfrec,t=1,nfrec+1)/) * t0,8))/(2*pi)!* Uo(1:nfrec+1)
       
       S(1) = W(1,iMec) * & 
-      exp(cmplx(0.0,- 2*pi * 0.001*dfrec * t0,8)) * Uo(1)/(2*pi)
+      exp(cmplx(0.0,- 2*pi * 0.01*dfrec * t0,8))/(2*pi)*0.01!* Uo(1)
       
-      S(nfrec+1:nfrec*2) = conjg(W(nfrec+1:2:-1,iMec)) * & 
-      exp(cmplx(0.0,- 2*pi * (/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)/(2*pi)
+!     S(1) = 0
+      
+      S(nfrec+2:nfrec*2) = conjg(W(nfrec:2:-1,iMec)) * & 
+      exp(cmplx(0.0,- 2*pi * (/((-t)*dfrec,t=nfrec-1,1,-1)/) * t0,8))/(2*pi)!* Uo(nfrec+2:nfrec*2)
 !     print*,"here 1"
       
       if (verbose .ge. 2) then
@@ -4727,7 +4885,6 @@
          S = S/factor
       !  (2) remover efecto de la frecuencia imaginaria
          S = S * exp(-DFREC/periodicdamper * dt*((/(i,i=1,2*nfrec)/)-1))
-         
          !tiempo maximo para graficar
          if(maxtime .lt. dt) maxtime = 5*dt
          if(maxtime .gt. 1/(dfrec)) maxtime = 1/(dfrec)

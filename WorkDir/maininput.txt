@@ -3,7 +3,7 @@ verbose [int]
 make a video [logical]
 F
 Solve topography [logical]
-T
+F
 Plot FK [logical]
 T
 max segment length  = R * wavelength  [int :: R] (usar múltiplo de 4)
