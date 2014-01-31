@@ -93,7 +93,9 @@
 !     use gloVars, only: dp
       save
       integer ::  N !number of layers. HALF-SPACE at N+1
-      real, dimension(:),  allocatable :: Z,AMU,BETA,ALFA,LAMBDA,RHO               
+      real, dimension(:),  allocatable :: Z,AMU,LAMBDA,RHO,BETA0,ALFA0
+      complex*16 ,dimension(:), allocatable :: ALFA,BETA
+      real :: Qs,Qp
       end module soilVars
       
       module sourceVars
@@ -106,7 +108,7 @@
       module waveNumVars
       !frequency loop vars:
       integer,save      :: NFREC
-      real   ,save      :: FREC,DFREC,OME,OMEI
+      real*8   ,save    :: FREC,DFREC,OME,OMEI
       !Discrete Wave-number:
       real   ,save      :: DK    ! delta k on discrete wave number
       integer,save      :: NMAX
@@ -131,7 +133,7 @@
 !     save
       real, save :: Escala,maxtime
       real, save :: Theta !grados
-      real, save :: Dt  !segundos
+      real*8, save :: Dt  !segundos
       real, save :: t0
       integer, save :: tipoPulso ! 0 dirac; 1 ricker
       complex*16, allocatable :: auxUo(:)
@@ -1252,11 +1254,11 @@
       nombre(5)= '_s11.png'
       
       do i=1,NFREC
-         vHorz(i) = 0 + (i-1) * DFREC
+         vHorz(i) = 0 + (i-1) * real(DFREC,4)
       end do
       !
       do ik=1,nmax
-         vVert(ik) = 0 + (ik-1) * DK
+         vVert(ik) = 0 + (ik-1) * real(DK,4)
       end do
       
       minY = 0.
@@ -1455,7 +1457,7 @@
       use refSolMatrixVars ! cOME,A,B,XX,IPIV,info
       use gloVars !UI,UR,PI,verbose
       use waveNumVars !NFREC,FREC,DFREC,OME,OMEI,DK,NMAX,LFREC,DK,NMAX,expk
-      use soilVars, only : N
+      use soilVars!, only : N
       use debugStuff
       use resultVars
       use GeometryVars!, only : numberOffixedBoundaryPoints
@@ -1582,11 +1584,18 @@
       DO J=1,NFREC+1
       ! complex frecuency for avoiding poles and provide damping
         FREC=DFREC*real(J-1)
-        if (J .eq. 1)  FREC = DFREC*0.01
+        if (J .eq. 1)  FREC = DFREC*0.001
         call cpu_time(tstart)
         OME=2.0*PI*FREC
-        cOME = cmplx(OME, - DFREC / periodicdamper*10,8) * cmplx(1.0, -1.0/2.0/Qq,8)
-      
+        !periodic sources damping
+        cOME = cmplx(OME, - DFREC / periodicdamper,8) !* cmplx(1.0, -1.0/2.0/Qq,8)
+         
+        ! Azimi attenuation
+        do l=1,N+1
+          Alfa(l) = Alfa0(l)*(cmplx(1+1/(pi*Qp)*log(ome/(2*pi)),1/(2*Qp),8))
+          beta(l) = beta0(l)*(cmplx(1+1/(pi*Qs)*log(ome/(2*pi)),1/(2*Qs),8))
+        end do
+         
 !       ! complex frecuency for avoiding poles and provide damping
 !       FREC=DFREC*real(J-1)
 !       if (J .eq. 1) FREC = DFREC*0.001 
@@ -1618,7 +1627,6 @@
          k = real(ik-1) * dK
          if (ik .eq. 1) k = dk * 0.001
          call matrixA_borderCond(Ak(:,:,ik),k,cOME,PrintNum)
-         
          call inverseA(Ak(:,:,ik),4*N+2)
       end do ! ik
       
@@ -1825,39 +1833,43 @@
       ALLOCATE (AMU(N+1))
       ALLOCATE (BETA(N+1))
       ALLOCATE (ALFA(N+1))
+      ALLOCATE (BETA0(N+1))
+      ALLOCATE (ALFA0(N+1))
       ALLOCATE (LAMBDA(N+1))
       ALLOCATE (RHO(N+1))
       
       Z(1)=real(0,8)
       if (verbose >= 1) then
        write(outpf,'(a)')& 
-              '        depth       mu         beta         alpha'
+              '        depth       alpha         beta         mu       rho       lambda'
       end if
       DO J=1,N
          READ(7,*) H, ALF, BET, RO
          Z(J+1)=Z(J)+real(H)
          AMU(J)=RO*BET**2
-         BETA(J)=BET
-         ALFA(J)=ALF
+         BETA0(J)=BET
+         ALFA0(J)=ALF
          RHO(J) = RO
-         LAMBDA(J)=RHO(J)*ALFA(J)**2 - real(2.)*AMU(J)
+         LAMBDA(J)=RHO(J)*ALF**2 - real(2.)*AMU(J)
 !         BEALF=SQRT((0.5-ANU)/(1.0-ANU)) !IF POISSON RATIO IS GIVEN
 !         ALFA(J)=BET/BEALF
        if (verbose >= 1) then
-         write(outpf,'(F7.1,A,F7.1,2x,F8.2,3x,F7.1,6x,F7.1)') & 
-         Z(J),' - ',Z(J+1),AMU(J),BETA(J),ALFA(J)
+         write(outpf,'(F7.1,A,F7.1,2x,F7.1,6x,F7.1,3x,F8.2,F7.1,3x,F7.1)') & 
+         Z(J),' - ',Z(J+1),ALFA0(J),BETA0(J),AMU(J),RHO(J),LAMBDA(J)
        end if
       END DO
       
-      READ(7,*) H, ALF, BET, RO
+      READ(7,*) H, ALF, BET, RO 
       AMU(N+1)=RO*BET**2
-      BETA(N+1)=BET
-      ALFA(N+1)=ALF
+      BETA0(N+1)=BET
+      ALFA0(N+1)=ALF
       RHO(J) = RO
-      LAMBDA(N+1)=RHO(J)*ALFA(N+1)**2 - 2*AMU(N+1)
+      LAMBDA(N+1)=RHO(J)*alf**2 - 2*AMU(N+1)
       if (verbose >= 1) then
-       write(outpf,'(F7.1,A,2x,F8.2,3x,F7.1,6x,F7.1)') &
-       Z(N+1),' -    inf.',AMU(N+1),BETA(N+1),ALFA(N+1)
+!      write(outpf,'(F7.1,A,2x,F8.2,3x,F7.1,6x,F7.1)') &
+!      Z(N+1),' -    inf.',AMU(N+1),BETA0(N+1),ALFA0(N+1)
+       write(outpf,'(F7.1,A,2x,F7.1,6x,F7.1,3x,F8.2,F7.1,3x,F7.1)') & 
+       Z(N+1),' -   inf. ',ALFA0(N+1),BETA0(N+1),AMU(N+1),RHO(N+1),LAMBDA(N+1)
        write(outpf,'(a)')' '
       end if
 !      BEALF=SQRT((0.5-ANU)/(1.0-ANU))   !IF POISSON RATIO IS GIVEN
@@ -1866,6 +1878,16 @@
       READ(7,*)
       READ(7,*)DFREC,NFREC,DK,nmax,Qq,t0 !nmax now is estimated
       close(7)
+      Qs = Qq
+      Qp = Qq
+      ! aplicamos el amortiguamiento en las velocidades
+      do J=1,N+1
+        !non dispersive           
+        Alfa(J) = Alfa0(J) * (cmplx(1.0,1/(2*Qq)))
+        beta(J) = beta0(J) * (cmplx(1.0,1/(2*Qq)))
+        
+        ! or Azimi every frec -> OK
+      end do
       
       ! decidimos el máximo número de onda a partir
       ! de la frecuencia máxima y la velocidad de propagación
@@ -2076,7 +2098,7 @@
       if (makeVideo .eqv. .false.) return 
         
         write(outpf,'(a,F12.2,a)') "Lfrec = 2*pi/DK = ",2*PI/DK, "m"
-        DeltaX = 2.0 / (nMax * DK)
+        DeltaX = 1.0 / (nMax * DK)
         write(outpf,'(a,F9.3)')"Delta X = ",DeltaX
         boundingXp =  1.0 / DK
         boundingXn = - boundingXp
@@ -2712,10 +2734,10 @@
       allocate(isOnIF(1))
       J = iJ
       if (J .lt. 2) J=2
-      maxFrec =  DFREC*real(J-1)
+      maxFrec =  real(DFREC,4)*real(J-1)
       allocate(auxA(1))
       allocate(auxB(1))
-      smallestBeta = minval(beta(:))
+      smallestBeta = minval(real(abs(beta(:)),4))
       !------- subdivide to SEE the smallest wavelenght 
       iXI = 1
       DO WHILE (iXI <= nXI-1) ! for every segment [iXI,iXI+1]
@@ -2741,7 +2763,7 @@
            end do ! layers
            if (e .eq. 0) e = 1
         ! la longitud máxima para un segmento en este estrato:
-           maxLen = BETA(e) / (multSubdiv * maxFrec)
+           maxLen = real(abs(BETA(e)),4) / (multSubdiv * maxFrec)
            !safe lock
            if (maxLen < 0.005) then
               write(outpf,'(a,I3)')'e:',e
@@ -3209,7 +3231,7 @@
        write(titleN,'(a)') 'rick_time.pdf'
        xAx = 'time[sec]'
        yAx = 'amplitude'
-       call plotXYcomp(Uo,Dt,size(Uo),titleN,xAx,yAx,1200,800)
+       call plotXYcomp(Uo,real(Dt,4),size(Uo),titleN,xAx,yAx,1200,800)
        CALL chdir("..")
 !      CALL SYSTEM ('../plotXYcomp rick_time.txt rick_time.pdf time[sec] amplitude 1200 800')
       end if
@@ -3231,7 +3253,7 @@
        xAx = 'frec[Hz] '
        yAx = 'amplitude'
        logflag = 'logx     '
-       call plotSpectrum(Uo,DFREC,size(Uo),int(size(Uo)/2),titleN,xAx,yAx,logflag,1200,800)
+       call plotSpectrum(Uo,real(DFREC,4),size(Uo),int(size(Uo)/2),titleN,xAx,yAx,logflag,1200,800)
        CALL chdir("..")
        print*,"plotted "
 !      logflag = 'logy     '
@@ -3529,18 +3551,18 @@
               do imec = mecStart,mecEnd
                 auxk(1:nmax,imec) = auxk(1:nmax,imec) * & 
                 exp(cmplx(0.0,(-1)*(/((ik-1)*dk,ik=1,nmax)/)  * & 
-                    pi* (p_x%center(1)-xf) ,8))
+                    2*pi* (p_x%center(1)-xf) ,8))
         
                 auxk(1     ,imec) = auxk(1     ,imec) * &
                 exp(cmplx(0.0,0.01*dk * & 
-                    pi* (-1)*(p_x%center(1)-xf) ,8))*0.01
+                    2*pi* (-1)*(p_x%center(1)-xf) ,8))*0.01
         
                 auxk(nmax+1:nmax*2,imec) = auxk(nmax+1:nmax*2,imec) * & 
                 exp(cmplx(0.0,(/((-ik)*dk,ik=nmax,1,-1)/)* & 
-                    pi* (-1)*(p_x%center(1)-xf) ,8))
+                    2*pi* (-1)*(p_x%center(1)-xf) ,8))
         
                 auxk(:,iMec) = auxk(:,iMec)* & 
-                    cmplx(Hf(J)* Hk,0.0,8)!/(pi)! taper     -------------  ? 
+                    cmplx(Hf(J)* Hk,0.0,8)/(2*pi)! taper     -------------------------------------  ? 
 !               auxk(:,iMec) = auxk(:,iMec) / pi
               end do !imec
            
@@ -3575,11 +3597,7 @@
 !          end do !ik
 !          close (88)
 !          stop "file"
-!          return
-              
-              
-              
-              
+!          return              
               ! guardar el FK si es que es interesante verlo
               if(i_zfuente .eq. 0) then ; if (p_x%guardarFK) then
                 p_x%FK(J,1:nmax,1:2) = &
@@ -3594,6 +3612,7 @@
               end do
 !             auxK = auxK / factor
               
+              auxK = 0
               ! ya se está en frecuencia - espacioX   
               !          ,--- k->  x = 0 (x del receptor)
               !          |
@@ -3674,15 +3693,15 @@
                        auxK = cshift(auxK,SHIFT=nmax,DIM=1)
                        ! (2) guardar sólo los interesantes
                        xXx = 1
-                       do i=nmax+1-(nxXxmpts-1)* meshdxmultiplo, & 
-                            nmax+1+(nxXxmpts-1)* meshdxmultiplo, & 
-                            meshdxmultiplo*2
+                       do i=nmax+1-(nxXxmpts-1)/2* meshdxmultiplo, & 
+                            nmax+1+(nxXxmpts-1)/2* meshdxmultiplo, & 
+                            meshdxmultiplo
                             FF%W = 0
                             FF%U = 0
                             if (p_x%layer .eq. pXi%layer) then !agregar campo libre
                               ! la coord X de este hermanito
-                              mov_x = -(nmax+1-i) * DeltaX * MeshDXmultiplo
-                              if (verbose .ge. 3) print*,i,"--",mov_x
+                              mov_x = -(nmax+1-i) * DeltaX 
+                              if (verbose .ge. 3) print*,xXx,i,"--",mov_x
                               ! el campo libre
                               call calcFreeField(FF,dir,(/mov_x,p_x%center(2)/),p_X%normal, & 
                         pXi%center,p_x%layer,cOME,mecStart,mecEnd)
@@ -3697,7 +3716,7 @@
               p_x%WmovieSiblings(xXx,J,2)              
                             
                             xXx = xXx + 1
-                       end do
+                       end do!; stop 0
                      else !no movie
                        FF%W = 0
                        FF%U = 0
@@ -3763,14 +3782,14 @@
                        auxK = cshift(auxK,SHIFT=nmax,DIM=1)
                        ! (2) guardar sólo los interesantes
                        xXx = 1
-                       do i=nmax+1-(nxXxmpts-1)* meshdxmultiplo, & 
-                            nmax+1+(nxXxmpts-1)* meshdxmultiplo, & 
-                            meshdxmultiplo*2
+                       do i=nmax+1-(nxXxmpts-1)/2* meshdxmultiplo, & 
+                            nmax+1+(nxXxmpts-1)/2* meshdxmultiplo, & 
+                            meshdxmultiplo
                             FF%W = 0
                             FF%U = 0
                             if (p_x%layer .eq. pXi%layer) then !agregar campo libre
                               ! la coord X de este hermanito
-                              mov_x = -(nmax+1-i) * DeltaX * MeshDXmultiplo
+                              mov_x = -(nmax+1-i) * DeltaX 
                               if (verbose .ge. 3) print*,i,"--",mov_x
                               call calcFreeField(FF,dir,(/mov_x,p_x%center(2)/),p_X%normal, & 
                               (/xf,zf/),p_x%layer,cOME,mecStart,mecEnd)
@@ -3881,7 +3900,7 @@
       do iX = 3,maxix+2
         call asociar(PX,itabla_z,ix)
 !       PXs(ix-2) = PX
-        MinWaveLenght = min(BETA(PX%layer),BETA(ef)) / FREC
+        MinWaveLenght = min(real(abs(BETA(PX%layer)),4),real(abs(BETA(ef)),4)) / FREC
         distance = sqrt((PX%center(1) - xf)**2 + &
                         (PX%center(2) - zf)**2)
         if (distance .lt. MinWaveLenght * WLmulti) then !use quadratura
@@ -4351,6 +4370,7 @@
 !     end subroutine Add_diffractedField_by_layeredMedia_Green      
       
       
+      
       function calcFF(z_f,e_f,dir,zX,eX,k,cOME)
       use soilVars 
       use gloVars  
@@ -4474,9 +4494,7 @@
 !     complex*16 :: dg1j1,dg1j3,dg3j1,dg3j3 !complenetary
       complex*16 :: H0s,H1s,H2s,H0p,H1p,H2p !Hankel 
 !     complex*16 :: i_4, b_a_2 !auxiliar
-      integer :: i,deltaij!,k      
-      
-      
+      integer :: i,deltaij!,k
       
 !     complex*16 :: omeP,omeS,psi,Dpsi,chi,Dchi !preliminary
 !     freef = 0
@@ -4487,6 +4505,8 @@
       gamma(2) = (p_X(2) - pXi(2)) / r
 !     print*,r
 !     print*,gamma
+      print*,alfa(e)
+      print*,beta(e);stop 0
       omeP = cOME * r / alfa(e)
       omeS = cOME * r / beta(e)
 !     i_4 = cmplx(0.0,0.25,8) ! i/4
@@ -4834,7 +4854,7 @@
       exp(cmplx(0.0,- 2*pi * (/((t-1)*dfrec,t=1,nfrec+1)/) * t0,8))/(2*pi)!* Uo(1:nfrec+1)
       
       S(1) = W(1,iMec) * & 
-      exp(cmplx(0.0,- 2*pi * 0.01*dfrec * t0,8))/(2*pi)*0.01!* Uo(1)
+      exp(cmplx(0.0,- 2*pi * 0.01*dfrec * t0,8))/(2*pi)!*0.01!* Uo(1)
       
 !     S(1) = 0
       
@@ -4866,7 +4886,7 @@
                int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
                int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].pdf'
 !        print*,titleN
-         call plotXYcomp(S,DFREC,2*nfrec,titleN, & 
+         call plotXYcomp(S,real(DFREC,4),2*nfrec,titleN, & 
          'frec[hz] ','amplitude',1200,800)
          
          if (Verbose .ge. 2) then
@@ -4877,18 +4897,18 @@
          logflag = 'logx     '
 !        print*,"here1.5"
          end if
-         call plotSpectrum(S,DFREC,2*nfrec,nfrec, & 
+         call plotSpectrum(S,real(DFREC,4),2*nfrec,nfrec, & 
                          titleN,'frec[hz] ','amplitude',logflag,1200,800)
       !  (1) pasar al tiempo
          S = S*factor
          call fork(2*nfrec,S,+1,verbose,outpf)
          S = S/factor
       !  (2) remover efecto de la frecuencia imaginaria
-         S = S * exp(-DFREC/periodicdamper * dt*((/(i,i=1,2*nfrec)/)-1))
+         S = S * exp(DFREC/periodicdamper * Dt*((/(i,i=0,2*nfrec-1)/)))
          !tiempo maximo para graficar
          if(maxtime .lt. dt) maxtime = 5*dt
-         if(maxtime .gt. 1/(dfrec)) maxtime = 1/(dfrec)
-         n_maxtime = int(maxtime/dt)
+         if(maxtime .gt. 1/(dfrec)) maxtime = 1/(real(dfrec,4))
+         n_maxtime = int(maxtime/real(dt,4))
          print*,"maxtime = ",maxtime," segs :: @",dt," : ",n_maxtime," puntos"
       !  (3) plot the damn thing
       if (verbose .ge. 2) then
@@ -4911,7 +4931,7 @@
                'S_',nombre(iMec),iP,'[', &
                int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
                int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].pdf'
-         call plotXYcomp(S(1:n_maxtime),dt,n_maxtime,titleN, & 
+         call plotXYcomp(S(1:n_maxtime),real(dt,4),n_maxtime,titleN, & 
          'time[sec]','amplitude',1200,800)
       
       end do !imec
@@ -4957,8 +4977,8 @@
       
       !tiempo maximo para graficar
          if(maxtime .lt. dt) maxtime = 5*dt
-         if(maxtime .gt. 1/(dfrec)) maxtime = 1/(dfrec)
-         n_maxtime = int(maxtime/dt)
+         if(maxtime .gt. 1/(dfrec)) maxtime = 1/(real(dfrec,4))
+         n_maxtime = int(maxtime/real(dt,4))
          print*,"maxtime = ",maxtime," segs :: @",dt," : ",n_maxtime," puntos"
       
       if (verbose >= 1) Write(outpf,'(a)') "Will make a movie..."
@@ -4985,21 +5005,21 @@
       
       ! se hace para los puntos del video.
       iz = 1
-      do iP= mPtini,mPtfin 
-      do ix = 1,NxXxMpts
+      do iP= mPtini,mPtfin ! cada profundidad de Z 
+      do ix = 1,NxXxMpts   ! todos los pixeles en ese Z
         Y(iz) = allpoints(IP)%center(2) !;print*,iP,'z=',Y(iz)
         
         ! los espectros de cada coordenada ya están ordenaditos
         do iMec = 1,2
         ! (1) crepa
-        Sm(ix,iz,iMec,1:nfrec) = allpoints(iP)%WmovieSiblings(ix,1:nfrec:+1,iMec)* & 
-      exp(cmplx(0.0,- 2*pi*(/((t-1)*dfrec,t=1,nfrec)/) * t0,8)) * Uo(1:nfrec)/(2*pi)
+        Sm(ix,iz,iMec,1:nfrec+1) = allpoints(iP)%WmovieSiblings(ix,1:nfrec+1:+1,iMec)* & 
+      exp(cmplx(0.0,- 2*pi*(/((t-1)*dfrec,t=1,nfrec+1)/) * t0,8))/(2*pi) !* Uo(1:nfrec+1)
       
         Sm(ix,iz,iMec,1      ) = allpoints(iP)%WmovieSiblings(ix,1         ,iMec) * & 
-      exp(cmplx(0.0,- 2*pi * 0.001*dfrec * t0,8)) * Uo(1)/(2*pi)
+      exp(cmplx(0.0,- 2*pi * 0.01*dfrec * t0,8))/(2*pi)!*0.01 !* Uo(1)
       
-        Sm(ix,iz,iMec,nfrec+1:nfrec*2) = conjg(allpoints(iP)%WmovieSiblings(ix,nfrec+1:2:-1,iMec))* & 
-      exp(cmplx(0.0,- 2*pi*(/((-t)*dfrec,t=nfrec,1,-1)/) * t0,8)) * Uo(nfrec+1:nfrec*2)/(2*pi)
+        Sm(ix,iz,iMec,nfrec+2:nfrec*2) = conjg(allpoints(iP)%WmovieSiblings(ix,nfrec:2:-1,iMec))* & 
+      exp(cmplx(0.0,- 2*pi*(/((-t)*dfrec,t=nfrec-1,1,-1)/) * t0,8))/(2*pi) !* Uo(nfrec+2:nfrec*2)
         
         ! (2) pasar al tiempo: fork
           Sm(ix,iz,iMec,:) = Sm(ix,iz,iMec,:) * factor
@@ -5008,8 +5028,7 @@
         
         ! (2.3) remover efecto de la frecuencia imaginaria
           Sm(ix,iz,iMec,:) = Sm(ix,iz,iMec,:) * & 
-                            exp(-DFREC/periodicdamper * Dt*((/(i,i=1,2*nfrec)/)-1))
-          
+                            exp(DFREC/periodicdamper * Dt*((/(i,i=0,2*nfrec-1)/)))
           
           
         end do !iMec
@@ -5177,7 +5196,7 @@
       end if
       
 !     CTIT='Vectors'
-      tlabel = (it)*dt
+      tlabel = (it)*real(dt,4)
 !     print*,tlabel
       write(CTIT,'(a,F9.5,a)') 't=',tlabel,' seg'
       lentitle = NLMESS(CTIT)
