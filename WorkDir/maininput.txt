@@ -1,7 +1,7 @@
 verbose [int]
-2
+1
 make a video [logical]
-T
+F
 Solve topography [logical]
 F
 Plot FK [logical]

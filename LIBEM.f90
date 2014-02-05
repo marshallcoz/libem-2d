@@ -23,10 +23,24 @@
       
       module Gquadrature
       real :: WLmulti ! una o dos longitudes de onda
-      integer, parameter :: Gquad_n = 8 ! número par para no pegarle a la
-      ! singularidad en el punto de aplicación de la fuerza
+      integer, parameter :: Gquad_n = 3
+      ! ##############################
+      ! # Para cambiar Num de puntos #
+      ! # actualizar encabezado de   #
+      ! # rutinas de topografía      #
+      ! ##############################
       
       ! courtesy of http://pomax.github.io/bezierinfo/legendre-gauss.html
+      real, parameter, dimension(3) :: Gqu_t_3 = & 
+      (/ -0.7745966692414834, &
+          0.0000000000000000, &
+         +0.7745966692414834 /)
+      
+      real, parameter, dimension(3) :: Gqu_A_3 = & 
+      (/  0.5555555555555556, &
+          0.8888888888888888, &
+          0.5555555555555556 /)
+      
 !     real, parameter, dimension(7) :: Gqu_t_7 = & 
 !     (/ -0.9491079123427585, &
 !        -0.7415311855993945, &
@@ -86,6 +100,39 @@
 !         0.2606106964029354, &
 !         0.1806481606948574, &
 !         0.0812743883615744 /)
+
+
+!     real, parameter, dimension(14) :: Gqu_t_14 = & 
+!     (/ -0.9862838086968123, &
+!        -0.9284348836635735, &
+!        -0.8272013150697650, &
+!        -0.6872929048116855, &
+!        -0.5152486363581541, &
+!        -0.3191123689278897, &
+!        -0.1080549487073437, &
+!         0.1080549487073437, &
+!         0.3191123689278897, &
+!         0.5152486363581541, &
+!         0.6872929048116855, &
+!         0.8272013150697650, &
+!         0.9284348836635735, &
+!         0.9862838086968123 /)
+!     
+!     real, parameter, dimension(14) :: Gqu_A_14 = & 
+!     (/  0.0351194603317519, &
+!         0.0801580871597602, &
+!         0.1215185706879032, &
+!         0.1572031671581935, &
+!         0.1855383974779378, &
+!         0.2051984637212956, &
+!         0.2152638534631578, &
+!         0.2152638534631578, &
+!         0.2051984637212956, &
+!         0.1855383974779378, &
+!         0.1572031671581935, &
+!         0.1215185706879032, &
+!         0.0801580871597602, &
+!         0.0351194603317519 /)
          
       end module Gquadrature 
       
@@ -93,9 +140,9 @@
 !     use gloVars, only: dp
       save
       integer ::  N !number of layers. HALF-SPACE at N+1
-      real, dimension(:),  allocatable :: Z,AMU,LAMBDA,RHO,BETA0,ALFA0
-      complex*16 ,dimension(:), allocatable :: ALFA,BETA
-      real :: Qs,Qp
+      real*8, dimension(:),  allocatable :: Z,RHO,BETA0,ALFA0
+      complex*16 ,dimension(:), allocatable :: ALFA,BETA,AMU,LAMBDA
+      real*8 :: Qs,Qp
       end module soilVars
       
       module sourceVars
@@ -131,9 +178,9 @@
       
       module waveVars
 !     save
-      real, save :: Escala,maxtime
+      real, save :: Escala
       real, save :: Theta !grados
-      real*8, save :: Dt  !segundos
+      real*8, save :: Dt,maxtime  !segundos
       real, save :: t0
       integer, save :: tipoPulso ! 0 dirac; 1 ricker
       complex*16, allocatable :: auxUo(:)
@@ -286,7 +333,7 @@
       real, save  :: boundingXp,boundingZp
 
       integer, save :: nx,nz
-      real, dimension(5,2), save :: colorBounds
+      real, dimension(3,2), save :: colorBounds
       end module meshVars
                   
       module wavelets
@@ -1371,7 +1418,7 @@
 !     print*,"minY ",minY
       
       if (whole .eqv. .true.)then
-        maxY = max(maxval(Xcoord(:,2))+maxval(Xcoord(:,2))/10,Z(N+1))
+        maxY = max(maxval(Xcoord(:,2))+maxval(Xcoord(:,2))/10,real(Z(N+1),4))
       else
         maxY = max(maxval(Xcoord(:,2))+maxval(Xcoord(:,2))/10,1.)
       end if
@@ -1480,7 +1527,7 @@
       character(LEN=100) :: titleN
       character(LEN=10) :: tt
       character(LEN=9)  :: xAx,yAx
-      real :: factor,k
+      real*8 :: factor,k
       character(10) :: time
       real :: startT,finishT,tstart,tend
       logical :: thereisavirtualsourceat
@@ -1567,7 +1614,10 @@
                             "source is at (",xfsource,",",zfsource,")"
       end if
       
-      call makeTaperFuncs(20,0.8,0.8)
+      call makeTaperFuncs(40,0.5,0.8)
+      
+      
+      
       call expPIK(expK)
       call waveAmplitude(PrintNum)
       
@@ -1594,6 +1644,8 @@
         do l=1,N+1
           Alfa(l) = Alfa0(l)*(cmplx(1+1/(pi*Qp)*log(ome/(2*pi)),1/(2*Qp),8))
           beta(l) = beta0(l)*(cmplx(1+1/(pi*Qs)*log(ome/(2*pi)),1/(2*Qs),8))
+          aMU(l) = RHO(l) * beta(l)**2
+          Lambda(l) = RHO(l)*Alfa(l)**2 - real(2.)*aMU(l)
         end do
          
 !       ! complex frecuency for avoiding poles and provide damping
@@ -1854,8 +1906,9 @@
 !         BEALF=SQRT((0.5-ANU)/(1.0-ANU)) !IF POISSON RATIO IS GIVEN
 !         ALFA(J)=BET/BEALF
        if (verbose >= 1) then
-         write(outpf,'(F7.1,A,F7.1,2x,F7.1,6x,F7.1,3x,F8.2,F7.1,3x,F7.1)') & 
-         Z(J),' - ',Z(J+1),ALFA0(J),BETA0(J),AMU(J),RHO(J),LAMBDA(J)
+         write(outpf,& 
+       '(F7.1,A,F7.1,2x, F7.1,2x, F7.1,3x, E8.2,2x, E8.2,2x,E8.2)') & 
+       Z(J),' - ',Z(J+1),ALFA0(J),BETA0(J),AMU(J),  RHO(J), LAMBDA(J)
        end if
       END DO
       
@@ -1885,7 +1938,8 @@
         !non dispersive           
         Alfa(J) = Alfa0(J) * (cmplx(1.0,1/(2*Qq)))
         beta(J) = beta0(J) * (cmplx(1.0,1/(2*Qq)))
-        
+        aMU(J) = RHO(J) * beta(J)**2
+        Lambda(J) = RHO(J)*Alfa(J)**2 - real(2.)*aMU(J)
         ! or Azimi every frec -> OK
       end do
       
@@ -2195,8 +2249,8 @@
                              ibemMat,trac0vec,IPIVbem 
 !     use refSolMatrixVars, only: Bb
       use Gquadrature, only: Gqu_n => Gquad_n, & 
-                             Gqu_t => Gqu_t_8, & 
-                             Gqu_A => Gqu_A_8
+                             Gqu_t => Gqu_t_3, & 
+                             Gqu_A => Gqu_A_3
       
       implicit none
       integer, intent(in) :: outpf
@@ -2281,7 +2335,7 @@
       ! si es un segmento que se forma recorriendo los puntos hacia Z+
             if (y(iXI) < Z(e)  .AND. y(iXI+1) > Z(e)) then
                !hay un cambio de estrato
-               nuevoPx = splitatY(surf_poly,degree,Z(e),x(iXI),x(iXI+1))
+               nuevoPx = splitatY(surf_poly,degree,real(Z(e),4),x(iXI),x(iXI+1))
              if (verbose >= 2) then
               write(outpf,'(a,F10.4,a,F10.4,a,F10.4,a,F10.4,a)') & 
               "(dn)Segment [",y(iXI),"-" &
@@ -2311,7 +2365,7 @@
       ! si es un segmento que se forma recorriendo los puntos hacia Z-
             if (y(iXI) > Z(e)  .AND. y(iXI+1) < Z(e)) then
                !hay un cambio de estrato
-               nuevoPx = splitatY(surf_poly,degree,Z(e),x(iXI),x(iXI+1))
+               nuevoPx = splitatY(surf_poly,degree,real(Z(e),4),x(iXI),x(iXI+1))
              if (verbose >= 2) then
                write(outpf,'(a,F10.4,a,F10.4,a,F10.4,a,F10.4,a)') &
                "(up)Segment [",y(iXI),"-" &
@@ -2708,8 +2762,8 @@
 !     use refSolMatrixVars, only: Bb
       use ploteo10pesos
       use Gquadrature, only: Gqu_n => Gquad_n, & 
-                             Gqu_t => Gqu_t_8, & 
-                             Gqu_A => Gqu_A_8
+                             Gqu_t => Gqu_t_3, & 
+                             Gqu_A => Gqu_A_3
 
       implicit none
       integer, intent(in) :: outpf,iJ
@@ -3367,7 +3421,7 @@
       integer, dimension(5,2) :: sign
       complex*16, dimension (:), pointer :: RW
       type(FFres),target :: FF
-      character(LEN=90) :: nombre
+!     character(LEN=90) :: nombre
       !  fza horiz     fza vert       !(para la crepa)
       sign(1,1) = -1 ; sign(1,2) = 1  !W        impar           par
       sign(2,1) = 1  ; sign(2,2) = -1 !U          par           impar
@@ -3387,8 +3441,14 @@
       intf = pXi%isOnInterface
       nf(1) = pXi%normal(1)
       nf(2) = pXi%normal(2)
-      if (i_zfuente .eq. 0) then; nGqs = 1; else; nGqs = Gquad_n; end if
-      iGq_med = nGqs +1!ceiling(nGqs/2.0) ! i de Punto para integración lineal.
+      
+      if (i_zfuente .eq. 0) then
+         nGqs = 1
+      else
+         nGqs = Gquad_n
+      end if
+      iGq_med = ceiling(nGqs/2.0) ! nGqs +1   i de Punto para integración lineal.
+      
       dirStart = 1; dirEnd = 2
       if (i_zfuente .eq. 0) then !ahorramos si la fuente tiene un componente nulo
         if (abs(nf(1)) .lt. 0.001) then
@@ -3398,19 +3458,19 @@
           dirEnd = 1
         end if
       end if!      
-      if (verbose .ge. 3) print*,"dirs", dirStart," -> ",dirEnd
+      if (verbose .ge. 2) print*,"dirs", dirStart," -> ",dirEnd
       
 
       do dir =dirStart,dirEnd! componete de Fuerza horizontal; vertical......
-      do iGq = 1,nGqs+1 ! cada punto de integración / centro ................
+      do iGq = 1,nGqs ! cada punto de integración / centro ................
         if (verbose .ge. 3) print*,"iGq ",iGq,"/",nGqs
       ! amplitud de las ondas planas dada la profundidad de la fuente
-        if (iGq .le. nGqs) then
-        xf = pXi%Gq_xXx_coords(iGq,1) ! = xfsource si iz = 0
-        zf = pXi%Gq_xXx_coords(iGq,2) ! = zfsource si iz = 0
+        if (i_zfuente .eq. 0) then
+         xf = pXi%center(1) 
+         zf = pXi%center(2)
         else
-        xf = pXi%center(1) 
-        zf = pXi%center(2) 
+         xf = pXi%Gq_xXx_coords(iGq,1) ! = xfsource si iz = 0
+         zf = pXi%Gq_xXx_coords(iGq,2) ! = zfsource si iz = 0
         end if!
         if (verbose .ge. 3) print*,"xi : (",xf,",",zf,")"
         
@@ -3658,7 +3718,7 @@
                      FF%Tx = 0
                      FF%Tz = 0
                      if (p_x%layer .eq. pXi%layer) then !agregar campo libre
-                        print*,"Free field stuff"
+!                       print*,"Free field stuff"
                         call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
                         pXi%center,p_x%layer,cOME,mecStart,mecEnd)
                         
@@ -3686,9 +3746,9 @@
 !                    print*,abs(trac0vec)
 !                    stop "trac0vec"
                 else ! W,U
-                     if (verbose .ge. 3) print*,"W,U"
+!                    if (verbose .ge. 1) print*,"W,U"
                      if (p_x%guardarMovieSiblings) then
-                       if (verbose .ge. 3) print*,"movie"
+!                      if (verbose .ge. 3) print*,"movie"
                        ! (1) reordenar la crepa existente en X
                        auxK = cshift(auxK,SHIFT=nmax,DIM=1)
                        ! (2) guardar sólo los interesantes
@@ -3864,7 +3924,7 @@
       real, intent(out) :: zi
       integer :: ix,maxix
       real, intent(in) :: xf,zf
-      real :: MinWaveLenght,distance
+      real*8 :: MinWaveLenght,distance
       
 !     needsGQ = .false.
       anyone = .false.
@@ -3943,8 +4003,8 @@
       
 !     real, parameter    :: x_i = 0
       complex*16,    intent(inout), dimension(4*N+2,4*N+2) :: this_A
-      real               :: z_i
-      real,       intent(in)     :: k
+      real*8               :: z_i
+      real*8,       intent(in)     :: k
       complex*16, intent(in)     :: cOME_i  
       
       integer, intent(in) :: outpf
@@ -4069,12 +4129,12 @@
       complex*16, intent(in)    :: cOME
       logical,    intent(in)    :: fisInterf
       integer :: iIf,nInterf!,iP
-      real    :: SGNz,L2M!,x_i
-      complex*16 :: gamma,nu,DEN
+      real    :: SGNz!,x_i
+      complex*16 :: gamma,nu,DEN,L2M
       real     :: errT = 0.001
       complex*16 :: omeAlf,omeBet!,AUX
       ! una para cada interfaz (la de arriba [1] y la de abajo [2])
-      real,       dimension(2) :: z_loc
+      real*8,     dimension(2) :: z_loc
       complex*16, dimension(2) :: egamz,enuz
       complex*16, dimension(2) :: G11,G31,G33
       complex*16, dimension(2) :: s111,s331,s131,s113,s333,s313 
@@ -4119,7 +4179,7 @@
 !         print*,"[",x,",",z_loc(iIf),"]"
 !         if (z_loc(iIf) .ne. 0.) then
           if (abs(z_loc(iIf)) > errT ) then
-            SGNz = z_loc(iIf) / ABS(z_loc(iIf))
+            SGNz = real(z_loc(iIf) / ABS(z_loc(iIf)),4)
           else
             SGNz = 0
           end if
@@ -4387,8 +4447,7 @@
       real                       :: z_i,SGNz
       complex*16 :: G11,G33,G31,S333,S313,S113,s331,s131,s111
       complex*16 :: egamz,enuz
-      real                       :: L2M
-      complex*16                 :: gamma,nu,DEN
+      complex*16                 :: gamma,nu,DEN,L2M
       complex*16                 :: omeAlf,omeBet
       real     :: errT = 0.001
       egamz=cmplx(1.0,0.0,8);enuz=cmplx(1.0,0.0,8);SGNz=0
@@ -4498,20 +4557,20 @@
       
 !     complex*16 :: omeP,omeS,psi,Dpsi,chi,Dchi !preliminary
 !     freef = 0
-
       ! preliminary functions
       r = sqrt((p_x(1)-pXi(1))**2 + (p_x(2)-pXi(2))**2)
       gamma(1) = (p_X(1) - pXi(1)) / r
       gamma(2) = (p_X(2) - pXi(2)) / r
 !     print*,r
 !     print*,gamma
-      print*,alfa(e)
-      print*,beta(e);stop 0
+!     print*,alfa(e)
+!     print*,beta(e);stop 0
       omeP = cOME * r / alfa(e)
       omeS = cOME * r / beta(e)
 !     i_4 = cmplx(0.0,0.25,8) ! i/4
 !     b_a_2 = (beta(e)/alfa(e))**2 ! (beta/alfa)**2
       
+!     print*,"(",p_x(1),p_x(2),") - (",pXi(1),pXi(2),") - ",omeP," : ",omeS
       ! funcs de Hankel de segunda especie
       call hankels(omeP,H0p,H1p)
       H2p = -H0p + 2/omeP * H1p
@@ -4527,12 +4586,12 @@
       if (mecStart .eq. 1) then
       ! W
       i = 2
-      FF%W = 1/(cmplx(0.0,8.0,8)*rho(e))*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
+      FF%W = 1/(8*UI*rho(e))*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
 !     print*,"W == ",FF%W, ":",abs(FF%W)
       
       ! U
       i = 1
-      FF%U = 1/(cmplx(0.0,8.0,8)*rho(e))*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
+      FF%U = 1/(8*UI*rho(e))*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
 !     print*,"U == ",FF%U, ":",abs(FF%U)
       end if!
       
@@ -4542,14 +4601,14 @@
       C = Dqr/alfa(e)**2 -Dkr/beta(e)**2
       ! TZ
       i = 2
-      FF%Tz = cmplx(0.0,amu(e),8)/(2*rho(e)*r)*((B+(lambda(e)*Dqr)/(2*amu(e)*alfa(e)**2))*gamma(j)*nX(i) &
+      FF%Tz = amu(e)*UI /(2*rho(e)*r)*((B+(lambda(e)*Dqr)/(2*amu(e)*alfa(e)**2))*gamma(j)*nX(i) &
       + (B + Dkr/(2*beta(e)**2))*(gamma(i)*nX(j) + (gamma(1)*nX(1) + gamma(2)*nX(2))*deltaij(i,j)) + &
       (C-4*B)*gamma(i)*gamma(j)*(gamma(1)*nX(1) + gamma(2)*nX(2)))
 !     print*," Tz == ",FF%Tz, ":",abs(FF%Tz)
       
       ! TX
       i = 1
-      FF%Tx = cmplx(0.0,amu(e),8)/(2*rho(e)*r)*((B+(lambda(e)*Dqr)/(2*amu(e)*alfa(e)**2))*gamma(j)*nX(i) &
+      FF%Tx = amu(e)*UI/(2*rho(e)*r)*((B+(lambda(e)*Dqr)/(2*amu(e)*alfa(e)**2))*gamma(j)*nX(i) &
       + (B + Dkr/(2*beta(e)**2))*(gamma(i)*nX(j) + (gamma(1)*nX(1) + gamma(2)*nX(2))*deltaij(i,j)) + &
       (C-4*B)*gamma(i)*gamma(j)*(gamma(1)*nX(1) + gamma(2)*nX(2)))
 !     print*," Tx == ",FF%Tx, ":",abs(FF%Tx)
@@ -4940,7 +4999,7 @@
       use DISLIN
       use resultVars
       use wavelets ! FORK(LX,CX,SIGNI,verbose,outpf)
-      use waveVars, only : Dt,Uo,t0,maxtime
+      use waveVars, only : Dt,t0,maxtime!,Uo
       use waveNumVars ! FK,NFREC,DFREC
 !     use refSolMatrixVars, only : COME
       use gloVars
@@ -4951,12 +5010,12 @@
       integer ,intent(in) :: outpf
       real       ::  X(nxXxmpts)
       real       ::           Y(nz)
-      complex*16 :: Sm(nxXxmpts,nz,imecMax,2*NFREC)      
+      complex*16 :: Sm(nxXxmpts,nz,3,2*NFREC)      
       integer  :: iP,iMec
       integer  :: ix,iz,iT,i,Iframe,Fframe,mecMAx,t, n_maxtime
       real     :: factor,ColorRangeMaximumScale,tlabel
       integer*4 :: lentitle
-      character(LEN=3), dimension(5)      :: nombre
+      character(LEN=3), dimension(3)      :: nombre
       character(LEN=60) :: textoTimeStamp
       character(LEN=15) :: auxTxt
       CHARACTER(len=400) :: path
@@ -4969,16 +5028,17 @@
       
       nombre(1)= 'w--'
       nombre(2)= 'u--'
-      nombre(3)= 's33'
-      nombre(4)= 's31'
-      nombre(5)= 's11'
-      mecMax = 2
+      nombre(3)= 'mod'
+!     nombre(3)= 's33'
+!     nombre(4)= 's31'
+!     nombre(5)= 's11'
+      mecMax = 3
 !     if(workboundary) mecMax = 2
       
       !tiempo maximo para graficar
          if(maxtime .lt. dt) maxtime = 5*dt
          if(maxtime .gt. 1/(dfrec)) maxtime = 1/(real(dfrec,4))
-         n_maxtime = int(maxtime/real(dt,4))
+         n_maxtime = int(maxtime/dt,4)
          print*,"maxtime = ",maxtime," segs :: @",dt," : ",n_maxtime," puntos"
       
       if (verbose >= 1) Write(outpf,'(a)') "Will make a movie..."
@@ -5032,6 +5092,9 @@
           
           
         end do !iMec
+        ! el módulo de los desplazameintos
+        Sm(ix,iz,3,:) = sqrt(Sm(ix,iz,1,:)**2 + Sm(ix,iz,2,:)**2)
+        
       end do !ix
       iz = iz + 1
       end do !iP
@@ -5069,6 +5132,9 @@
         "(",nombre(i),") [",colorBounds(i,2)," ; ",colorBounds(i,1),"]"
        end if
       end do
+      ! y para el módulo
+        colorBounds(3,1) = 1.41* max(colorBounds(1,1),colorBounds(2,1))
+        colorBounds(3,2) = 1.41* min(colorBounds(1,2),colorBounds(2,2))
 !     stop 0
             ! plotting boundaries according to geometry of topography
       minX=0.;maxX=0.;minY=0.;maxY=0.
@@ -5102,7 +5168,7 @@
       
       
       do iT=Iframe,Fframe !cada fotograma
-      do iMec=1,2 !cada elemento mecanico 
+      do iMec=1,mecMax !cada dirección y el módulo
        write(auxTxt,'(F8.3,30x)') Dt*(iT-1)
        if (verbose >= 2) then
         write(textoTimeStamp,'(a,a,a,a)') & 
@@ -5144,7 +5210,7 @@
 !     CALL HWFONT()
            !the position of an axis system. Lower left corner
       CALL axspos (int(300,4) ,int(2200,4)) 
-      call axslen (int(2700,4), int(2000,4)) !size of the axis system.
+      call axslen (int(2000,4), int(2000,4)) !size of the axis system.
       
       xstep = abs(X(1))/3.0
       
@@ -5232,7 +5298,7 @@
       if(imdone .eq. 'Y' .or. imdone .eq. 'y') then
         write(path,'(a)') 'rm *.png'
         call system(trim(path))
-      end if
+      end if!
       if (verbose .ge. 2) then
         write(6,'(a)') 'Delete *.txt files? [Y]'
         read(5,*)imdone
