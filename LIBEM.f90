@@ -1614,9 +1614,7 @@
                             "source is at (",xfsource,",",zfsource,")"
       end if
       
-      call makeTaperFuncs(40,0.5,0.8)
-      
-      
+      call makeTaperFuncs(20,0.8,0.8)
       
       call expPIK(expK)
       call waveAmplitude(PrintNum)
@@ -3610,19 +3608,19 @@
               ! información X de fuente y receptor
               do imec = mecStart,mecEnd
                 auxk(1:nmax,imec) = auxk(1:nmax,imec) * & 
-                exp(cmplx(0.0,(-1)*(/((ik-1)*dk,ik=1,nmax)/)  * & 
-                    2*pi* (p_x%center(1)-xf) ,8))
+                exp(cmplx(0.0,(/((ik-1)*dk,ik=1,nmax)/)* & 
+                     pi*(p_x%center(1)-xf) ,8))
         
-                auxk(1     ,imec) = auxk(1     ,imec) * &
+                auxk(1     ,imec) = auxk(1,imec)* &
                 exp(cmplx(0.0,0.01*dk * & 
-                    2*pi* (-1)*(p_x%center(1)-xf) ,8))*0.01
+                    pi*(p_x%center(1)-xf) ,8))!*0.01
         
                 auxk(nmax+1:nmax*2,imec) = auxk(nmax+1:nmax*2,imec) * & 
                 exp(cmplx(0.0,(/((-ik)*dk,ik=nmax,1,-1)/)* & 
-                    2*pi* (-1)*(p_x%center(1)-xf) ,8))
+                    pi*(p_x%center(1)-xf) ,8))
         
                 auxk(:,iMec) = auxk(:,iMec)* & 
-                    cmplx(Hf(J)* Hk,0.0,8)/(2*pi)! taper     -------------------------------------  ? 
+                    cmplx(Hf(J)* Hk,0.0,8)!/(2*pi)! taper     -------------------------------------  ? 
 !               auxk(:,iMec) = auxk(:,iMec) / pi
               end do !imec
            
@@ -3659,20 +3657,27 @@
 !          stop "file"
 !          return              
               ! guardar el FK si es que es interesante verlo
+              if ((mecStart .eq. 1) .and. (mecEnd .eq. 2)) then
               if(i_zfuente .eq. 0) then ; if (p_x%guardarFK) then
-                p_x%FK(J,1:nmax,1:2) = &
-                p_x%FK(J,1:nmax,1:2) + &
-                auxK(1:nmax,1:2)* nf(dir)
+                if (dir .eq. dirStart) then
+                  p_x%FK(J,1:nmax,1) = 0
+                  p_x%FK(J,1:nmax,2) = 0
+                end if
+                
+                p_x%FK(J,1:nmax,1) = &
+                p_x%FK(J,1:nmax,1) + auxK(1:nmax,1)* nf(dir)
+                p_x%FK(J,1:nmax,2) = &
+                p_x%FK(J,1:nmax,2) + auxK(1:nmax,2)* nf(dir)
               end if ; end if !guardar
-              
+              end if
               ! K -> X
-!             auxK = auxK * factor
+              auxK = auxK * factor
               do iMec = mecStart,mecEnd
                 call fork(2*nmax,auxK(:,iMec),+1,verbose,outpf)
               end do
-!             auxK = auxK / factor
+              auxK = auxK / factor
               
-              auxK = 0
+!             auxK = 0
               ! ya se está en frecuencia - espacioX   
               !          ,--- k->  x = 0 (x del receptor)
               !          |
