@@ -1891,36 +1891,36 @@
       Z(1)=real(0,8)
       if (verbose >= 1) then
        write(outpf,'(a)')& 
-              '        depth       alpha         beta         mu       rho       lambda'
+              '        depth       alpha0    beta0      mu0     rho      lambda0'
       end if
       DO J=1,N
          READ(7,*) H, ALF, BET, RO
          Z(J+1)=Z(J)+real(H)
-         AMU(J)=RO*BET**2
+         AMU(J)=cmplx(RO*BET**2,0.0,8)
          BETA0(J)=BET
          ALFA0(J)=ALF
          RHO(J) = RO
-         LAMBDA(J)=RHO(J)*ALF**2 - real(2.)*AMU(J)
+         LAMBDA(J)=cmplx(RHO(J)*ALF**2 - real(2.)*real(AMU(J)),0.0,8)
 !         BEALF=SQRT((0.5-ANU)/(1.0-ANU)) !IF POISSON RATIO IS GIVEN
 !         ALFA(J)=BET/BEALF
        if (verbose >= 1) then
          write(outpf,& 
-       '(F7.1,A,F7.1,2x, F7.1,2x, F7.1,3x, E8.2,2x, E8.2,2x,E8.2)') & 
-       Z(J),' - ',Z(J+1),ALFA0(J),BETA0(J),AMU(J),  RHO(J), LAMBDA(J)
+       '(F7.1,A,F7.1,2x, F7.1,2x, F7.1,2x, E8.2,2x, E8.2,2x, E8.2)') & 
+       Z(J),' - ',Z(J+1),ALFA0(J),BETA0(J),real(AMU(J)),  RHO(J), real(LAMBDA(J))
        end if
       END DO
       
       READ(7,*) H, ALF, BET, RO 
-      AMU(N+1)=RO*BET**2
+      AMU(N+1)=cmplx(RO*BET**2,0.0,8)
       BETA0(N+1)=BET
       ALFA0(N+1)=ALF
-      RHO(J) = RO
-      LAMBDA(N+1)=RHO(J)*alf**2 - 2*AMU(N+1)
+      RHO(N+1) = RO
+      LAMBDA(N+1)=cmplx(RHO(n+1)*ALF**2 - real(2.)*real(AMU(n+1)),0.0,8)
       if (verbose >= 1) then
 !      write(outpf,'(F7.1,A,2x,F8.2,3x,F7.1,6x,F7.1)') &
 !      Z(N+1),' -    inf.',AMU(N+1),BETA0(N+1),ALFA0(N+1)
-       write(outpf,'(F7.1,A,2x,F7.1,6x,F7.1,3x,F8.2,F7.1,3x,F7.1)') & 
-       Z(N+1),' -   inf. ',ALFA0(N+1),BETA0(N+1),AMU(N+1),RHO(N+1),LAMBDA(N+1)
+       write(outpf,'(F7.1,A,2x,F7.1,2x, F7.1,2x, E8.2,2x, E8.2,2x, E8.2)') & 
+       Z(N+1),' -   inf. ',ALFA0(N+1),BETA0(N+1),real(AMU(N+1)),RHO(N+1),real(LAMBDA(N+1))
        write(outpf,'(a)')' '
       end if
 !      BEALF=SQRT((0.5-ANU)/(1.0-ANU))   !IF POISSON RATIO IS GIVEN
@@ -2150,7 +2150,7 @@
       if (makeVideo .eqv. .false.) return 
         
         write(outpf,'(a,F12.2,a)') "Lfrec = 2*pi/DK = ",2*PI/DK, "m"
-        DeltaX = 1.0 / (nMax * DK)
+        DeltaX = pi / (nMax * DK)
         write(outpf,'(a,F9.3)')"Delta X = ",DeltaX
         boundingXp =  1.0 / DK
         boundingXn = - boundingXp
@@ -3505,7 +3505,7 @@
             thislapse = lapse
             
           do ik = 1,nmax+1 ! k loop calculando elem mecanicos.............
-            k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.1
+            k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.01
             ! difractado por estratos
             Meca_diff = calcMecaAt_xi_zi(B(:,ik),&  
                      zi,ei,& 
@@ -3559,7 +3559,7 @@
            !    1 2 3 ... NMAX NMAX+1 0 0 0 0 0 2*NMAX     
            ! k= 0 1 2 ... N/2-1 -N/2 ... -3 -2 -1
         do iMec = mecStart,mecEnd
-         auxK(nmax+1:nmax*2,iMec) = sign(iMec,dir)* auxK(nmax+1:2:-1,iMec)         
+         auxK(nmax+2:nmax*2,iMec) = sign(iMec,dir)* auxK(nmax:2:-1,iMec)         
         end do !iMec
         
         ! Coordenada X ....................
@@ -3607,20 +3607,20 @@
 !             p_X%center(1) = xf             
               ! información X de fuente y receptor
               do imec = mecStart,mecEnd
-                auxk(1:nmax,imec) = auxk(1:nmax,imec) * & 
-                exp(cmplx(0.0,(/((ik-1)*dk,ik=1,nmax)/)* & 
-                     pi*(p_x%center(1)-xf) ,8))
+                auxk(1:nmax+1,imec) = auxk(1:nmax+1,imec) * & 
+                exp(cmplx(0.0,(/((ik-1)*dk,ik=1,nmax+1)/)* & 
+                     (p_x%center(1)-xf) ,8))
         
                 auxk(1     ,imec) = auxk(1,imec)* &
                 exp(cmplx(0.0,0.01*dk * & 
-                    pi*(p_x%center(1)-xf) ,8))!*0.01
+                    (p_x%center(1)-xf) ,8))!*0.01
         
-                auxk(nmax+1:nmax*2,imec) = auxk(nmax+1:nmax*2,imec) * & 
-                exp(cmplx(0.0,(/((-ik)*dk,ik=nmax,1,-1)/)* & 
-                    pi*(p_x%center(1)-xf) ,8))
+                auxk(nmax+2:nmax*2,imec) = auxk(nmax+2:nmax*2,imec) * & 
+                exp(cmplx(0.0,(/((-ik)*dk,ik=nmax,2,-1)/)* & 
+                    (p_x%center(1)-xf) ,8))
         
                 auxk(:,iMec) = auxk(:,iMec)* & 
-                    cmplx(Hf(J)* Hk,0.0,8)!/(2*pi)! taper     -------------------------------------  ? 
+                    cmplx(Hf(J)* Hk,0.0,8)/(4*pi)! taper     -------------------------------------  ? 
 !               auxk(:,iMec) = auxk(:,iMec) / pi
               end do !imec
            
@@ -3710,32 +3710,15 @@
                      ! del punto receptor sobre la frontera
                      !  | Tx |
                      !  | Tz |
-!                    print*,""
-!                    print*,dir
-!                    p_x%center = (/-10.0,10.0/); print*,p_x%center
-!                    pxi%center = (/0.0,0.0/); print*,pxi%center
-!                    mecStart = 1
-!                    mecEnd = 5
-!                    p_x%normal = (/-1.0/(2**0.5),1.0/(2**0.5)/)
-!                    p_x%normal = (/0.0,1.0/)
-!                    p_x%normal = (/1.0,0.0/)
-!                    print*,p_x%normal
                      FF%Tx = 0
                      FF%Tz = 0
+                     if (.not. pXi%isOnInterface) then
                      if (p_x%layer .eq. pXi%layer) then !agregar campo libre
 !                       print*,"Free field stuff"
                         call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
                         pXi%center,p_x%layer,cOME,mecStart,mecEnd)
-                        
-                                               
-!                       print*,"W",FF%W,abs(FF%W)
-!                       print*,"U",FF%U,abs(FF%U)
-!                       print*,"Tz",FF%Tz,abs(FF%Tz)
-!                       print*,"Tx",FF%Tx,abs(FF%Tx)
-!                       stop "trac0vec"
                      end if
-!                    FF%Tx = 0
-!                    FF%Tz = 0
+                     end if
                      trac0vec(p_x%boundaryIndex * 2 - (1 - 0)) = &
                    trac0vec(p_x%boundaryIndex * 2 - (1 - 0)) - &
                     (Traction(RW * nf(dir), p_x%normal,0) + FF%Tx * nf(dir))
@@ -3743,19 +3726,14 @@
                    trac0vec(p_x%boundaryIndex * 2 - (1 - 1)) = &
                    trac0vec(p_x%boundaryIndex * 2 - (1 - 1)) - &
                     (Traction(RW * nf(dir), p_x%normal,1) + FF%Tz * nf(dir))
-!                    print*,abs(RW(1))
-!                    print*,abs(RW(2))
-!                    print*,abs(RW(:))
-!                    print*,abs(Traction(RW , p_x%normal,0))
-!                    print*,abs(Traction(RW , p_x%normal,1))
-!                    print*,abs(trac0vec)
-!                    stop "trac0vec"
                 else ! W,U
 !                    if (verbose .ge. 1) print*,"W,U"
                      if (p_x%guardarMovieSiblings) then
 !                      if (verbose .ge. 3) print*,"movie"
                        ! (1) reordenar la crepa existente en X
-                       auxK = cshift(auxK,SHIFT=nmax,DIM=1)
+                       do iMec = 1,2
+                        auxK(1:nmax*2,iMec) = cshift(auxK(1:nmax*2,iMec),SHIFT=nmax)
+                       end do
                        ! (2) guardar sólo los interesantes
                        xXx = 1
                        do i=nmax+1-(nxXxmpts-1)/2* meshdxmultiplo, & 
@@ -3763,17 +3741,16 @@
                             meshdxmultiplo
                             FF%W = 0
                             FF%U = 0
+                            if (.not. pXi%isOnInterface) then
                             if (p_x%layer .eq. pXi%layer) then !agregar campo libre
                               ! la coord X de este hermanito
-                              mov_x = -(nmax+1-i) * DeltaX 
+                              mov_x = (i-(nmax+1)) * DeltaX 
                               if (verbose .ge. 3) print*,xXx,i,"--",mov_x
                               ! el campo libre
                               call calcFreeField(FF,dir,(/mov_x,p_x%center(2)/),p_X%normal, & 
-                        pXi%center,p_x%layer,cOME,mecStart,mecEnd)
-                              
+                                                 pXi%center,p_x%layer,cOME,mecStart,mecEnd)
                             end if
-!                           FF%W = 0
-!                           FF%U = 0
+                            end if
               p_x%WmovieSiblings(xXx,J,1) = (auxK(i,1) + FF%W)* nf(dir) + &
               p_x%WmovieSiblings(xXx,J,1)
               
@@ -3781,11 +3758,12 @@
               p_x%WmovieSiblings(xXx,J,2)              
                             
                             xXx = xXx + 1
-                       end do!; stop 0
+                       end do
                      else !no movie
                        FF%W = 0
                        FF%U = 0
 !                      print*, "first W: ", p_x%W(J,:)
+                     if (.not. pXi%isOnInterface) then
                      if (p_x%layer .eq. pXi%layer) then !agregar campo libre
                      call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
                         pXi%center,p_x%layer,cOME,mecStart,mecEnd)
@@ -3793,6 +3771,7 @@
 !                       print*,"U",FF%U,abs(FF%U)
 !                       print*,"Tz",FF%Tz,abs(FF%Tz)
 !                       print*,"Tx",FF%Tx,abs(FF%Tx)                        
+                     end if
                      end if
 !                      FF%W = 0
 !                      FF%U = 0
@@ -3844,7 +3823,9 @@
 !                    print*,"G"
                      if (p_x%guardarMovieSiblings) then
                        ! (1) reordenar la crepa existente en X
-                       auxK = cshift(auxK,SHIFT=nmax,DIM=1)
+                       do iMec = 1,2
+                        auxK(1:nmax*2,iMec) = cshift(auxK(1:nmax*2,iMec),SHIFT=nmax)
+                       end do
                        ! (2) guardar sólo los interesantes
                        xXx = 1
                        do i=nmax+1-(nxXxmpts-1)/2* meshdxmultiplo, & 
@@ -3854,7 +3835,7 @@
                             FF%U = 0
                             if (p_x%layer .eq. pXi%layer) then !agregar campo libre
                               ! la coord X de este hermanito
-                              mov_x = -(nmax+1-i) * DeltaX 
+                              mov_x = (i-(nmax+1)) * DeltaX 
                               if (verbose .ge. 3) print*,i,"--",mov_x
                               call calcFreeField(FF,dir,(/mov_x,p_x%center(2)/),p_X%normal, & 
                               (/xf,zf/),p_x%layer,cOME,mecStart,mecEnd)
@@ -4191,88 +4172,93 @@
           egamz(iIf) = exp(-UI*gamma*ABS(z_loc(iIf)))
           enuz(iIf) = exp(-UI*nu*ABS(z_loc(iIf)))
       
-      G11(iIf) = -UI/DEN * (k**2.0/gamma*egamz(iIf)+nu*enuz(iIf)) 
-      G31(iIf) = -UI/DEN * SGNz*k*(egamz(iIf)-enuz(iIf)) 
-      G33(iIf) = -UI/DEN * (gamma*egamz(iIf)+k**2.0/nu*enuz(iIf))
+      G11(iIf) = UI/DEN * (k**2.0/gamma*egamz(iIf)+nu*enuz(iIf)) 
+      G31(iIf) = UI/DEN * SGNz*k*(egamz(iIf)-enuz(iIf)) 
+      G33(iIf) = UI/DEN * (gamma*egamz(iIf)+k**2.0/nu*enuz(iIf))
       
-      s111(iIf) = -UR/DEN * ( & 
+      s111(iIf) = UR/DEN * ( & 
                       (k*gamma*lambda(e)+L2M*k**3.0/gamma)* egamz(iIf)&
                     + (2.0*amu(e)*k*nu) * enuz(iIf) & 
                       ) !
       
-      s331(iIf) = -UR/DEN * ( &
+      s331(iIf) = UR/DEN * ( &
                     (k*gamma*L2M + lambda(e)*k**3.0/gamma)* egamz(iIf)&
                   + (-2.0*amu(e)*k*nu)* enuz(iIf) &
                     ) !
                     
-      s131(iIf) = -UR/DEN * amu(e)*SGNz * ( &             
+      s131(iIf) = UR/DEN * amu(e)*SGNz * ( &             
                     (2.0*k**2.0)* egamz(iIf) &
                     + (nu**2.0-k**2.0)* enuz(iIf) &
                     ) !
                     
-      s113(iIf) = -UR/DEN * SGNz * ( &              
+      s113(iIf) = UR/DEN * SGNz * ( &              
                     (k**2.0*L2M + gamma**2.0*lambda(e))* egamz(iIf) &
                   + (-2.0*amu(e)*k**2.0)* enuz(iIf) &
                     ) !
                     
-      s333(iIf) = -UR/DEN * SGNz * ( &              
+      s333(iIf) = UR/DEN * SGNz * ( &              
                     (gamma**2.0*L2M + k**2.0*lambda(e))* egamz(iIf) &
                   + (2.0*amu(e)*k**2.0)* enuz(iIf) &
                     ) !              
                     
-      s313(iIf) = -UR/DEN * amu(e) * ( &              
+      s313(iIf) = UR/DEN * amu(e) * ( &              
                     (2.0*k*gamma)* egamz(iIf) &
                   - (k/nu*(nu**2.0-k**2.0))* enuz(iIf) &
                     ) !
       
       end do !iIf interface
           
+      
       if (fisInterf) then
       if(direction .eq. 1) then
-        s331(1) = (-UR ) / (2.0 * PI )
-      elseif (direction .eq. 3) then
-        s333(1) = (-UR ) / (2.0 * PI )
+        s331(1) = 0
+        S131(1) = cmplx(1.0 / (2.0 * PI ),0.0,8)
+      elseif (direction .eq. 2) then
+        s333(1) = cmplx(1.0 / (2.0 * PI ),0.0,8)
+        S313(1) = 0
       end if
         G33(1) = 0
         G31(1) = 0
+        G11(1) = 0
       end if
       
       ! El vector de términos independientes genera el campo difractado
       
       if (direction .eq. 1) then ! fuerza HORIZONTAL
        if (e .ne. 1) then ! =     (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)-2) =  G31(1)!  w
-        this_B(1+4*(e-1)-1) =  G11(1)!  u
+        this_B(1+4*(e-1)-2) = - G31(1)!  w
+        this_B(1+4*(e-1)-1) = - G11(1)!  u
        end if 
-        this_B(1+4*(e-1)  ) =  S331(1)! szz
-        this_B(1+4*(e-1)+1) =  S131(1)! szx
+        this_B(1+4*(e-1)  ) = - S331(1)! szz
+        this_B(1+4*(e-1)+1) = - S131(1)! szx
     
       if (.not. fisInterf) then  
        if (e .ne. N+1) then! =      (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)+2) = - G31(2)!  w
-        this_B(1+4*(e-1)+3) = - G11(2)!  u
-        this_B(1+4*(e-1)+4) = - S331(2)! szz
-        this_B(1+4*(e-1)+5) = - S131(2)! szx
+        this_B(1+4*(e-1)+2) = G31(2)!  w
+        this_B(1+4*(e-1)+3) = G11(2)!  u
+        this_B(1+4*(e-1)+4) = S331(2)! szz
+        this_B(1+4*(e-1)+5) = S131(2)! szx
        end if
       end if
       elseif (direction .eq. 2) then ! fuerza VERTICAL
        if (e .ne. 1) then! =     (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)-2) =  G33(1)!  w 
-        this_B(1+4*(e-1)-1) =  G31(1)!  u 
+        this_B(1+4*(e-1)-2) = - G33(1)!  w 
+        this_B(1+4*(e-1)-1) = - G31(1)!  u 
        end if 
-        this_B(1+4*(e-1)  ) =  S333(1)! szz
-        this_B(1+4*(e-1)+1) =  S313(1)! szx 
+        this_B(1+4*(e-1)  ) = - S333(1)! szz
+        this_B(1+4*(e-1)+1) = - S313(1)! szx 
     
       if (.not. fisInterf) then  
        if (e .ne. N+1) then!=      (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)+2) = - G33(2)!  w 
-        this_B(1+4*(e-1)+3) = - G31(2)!  u
-        this_B(1+4*(e-1)+4) = - S333(2)! szz 
-        this_B(1+4*(e-1)+5) = - S313(2)! szx 
+        this_B(1+4*(e-1)+2) = G33(2)!  w 
+        this_B(1+4*(e-1)+3) = G31(2)!  u
+        this_B(1+4*(e-1)+4) = S333(2)! szz 
+        this_B(1+4*(e-1)+5) = S313(2)! szx 
        end if
       end if
-      
       end if ! direction
+!     print*,""
+!     print*,this_B; stop "B"
       end subroutine vectorB_force
       function calcMecaAt_xi_zi(thisIP_B,z_i,e,cOME_i,k,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
@@ -4300,8 +4286,6 @@
                     real(cOME_i),"k=",k," {",z_i,"} e=",e
       end if
       
-!     calcMecaAt_xi_zi%center%X = x_i
-!     calcMecaAt_xi_zi%center%Z = z_i
        
       ! algunas valores constantes para todo el estrato
       gamma = sqrt(cOME_i**2. /ALFA(e)**2. - k**2.)
@@ -4372,68 +4356,6 @@
         calcMecaAt_xi_zi%Rw(5) = resS(3,1) !s11
           
       end function calcMecaAt_xi_zi
-      
-      !     subroutine Add_diffractedField_by_layeredMedia_source & 
-!     (NumObservers,P,theseIPs_B,direction,cOME_i,iik,outpf)
-!     use gloVars, only : imecMax
-!     use resultVars, only : MecaElem,Punto!,allpoints,NPts
-!     use soilVars, only : N
-!     
-!     implicit none
-!     integer, intent(in)          :: NumObservers,iik,outpf
-!     integer,    intent(in)       :: direction
-!     complex*16, intent(in)       :: cOME_i
-!     type(Punto), dimension(NumObservers), intent(inout) :: P
-!     complex*16, dimension(4*N+2),intent(in) :: theseIPs_B
-!     type(MecaElem)               :: calcMecaAt_xi_zi, this_Meca
-!     real                         :: x_i, z_i
-!     integer                      :: iP,e
-!     do iP = 1,NumObservers
-!       x_i = P(iP)%center(1)
-!       z_i = P(iP)%center(2)
-!         e = P(iP)%layer
-!       this_Meca = calcMecaAt_xi_zi(theseIPs_B,x_i,z_i,e,cOME_i,outpf)
-!       
-!       if (direction .eq. 1) then !x
-!         P(iP)%FKh(iik,1:imecMax) = & 
-!         P(iP)%FKh(iik,1:imecMax) + this_Meca%Rw(1:imecMax)
-!       elseif (direction .eq. 2) then !z
-!         P(iP)%FKv(iik,1:imecMax) = & 
-!         P(iP)%FKv(iik,1:imecMax) + this_Meca%Rw(1:imecMax)
-!       end if
- !     end do
-!     end subroutine Add_diffractedField_by_layeredMedia_source
-!     
-!     
-!     subroutine Add_diffractedField_by_layeredMedia_Green & 
-!     (NumObservers,P,theseIPs_B,iPxi,iGq,direction,cOME_i,iik,outpf)
-!     use gloVars, only : imecMax
-!     use resultVars, only : MecaElem,Punto!,allpoints,NPts
-!     use soilVars, only : N
-!     
-!     implicit none
-!     integer, intent(in)          :: NumObservers,iPxi,iGq,direction,iik,outpf
-!     complex*16, intent(in)       :: cOME_i
-!     type(Punto), dimension(NumObservers), intent(inout) :: P
-!     complex*16, dimension(4*N+2),intent(in) :: theseIPs_B
-!     type(MecaElem)               :: calcMecaAt_xi_zi, this_Meca
-!     real                         :: x_i, z_i
-!     integer                      :: iP,e
-!     do iP = 1,NumObservers
-!       x_i = P(iP)%center(1)
-!       z_i = P(iP)%center(2)
-!         e = P(iP)%layer
-!       this_Meca = calcMecaAt_xi_zi(theseIPs_B,x_i,z_i,e,cOME_i,outpf)
-!       
-!       !guardar en: GT_gq_k(xi,iGq,imec,m,k)
-!       P(iP)%GT_gq_k(iPxi,iGq,1:imecMax,direction,iik) = &
-!       P(iP)%GT_gq_k(iPxi,iGq,1:imecMax,direction,iik) + this_Meca%Rw(1:imecMax)
-!       !                                 1 == horizontal
-!       !                                 2 == vertical
-!     end do 
-!     
-!     end subroutine Add_diffractedField_by_layeredMedia_Green      
-      
       
       
       function calcFF(z_f,e_f,dir,zX,eX,k,cOME)
@@ -5205,9 +5127,9 @@
 !     print*,'will print ', trim(textoTimeStamp)
       CALL SETFIL(trim(textoTimeStamp))
       call filmod('DELETE') ! para sobreescribir el archivo
-      CALL PAGE (int(3600,4),int(2400,4))
+      CALL PAGE (int(2600,4),int(2600,4))
       call imgfmt('RGB')
-      call winsiz(int(1200),int(800,4))
+      call winsiz(int(1000),int(1000,4))
       CALL SCRMOD('REVERS') !fondo blanco
       CALL DISINI()
 !     CALL COMPLX ! sets a complex font
@@ -5271,7 +5193,7 @@
 !     print*,tlabel
       write(CTIT,'(a,F9.5,a)') 't=',tlabel,' seg'
       lentitle = NLMESS(CTIT)
-      CALL MESSAG(CTIT,int((3600-lentitle-100),4),int(300,4))
+      CALL MESSAG(CTIT,int((2900-lentitle-100),4),int(300,4))
       
       CALL HEIGHT(int(150,4))
       call errmod ("all", "off")
