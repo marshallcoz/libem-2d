@@ -16,7 +16,8 @@
       integer, parameter    :: imecMax = 2
       real, dimension(2), parameter :: fixedNormal = (/0.0,1.0/)
       complex*16, parameter :: UI = cmplx(0.0,1.0,8), &
-                               UR = cmplx(1.0,0.0,8)
+                               UR = cmplx(1.0,0.0,8), &
+                               Z0 = cmplx(0.0,0.0,8)
       real, parameter :: PI = real(4.0*ATAN(1.0),8)
       integer, parameter :: Hplot = 700 , Wplot = 1200
       end module gloVars
@@ -3414,7 +3415,7 @@
 !     type(Punto), pointer :: pXs(:)
       logical :: anyone,warning
       real*8, dimension(2) :: nf
-      type(MecaElem)  :: calcMecaAt_xi_zi, Meca_diff!, Meca_ff,calcff
+      type(MecaElem)  :: calcMecaAt_k_zi, Meca_diff!, Meca_ff,calcff
       complex*16, dimension(2*nmax,5), target :: auxK,savedAuxK
       integer, dimension(5,2) :: sign
       complex*16, dimension (:), pointer :: RW
@@ -3507,9 +3508,9 @@
           do ik = 1,nmax+1 ! k loop calculando elem mecanicos.............
             k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.01
             ! difractado por estratos
-            Meca_diff = calcMecaAt_xi_zi(B(:,ik),&  
-                     zi,ei,& 
-                     cOME,k,outpf) ! -------------------------------------  G, T o los dos
+            Meca_diff = calcMecaAt_k_zi(B(:,ik),&  
+                     zi,ei,cOME,k, & 
+                     dir,mecStart,mecEnd,outpf)
             auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd)
             
                      
@@ -3980,7 +3981,7 @@
       end subroutine asociar
       subroutine matrixA_borderCond(this_A,k,cOME_i,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
-      use gloVars, only : verbose,UI,UR!,PI!,dp
+      use gloVars, only : verbose,UI,UR,Z0!,PI!,dp
 !     use waveVars, only : Theta     
 !     use refSolMatrixVars, only : A ! aquí guardamos el resultado 
       use debugStuff  
@@ -3995,9 +3996,10 @@
       
       integer, intent(in) :: outpf
 
-      complex*16, dimension(2,4) :: subMatD, subMatS
-      complex*16, dimension(4,1) :: diagMat
-      complex*16 :: gamma,nu,xi!,eta
+      complex*16, dimension(2,4) :: subMatD, subMatS, subMatD0, subMatS0
+!     complex*16, dimension(4,1) :: diagMat
+      complex*16, dimension(4,4) :: diagMat
+      complex*16 :: gamma,nu,mukanu2,mukagam2,l2m,xi,g2,k2,lk2!,lg2!,eta
       complex*16 :: egammaN,enuN,egammaP,enuP
       integer    :: iR,iC,e,bord
       
@@ -4018,8 +4020,30 @@
           if(aimag(gamma).gt.0.0)gamma = -gamma
           if(aimag(nu).gt.0.0)nu=-nu
           
-          xi = k**2 - nu**2
+          mukanu2  = 2* amu(e)* k * nu
+          mukagam2 = 2* amu(e)* k * gamma
+          l2m = lambda(e) + 2 * amu(e)
+          xi = (nu**2 - k**2) * amu(e)
+          g2 = gamma**2
+          k2 = k**2
+          lk2 = lambda(e)*k2
+!         lg2 = lambda(e)*g2
 !         eta = 2*gamma**2 - cOME_i**2/BETA(e)**2
+          
+
+          ! en fortran los elementos se indican por columnas:
+          subMatD0 = RESHAPE((/ -gamma,-k*UR,-k*UR,nu,& 
+                                 gamma,-k*UR,-k*UR,-nu /), &
+                           (/ 2,4 /))
+          subMatD0 = UI * subMatD0 
+!         subMatS = RESHAPE((/ xi,-2*k*gamma,-2*k*nu,-xi,& 
+!                              xi,2*k*gamma,2*k*nu,-xi /),&
+!                          (/2,4/))  
+          subMatS0 = RESHAPE((/ l2m*(-1*g2)-lk2 , -mukagam2, &
+                               -mukanu2        , xi, &
+                               l2m*(-1*g2)-lk2 , mukagam2, & 
+                               mukanu2         , xi /),&
+                           (/2,4/))
           
           ! la profundidad z de la frontera superior del estrato
 !         z_i = Z(e)   ! e=1  ->  z = z0 = 0
@@ -4027,14 +4051,7 @@
         do bord = 0,1
           if (e+bord > N+1) then ! si 1+0;1+1;2+0;[2+1] > 2
             exit
-          end if
-          subMatD = RESHAPE((/ -gamma,-k*UR,-k*UR,nu,& 
-                                gamma,-k*UR,-k*UR,-nu /), &
-                           (/ 2,4 /))
-          subMatS = RESHAPE((/ xi,-2*k*gamma,-2*k*nu,-xi,& 
-                               xi,2*k*gamma,2*k*nu,-xi /),&
-                           (/2,4/))  
-                           
+          end if                           
           ! la profundidad z de la frontera superior del estrato
                 z_i = Z(e+bord)   ! e=1 , bord=0  ->  z = z0 = 0
                                   ! e=1 , bord=1  ->  z = Z1 = h1
@@ -4052,22 +4069,31 @@
           end if
           
             !la matrix diagonal
-            diagMat = RESHAPE((/ egammaN, enuN, egammaP, enuP /), &
-                           (/ 4,1 /))
-          
+!           diagMat = RESHAPE((/ egammaN, enuN, egammaP, enuP /), &
+!                          (/ 4,1 /))
+         diagMat = RESHAPE((/ egammaN, Z0, Z0, Z0, & 
+                              Z0,    enuN, Z0, Z0, & 
+                              Z0, Z0, egammaP, Z0, & 
+                              Z0, Z0, Z0, enuP /), &
+                           (/ 4,4 /))
+            
           ! desplazamientos estrato i (en Fortran se llena por columnas)
-          subMatD = UI * subMatD !* exp(-UI * k * x_i) 
-          subMatD(:,1) = subMatD(:,1) * diagMat(1,1) !Down P
-          subMatD(:,2) = subMatD(:,2) * diagMat(2,1) !Down S
-          subMatD(:,3) = subMatD(:,3) * diagMat(3,1) !Up   P
-          subMatD(:,4) = subMatD(:,4) * diagMat(4,1) !Up   S
+!         subMatD = UI * subMatD !* exp(-UI * k * x_i) 
+!         subMatD(:,1) = subMatD(:,1) * diagMat(1,1) !Down P
+!         subMatD(:,2) = subMatD(:,2) * diagMat(2,1) !Down S
+!         subMatD(:,3) = subMatD(:,3) * diagMat(3,1) !Up   P
+!         subMatD(:,4) = subMatD(:,4) * diagMat(4,1) !Up   S
+          
+          subMatD = matmul(subMatD0,diagMat)
           
           ! esfuerzos estrato i
-          subMatS = AMU(e) * subMatS !* exp(-UI*k*x_i) 
-          subMatS(:,1) = subMatS(:,1) * diagMat(1,1) !Down P
-          subMatS(:,2) = subMatS(:,2) * diagMat(2,1) !Down S
-          subMatS(:,3) = subMatS(:,3) * diagMat(3,1) !Up   P
-          subMatS(:,4) = subMatS(:,4) * diagMat(4,1) !Up   S
+!         subMatS = AMU(e) * subMatS !* exp(-UI*k*x_i) 
+!         subMatS(:,1) = subMatS(:,1) * diagMat(1,1) !Down P
+!         subMatS(:,2) = subMatS(:,2) * diagMat(2,1) !Down S
+!         subMatS(:,3) = subMatS(:,3) * diagMat(3,1) !Up   P
+!         subMatS(:,4) = subMatS(:,4) * diagMat(4,1) !Up   S
+          
+          subMatS = matmul(subMatS0,diagMat)
           
         !ensamble de la macro columna i
           !evaluadas en el borde SUPERIOR del layer i
@@ -4080,6 +4106,7 @@
            else
              this_A( iR-1 : iR   , iC+1 : iC+2 ) = -subMatD(:,1:2)
              this_A( iR+1 : iR+2 , iC+1 : iC+2 ) = -subMatS(:,1:2)
+             exit
            end if
           end if
           
@@ -4089,7 +4116,7 @@
             this_A( iR+5 : iR+6 , iC+1 : iC+4 ) = subMatS
           end if
           
-        end do !bord loop del borde inferior o superior
+        end do !bord loop del borde i superior o nferior
           iR= iR+4 
           iC= iC+4
           
@@ -4172,36 +4199,36 @@
           egamz(iIf) = exp(-UI*gamma*ABS(z_loc(iIf)))
           enuz(iIf) = exp(-UI*nu*ABS(z_loc(iIf)))
       
-      G11(iIf) = UI/DEN * (k**2.0/gamma*egamz(iIf)+nu*enuz(iIf)) 
-      G31(iIf) = UI/DEN * SGNz*k*(egamz(iIf)-enuz(iIf)) 
-      G33(iIf) = UI/DEN * (gamma*egamz(iIf)+k**2.0/nu*enuz(iIf))
+      G11(iIf) = -UI/DEN * (k**2.0/gamma*egamz(iIf)+nu*enuz(iIf)) 
+      G31(iIf) = -UI/DEN * SGNz*k*(egamz(iIf)-enuz(iIf)) 
+      G33(iIf) = -UI/DEN * (gamma*egamz(iIf)+k**2.0/nu*enuz(iIf))
       
-      s111(iIf) = UR/DEN * ( & 
+      s111(iIf) = -UR/DEN * ( & 
                       (k*gamma*lambda(e)+L2M*k**3.0/gamma)* egamz(iIf)&
                     + (2.0*amu(e)*k*nu) * enuz(iIf) & 
                       ) !
       
-      s331(iIf) = UR/DEN * ( &
+      s331(iIf) = -UR/DEN * ( &
                     (k*gamma*L2M + lambda(e)*k**3.0/gamma)* egamz(iIf)&
                   + (-2.0*amu(e)*k*nu)* enuz(iIf) &
                     ) !
                     
-      s131(iIf) = UR/DEN * amu(e)*SGNz * ( &             
+      s131(iIf) = -UR/DEN * amu(e)*SGNz * ( &             
                     (2.0*k**2.0)* egamz(iIf) &
                     + (nu**2.0-k**2.0)* enuz(iIf) &
                     ) !
                     
-      s113(iIf) = UR/DEN * SGNz * ( &              
+      s113(iIf) = -UR/DEN * SGNz * ( &              
                     (k**2.0*L2M + gamma**2.0*lambda(e))* egamz(iIf) &
                   + (-2.0*amu(e)*k**2.0)* enuz(iIf) &
                     ) !
                     
-      s333(iIf) = UR/DEN * SGNz * ( &              
+      s333(iIf) = -UR/DEN * SGNz * ( &              
                     (gamma**2.0*L2M + k**2.0*lambda(e))* egamz(iIf) &
                   + (2.0*amu(e)*k**2.0)* enuz(iIf) &
                     ) !              
                     
-      s313(iIf) = UR/DEN * amu(e) * ( &              
+      s313(iIf) = -UR/DEN * amu(e) * ( &              
                     (2.0*k*gamma)* egamz(iIf) &
                   - (k/nu*(nu**2.0-k**2.0))* enuz(iIf) &
                     ) !
@@ -4212,9 +4239,9 @@
       if (fisInterf) then
       if(direction .eq. 1) then
         s331(1) = 0
-        S131(1) = cmplx(1.0 / (2.0 * PI ),0.0,8)
+        S131(1) = - cmplx(1.0 / (2.0 * PI ),0.0,8)
       elseif (direction .eq. 2) then
-        s333(1) = cmplx(1.0 / (2.0 * PI ),0.0,8)
+        s333(1) = - cmplx(1.0 / (2.0 * PI ),0.0,8)
         S313(1) = 0
       end if
         G33(1) = 0
@@ -4225,57 +4252,61 @@
       ! El vector de términos independientes genera el campo difractado
       
       if (direction .eq. 1) then ! fuerza HORIZONTAL
-       if (e .ne. 1) then ! =     (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)-2) = - G31(1)!  w
-        this_B(1+4*(e-1)-1) = - G11(1)!  u
+      !                     =      (1) interfaz de arriba
+       if (e .ne. 1) then
+        this_B(1+4*(e-1)-2) = + G31(1)!  w
+        this_B(1+4*(e-1)-1) = + G11(1)!  u
        end if 
-        this_B(1+4*(e-1)  ) = - S331(1)! szz
-        this_B(1+4*(e-1)+1) = - S131(1)! szx
+        this_B(1+4*(e-1)  ) = + S331(1)! szz
+        this_B(1+4*(e-1)+1) = + S131(1)! szx   ! delta
     
-      if (.not. fisInterf) then  
-       if (e .ne. N+1) then! =      (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)+2) = G31(2)!  w
-        this_B(1+4*(e-1)+3) = G11(2)!  u
-        this_B(1+4*(e-1)+4) = S331(2)! szz
-        this_B(1+4*(e-1)+5) = S131(2)! szx
+      if (.not. fisInterf) then
+      !                     =      (2) interfaz de abajo
+       if (e .ne. N+1) then
+        this_B(1+4*(e-1)+2) = - G31(2)!  w
+        this_B(1+4*(e-1)+3) = - G11(2)!  u
+        this_B(1+4*(e-1)+4) = - S331(2)! szz
+        this_B(1+4*(e-1)+5) = - S131(2)! szx
        end if
       end if
       elseif (direction .eq. 2) then ! fuerza VERTICAL
-       if (e .ne. 1) then! =     (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)-2) = - G33(1)!  w 
-        this_B(1+4*(e-1)-1) = - G31(1)!  u 
+      !                     =     (1) interfaz de arriba
+       if (e .ne. 1) then
+        this_B(1+4*(e-1)-2) = + G33(1)!  w 
+        this_B(1+4*(e-1)-1) = + G31(1)!  u 
        end if 
-        this_B(1+4*(e-1)  ) = - S333(1)! szz
-        this_B(1+4*(e-1)+1) = - S313(1)! szx 
+        this_B(1+4*(e-1)  ) = + S333(1)! szz   ! delta
+        this_B(1+4*(e-1)+1) = + S313(1)! szx 
     
-      if (.not. fisInterf) then  
-       if (e .ne. N+1) then!=      (1) interfaz de arriba; (2) abajo
-        this_B(1+4*(e-1)+2) = G33(2)!  w 
-        this_B(1+4*(e-1)+3) = G31(2)!  u
-        this_B(1+4*(e-1)+4) = S333(2)! szz 
-        this_B(1+4*(e-1)+5) = S313(2)! szx 
+      if (.not. fisInterf) then
+      !                     =      (2) interfaz de abajo
+       if (e .ne. N+1) then
+        this_B(1+4*(e-1)+2) = - G33(2)!  w 
+        this_B(1+4*(e-1)+3) = - G31(2)!  u
+        this_B(1+4*(e-1)+4) = - S333(2)! szz 
+        this_B(1+4*(e-1)+5) = - S313(2)! szx 
        end if
       end if
       end if ! direction
 !     print*,""
 !     print*,this_B; stop "B"
       end subroutine vectorB_force
-      function calcMecaAt_xi_zi(thisIP_B,z_i,e,cOME_i,k,outpf)
+      function calcMecaAt_k_zi(thisIP_B,z_i,e,cOME_i,k,dir,mecStart,mecEnd,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
-      use gloVars, only : verbose,UI,UR!,PI
+      use gloVars, only : verbose,UI,UR,Z0!,PI
 !     use waveVars, only : Theta
       use resultVars, only : MecaElem
       implicit none
-      type (MecaElem)              :: calcMecaAt_xi_zi
+      type (MecaElem)              :: calcMecaAt_k_zi
       real, intent(in)             ::  z_i, k
       complex*16, intent(in)       :: cOME_i  
-      integer, intent(in)          :: e,outpf
+      integer, intent(in)          :: e,outpf,dir,mecStart,mecEnd
       complex*16, dimension(4*N+2),intent(in) :: thisIP_B
-      complex*16 :: gamma,nu,eta,xi
+      complex*16 :: gamma,nu,mukanu2,mukagam2,l2m,xi,g2,k2,lk2,lg2,eta
       complex*16 :: egammaN,enuN,egammaP,enuP
       complex*16, dimension(2,4) :: subMatD
       complex*16, dimension(3,4) :: subMatS
-      complex*16, dimension(4,1) :: diagMat
+      complex*16, dimension(4,4) :: diagMat
       complex*16, dimension(4,1) :: partOfXX
       complex*16, dimension(2,1) :: resD
       complex*16, dimension(3,1) :: resS
@@ -4294,68 +4325,88 @@
       if(aimag(gamma).gt.0.0)gamma = -gamma
       if(aimag(nu).gt.0.0)nu=-nu
       
-      xi = k**2. - nu**2.
-      eta = 2.0*gamma**2.0 - (cOME_i/BETA(e))**2.0
-      subMatD = RESHAPE((/ -gamma,-k*UR,-k*UR,nu,gamma,-k*UR,-k*UR,-nu /), &
-                           (/ 2,4 /))
-      subMatS = RESHAPE((/ xi,      -2.0*k*gamma,     eta,     &
-                          -2.0*k*nu,     -xi,        2.0*k*nu,   &
-                           xi,       2.0*k*gamma,     eta,     &
-                           2.0*k*nu,     -xi,       -2.0*k*nu /),&
-                           (/3,4/))      
-      
-         !downward waves
+          mukanu2  = 2* amu(e)* k * nu
+          mukagam2 = 2* amu(e)* k * gamma
+          l2m = lambda(e) + 2 * amu(e)
+          xi = (nu**2 - k**2) * amu(e)
+          g2 = gamma**2
+          k2 = k**2
+          lk2 = lambda(e)*k2
+          lg2 = lambda(e)*g2
+          eta = 2*gamma**2 - cOME_i**2/BETA(e)**2
+          
+      !downward waves
           egammaN = exp(-UI * gamma * (z_i-Z(e)))
           enuN = exp(-UI * nu * (z_i-Z(e)))
           !upward waves 
           if (e /= N+1) then !(radiation condition)
-            egammaP = exp(UI * gamma * (z_i-Z(e+1)))
+            egammaP = exp(UI * gamma *(z_i-Z(e+1)))
             enuP = exp(UI * nu * (z_i-Z(e+1)))
           else
             egammaP = 0.0d0
             enuP = 0.0d0
           end if
           !la matrix diagonal
-            diagMat = RESHAPE((/ egammaN, enuN, egammaP, enuP /), &
-                           (/ 4,1 /))
-          ! desplazamientos estrato i (en Fortran se llena por columnas)
-!         subMatD = UI * exp(-UI * k * x_i) * subMatD
-          subMatD = UI * subMatD
-          subMatD(:,1) = subMatD(:,1) * diagMat(1,1) !Down P
-          subMatD(:,2) = subMatD(:,2) * diagMat(2,1) !Down S
-          subMatD(:,3) = subMatD(:,3) * diagMat(3,1) !Up   P
-          subMatD(:,4) = subMatD(:,4) * diagMat(4,1) !Up   S
-          
-          ! esfuerzos estrato i
-!         subMatS = AMU(e) * exp(-UI * k * x_i) * subMatS
-          subMatS = AMU(e) * subMatS
-          subMatS(:,1) = subMatS(:,1) * diagMat(1,1) !Down P
-          subMatS(:,2) = subMatS(:,2) * diagMat(2,1) !Down S
-          subMatS(:,3) = subMatS(:,3) * diagMat(3,1) !Up   P
-          subMatS(:,4) = subMatS(:,4) * diagMat(4,1) !Up   S
-      
- !mutiplicamos por los coeficientes de la solución del sistema
+          diagMat = RESHAPE((/ egammaN, Z0, Z0, Z0, & 
+                              Z0,    enuN, Z0, Z0, & 
+                              Z0, Z0, egammaP, Z0, & 
+                              Z0, Z0, Z0, enuP /), &
+                           (/ 4,4 /))
+      !coeficientes de las ondas en el estrato
         if (e /= N+1) then
           partOfXX(1:4,1) = thisIP_B(4*(e-1)+1 : 4*(e-1)+4)
         else !( condición de radiación)
           partOfXX(1:2,1) = thisIP_B(4*(e-1)+1 : 4*(e-1)+2)
-          partOfXX(3:4,1) = 0.0d0
+          partOfXX(3:4,1) = (/z0,z0/)
         end if!
         if (verbose>=3) then
           print*,"xx1 ",partOfXX(1,1)
           print*,"xx2 ",partOfXX(2,1)
           print*,"xx3 ",partOfXX(3,1)
           print*,"xx4 ",partOfXX(4,1)
-        end if
+        end if  
+      
+      ! desplazamientos
+      if (mecStart .eq. 1)then
+        subMatD = RESHAPE((/ -gamma,-k*UR,-k*UR,nu, & 
+                            gamma,-k*UR,-k*UR,-nu /), &
+                           (/ 2,4 /))
+        subMatD = UI * subMatD
+        subMatD = matmul(subMatD,diagMat)
         resD = matmul(subMatD,partOfXX)
+      
+        if (dir .eq. 2) then
+        calcMecaAt_k_zi%Rw(1) = resD(1,1) !W
+        calcMecaAt_k_zi%Rw(2) = - resD(2,1) !U 
+        else ! dir eq. 1
+        calcMecaAt_k_zi%Rw(1) = - resD(1,1) !W
+        calcMecaAt_k_zi%Rw(2) = resD(2,1) !U 
+        end if
+      end if ! desplazamientos
+      
+      ! esfuerzos
+      if (mecEnd .eq. 5) then
+     
+!     subMatS = RESHAPE((/ xi,      -2.0*k*gamma,     eta,     &
+!                         -2.0*k*nu,     -xi,        2.0*k*nu,   &
+!                          xi,       2.0*k*gamma,     eta,     &
+!                          2.0*k*nu,     -xi,       -2.0*k*nu /),&
+!                          (/3,4/))      
+     
+      
+        subMatS = RESHAPE((/ l2m*(-1*g2)-lk2 , -mukagam2, l2m*(-1*k2)-lg2, &
+                               -mukanu2        , xi   , mukanu2, &
+                               l2m*(-1*g2)-lk2 , mukagam2, l2m*(-1*k2)-lg2, & 
+                               mukanu2         , xi   , -mukanu2 /),&
+                           (/3,4/))
+        subMatS = matmul(subMatS,diagMat)
         resS = matmul(subMatS,partOfXX)
-        calcMecaAt_xi_zi%Rw(1) = resD(1,1) !W
-        calcMecaAt_xi_zi%Rw(2) = resD(2,1) !U
-        calcMecaAt_xi_zi%Rw(3) = resS(1,1) !s33
-        calcMecaAt_xi_zi%Rw(4) = resS(2,1) !s31
-        calcMecaAt_xi_zi%Rw(5) = resS(3,1) !s11
+        calcMecaAt_k_zi%Rw(3) = resS(1,1) !s33
+        calcMecaAt_k_zi%Rw(4) = resS(2,1) !s31
+        calcMecaAt_k_zi%Rw(5) = resS(3,1) !s11
+      end if ! esfuerzos
           
-      end function calcMecaAt_xi_zi
+      end function calcMecaAt_k_zi
       
       
       function calcFF(z_f,e_f,dir,zX,eX,k,cOME)
@@ -4952,6 +5003,8 @@
       real :: maxY, minY, maxX, minX, p
       real, dimension(41)   :: ZLVRAY
       real                  :: maV,miV,Vstep,xstep,zstep
+      real, parameter :: sharp = 14.
+      
       
       nombre(1)= 'w--'
       nombre(2)= 'u--'
@@ -5022,10 +5075,13 @@
         ! el módulo de los desplazameintos
         Sm(ix,iz,3,:) = sqrt(Sm(ix,iz,1,:)**2 + Sm(ix,iz,2,:)**2)
         
+        Sm(ix,iz,3,:) = log(1. + exp(sharp) * abs(Sm(ix,iz,3,:)))/ &
+                        log(exp(sharp) + 1.)
+        
       end do !ix
       iz = iz + 1
       end do !iP
-      
+        Sm(:,:,3,:) = Sm(:,:,3,:) / maxval(real(Sm(:,:,3,:)))
       !color table boundaries
       ColorRangeMaximumScale = 0.1
       
@@ -5060,8 +5116,8 @@
        end if
       end do
       ! y para el módulo
-        colorBounds(3,1) = 1.41* max(colorBounds(1,1),colorBounds(2,1))
-        colorBounds(3,2) = 1.41* min(colorBounds(1,2),colorBounds(2,2))
+        colorBounds(3,1) = 1.!1.41* max(colorBounds(1,1),colorBounds(2,1))
+        colorBounds(3,2) = 0.!1.41* min(colorBounds(1,2),colorBounds(2,2))
 !     stop 0
             ! plotting boundaries according to geometry of topography
       minX=0.;maxX=0.;minY=0.;maxY=0.
@@ -5127,16 +5183,16 @@
 !     print*,'will print ', trim(textoTimeStamp)
       CALL SETFIL(trim(textoTimeStamp))
       call filmod('DELETE') ! para sobreescribir el archivo
-      CALL PAGE (int(2600,4),int(2600,4))
+      CALL PAGE (int(3100,4),int(2400,4))
       call imgfmt('RGB')
-      call winsiz(int(1000),int(1000,4))
+      call winsiz(int(1100,4),int(800,4)) !1200,800
       CALL SCRMOD('REVERS') !fondo blanco
       CALL DISINI()
 !     CALL COMPLX ! sets a complex font
       CALL BMPFNT ('SIMPLEX')
 !     CALL HWFONT()
-           !the position of an axis system. Lower left corner
-      CALL axspos (int(300,4) ,int(2200,4)) 
+           !the position of an axis system.
+      CALL axspos (int(300,4) ,int(2200,4)) ! Lower left corner
       call axslen (int(2000,4), int(2000,4)) !size of the axis system.
       
       xstep = abs(X(1))/3.0
