@@ -1,6 +1,8 @@
 N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
-1
+3
 H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
+50     80     40        1.0 
+50     80     40        1.0 
 50     80     40        1.0
 8888    80     40        1.0
 DFREC   nFREC   DeltaK    nK       Q      t0

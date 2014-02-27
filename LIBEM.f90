@@ -1792,6 +1792,7 @@
       end if
       
       ! mostrar sismogramas en los puntos de interés
+           call system("mkdir outs")
            CALL chdir("outs")
            CALL getcwd(path)
            write(PrintNum,'(a,/,a)') 'Now at:',TRIM(path)
@@ -2218,8 +2219,8 @@
 
             moviePoints(iP)%center(1) = 0.0
             moviePoints(iP)%center(2) = boundingZn + (iz-1) * MeshDZ
-            moviePoints(iP)%normal(1) = 1.0
-            moviePoints(iP)%normal(2) = 0.0
+            moviePoints(iP)%normal(1) = 0.0
+            moviePoints(iP)%normal(2) = 1.0
             moviePoints(iP)%layer = currentLayer
             moviePoints(iP)%isOnInterface = isOnIF
             
@@ -3720,7 +3721,7 @@
                                                  pXi%center,p_x%layer,cOME,mecStart,mecEnd)
                             end if
                             end if
-                            auxk(i,:)=0
+!                           auxk(i,:)=0
               p_x%WmovieSiblings(xXx,J,1) = (auxK(i,1) + FF%W)* nf(dir) + &
               p_x%WmovieSiblings(xXx,J,1)
               
@@ -4260,7 +4261,7 @@
         this_B(1+4*(e-1)  ) = + S331(1)! szz
         this_B(1+4*(e-1)+1) = + S131(1)! szx   ! delta
     
-      if (.not. fisInterf) then
+      if (.not. fisInterf) then ! la fuerza no calló en la interfaz
       !                     =      (2) interfaz de abajo
        if (e .ne. N+1) then
         this_B(1+4*(e-1)+2) = - G31(2)!  w
@@ -4374,7 +4375,9 @@
         subMatD = UI * subMatD
         subMatD = matmul(subMatD,diagMat)
         resD = matmul(subMatD,partOfXX)
-      
+        
+!       calcMecaAt_k_zi%Rw(1) = resD(1,1) !W
+!       calcMecaAt_k_zi%Rw(2) = resD(2,1) !U
         if (dir .eq. 2) then !vertical
         calcMecaAt_k_zi%Rw(1) = resD(1,1) !W
         calcMecaAt_k_zi%Rw(2) = - resD(2,1) !U 
@@ -4401,15 +4404,18 @@
 !                          (/3,4/))
         subMatS = matmul(subMatS,diagMat)
         resS = matmul(subMatS,partOfXX)
+        
+!       calcMecaAt_k_zi%Rw(3) = resS(1,1) !s33
+!       calcMecaAt_k_zi%Rw(4) = resS(2,1) !s31
+!       calcMecaAt_k_zi%Rw(5) = resS(3,1) !s11 
         if (dir .eq. 2) then ! vertical
         calcMecaAt_k_zi%Rw(3) = resS(1,1) !s33
         calcMecaAt_k_zi%Rw(4) = - resS(2,1) !s31
-        calcMecaAt_k_zi%Rw(5) = - resS(3,1) !s11
+        calcMecaAt_k_zi%Rw(5) = resS(3,1) !s11
         else ! dir eq. 1 !horizontal
         calcMecaAt_k_zi%Rw(3) = - resS(1,1) !s33
         calcMecaAt_k_zi%Rw(4) = resS(2,1) !s31
         calcMecaAt_k_zi%Rw(5) = - resS(3,1) !s11
-        
         end if
         
         
@@ -4477,12 +4483,12 @@
       if (mecStart .eq. 1) then
       ! W
       i = 2
-      FF%W = 1/(8*UI*rho(e))*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
+      FF%W = -UI/8.0/rho(e)*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
 !     print*,"W == ",FF%W, ":",abs(FF%W)
       
       ! U
       i = 1
-      FF%U = 1/(8*UI*rho(e))*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
+      FF%U = -UI/8.0/rho(e)*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
 !     print*,"U == ",FF%U, ":",abs(FF%U)
       end if!
       
@@ -5013,14 +5019,14 @@
       real :: maxY, minY, maxX, minX, p
       real, dimension(41)   :: ZLVRAY
       real                  :: maV,miV,Vstep,xstep,zstep
-      real, parameter :: sharp = 14.
+!     real, parameter :: sharp = 14.
       
       
       nombre(1)= 'w--'
       nombre(2)= 'u--'
 !     nombre(3)= 'mod'
-      nombre(3)= 'Tz' 
-      nombre(4)= 'Tx'
+      nombre(3)= 'Tz-' 
+      nombre(4)= 'Tx-'
 !     nombre(5)= 's11'
       mecMax = 4
 !     if(workboundary) mecMax = 2
@@ -5032,6 +5038,7 @@
          print*,"maxtime = ",maxtime," segs :: @",dt," : ",n_maxtime," puntos"
       
       if (verbose >= 1) Write(outpf,'(a)') "Will make a movie..."
+         call system("mkdir video")
          CALL chdir("video")
          CALL getcwd(path)
          write(outpf,'(a,a)') "at ",TRIM(path)
@@ -5271,7 +5278,7 @@
       end do !iT
       
       !now make the video with the frames
-      do iMec=1,mecMax
+      do iMec=1,4
       write(path,'(a,a,a)')'ffmpeg -i ',nombre(iMec), & 
                   '%d.png -f mp4 -vcodec h264 -pix_fmt yuv420p video.mp4'
       call system(trim(path))

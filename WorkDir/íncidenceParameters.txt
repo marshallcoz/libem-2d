@@ -1,8 +1,8 @@
 Mesh:
       Mesh Num pixels Z
-50
+25
       Mesh Num pixels X
-50
+25
       Mesh Max Z (m)
 200.0
       Mesh +-maxX (m)
