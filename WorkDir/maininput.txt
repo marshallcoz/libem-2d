@@ -6,8 +6,8 @@ Solve topography [logical]
 F
 Plot FK [logical]
 T
-max segment length  = R * wavelength  [int :: R] (usar múltiplo de 4)
-5
+max segment length  = beta / ( wavelength * R)   [int :: R]
+6
 Threshold to discriminate the method of integration (Simple or Gaussian quadrature)
 [real :: num_of_wavelengths]
 1.0

@@ -9,7 +9,7 @@
       logical    :: makeVideo
       logical    :: workBoundary
       logical    :: plotFKS
-      integer    :: multSubdiv ! Lo ideal es 4 o un multiplo
+      integer    :: multSubdiv ! Lo ideal es 6 
       logical    :: symmetricProblem
       real       :: periodicdamper
       logical, parameter    :: getInquirePointsSol = .true.!dont change
@@ -334,7 +334,7 @@
       real, save  :: boundingXp,boundingZp
 
       integer, save :: nx,nz
-      real, dimension(3,2), save :: colorBounds
+      real, dimension(4,2), save :: colorBounds
       end module meshVars
                   
       module wavelets
@@ -1275,7 +1275,7 @@
       !                     | ,--- -k...+k
       !                     | | ,--- iMec: 1:5
       !                     | | | 
-      complex*16, dimension(NFREC+1,2*NMAX,2),intent(in) :: thisFK
+      complex*16, dimension(NFREC+1,NMAX,2),intent(in) :: thisFK
       real, dimension(2), intent(in) :: coords
       character(LEN=10),intent(in) :: tt
       character(LEN=9), intent(in) :: xAx,yAx
@@ -1302,7 +1302,7 @@
       nombre(5)= '_s11.png'
       
       do i=1,NFREC
-         vHorz(i) = 0 + (i-1) * real(DFREC,4)
+         vHorz(i) = 0 + (i-1) * real(DFREC,4) * 2 * pi ! frec angular
       end do
       !
       do ik=1,nmax
@@ -1323,7 +1323,7 @@
 !     do iP = 1,nIP 
 !        x_i=coords(iP,1)
 !        z_i=coords(iP,2)
-      do iMec = 1,2!min(2,imecMax) !podrian ser más pero meh      
+      do iMec = 1,2 !min(2,imecMax) !podrian ser más pero meh      
       write(titulo,'(a,a,I0,a,I0,a,I0,a,I0,a,a)') trim(tt),'[', &
       int(coords(1)),'.',abs(int((coords(1)-int(coords(1)))*10)),';', & 
       int(coords(2)),'.',abs(int((coords(2)-int(coords(2)))*10)),']', & 
@@ -1584,11 +1584,11 @@
       end if; end do!
       
       do iP=iPtini,iPtfin !solo inquirepoints:
-         allocate(allpoints(iP)%W(NFREC+1,2)); allpoints(iP)%W = 0
+         allocate(allpoints(iP)%W(NFREC+1,4)); allpoints(iP)%W = 0         !   sólo 2
       end do
       
       if (makeVideo) then; do iP=mPtini,mPtfin
-         allocate(allpoints(iP)%WmovieSiblings(NxXxMpts,NFREC+1,2))
+         allocate(allpoints(iP)%WmovieSiblings(NxXxMpts,NFREC+1,4))                     !sólo 2
          allpoints(iP)%WmovieSiblings = 0
       end do; end if!
       
@@ -1615,7 +1615,7 @@
                             "source is at (",xfsource,",",zfsource,")"
       end if
       
-      call makeTaperFuncs(20,0.8,0.8)
+      call makeTaperFuncs_cutF_cutK(20,0.8,0.8)
       
       call expPIK(expK)
       call waveAmplitude(PrintNum)
@@ -1632,10 +1632,10 @@
       end if
       DO J=1,NFREC+1
       ! complex frecuency for avoiding poles and provide damping
-        FREC=DFREC*real(J-1)
-        if (J .eq. 1)  FREC = DFREC*0.001
+        FREC=DFREC*real(J-1) ! Hz
+        if (J .eq. 1)  FREC = DFREC*0.01
         call cpu_time(tstart)
-        OME=2.0*PI*FREC
+        OME=2.0*PI*FREC !rad/s
         !periodic sources damping
         cOME = cmplx(OME, - DFREC / periodicdamper,8) !* cmplx(1.0, -1.0/2.0/Qq,8)
          
@@ -1693,10 +1693,7 @@
 !     NMAX=2*NMAX+100                                !EMPIRICAL (improve)
       
       call crunch(0,J,cOME,PrintNum)
-!     cycle
-!     print*,allpoints(1)%W(J,:)
-      
-      !            ´--- the real source
+      !           ^--- the real source
       if (workboundary) then
       if (verbose .ge. 2) then
         call showMNmatrixZabs(2*nBpts,1, trac0vec ,"tindp",PrintNum)
@@ -2221,8 +2218,8 @@
 
             moviePoints(iP)%center(1) = 0.0
             moviePoints(iP)%center(2) = boundingZn + (iz-1) * MeshDZ
-            moviePoints(iP)%normal(1) = 1
-            moviePoints(iP)%normal(2) = 1
+            moviePoints(iP)%normal(1) = 1.0
+            moviePoints(iP)%normal(2) = 0.0
             moviePoints(iP)%layer = currentLayer
             moviePoints(iP)%isOnInterface = isOnIF
             
@@ -3420,6 +3417,7 @@
       integer, dimension(5,2) :: sign
       complex*16, dimension (:), pointer :: RW
       type(FFres),target :: FF
+!     logical :: exist
 !     character(LEN=90) :: nombre
       !  fza horiz     fza vert       !(para la crepa)
       sign(1,1) = -1 ; sign(1,2) = 1  !W        impar           par
@@ -3457,7 +3455,7 @@
           dirEnd = 1
         end if
       end if!      
-      if (verbose .ge. 2) print*,"dirs", dirStart," -> ",dirEnd
+      if (verbose .ge. 3) print*,"dirs", dirStart," -> ",dirEnd
       
 
       do dir =dirStart,dirEnd! componete de Fuerza horizontal; vertical......
@@ -3497,8 +3495,8 @@
             ! ¿calcular sólo G, sólo T o ambos?
             mecStart = 1
             mecEnd = 5
-            if(pota(itabla_z,2) .eq. 0) mecEnd = 2 ! no T
-            if(pota(itabla_z,1) .eq. 0) mecStart = 3 ! no G 
+!           if(pota(itabla_z,2) .eq. 0) mecEnd = 2 ! no T              !---------------------
+!           if(pota(itabla_z,1) .eq. 0) mecStart = 3 ! no G            !---------------------
             if (verbose .ge. 3) write(outpf,'(a,I0,a,I0,a)') & 
                                 "mec Range {",mecStart,"...",mecEnd,"}"
             auxK = cmplx(0.0d0,0.0d0,8)
@@ -3511,30 +3509,8 @@
             Meca_diff = calcMecaAt_k_zi(B(:,ik),&  
                      zi,ei,cOME,k, & 
                      dir,mecStart,mecEnd,outpf)
-            auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd)
+            auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd) 
             
-                     
-            ! aguas con NAN
-!           do imec=mecStart,mecEnd
-!             if (isnan(real(Meca_diff%RW(imec)))) then
-!               print*, "J",J,"ik",ik,"imec",imec,"real"
-!               Meca_diff%RW(imec) = 0
-!             end if
-!             if (isnan(aimag(Meca_diff%RW(imec)))) then
-!               print*, "J",J,"ik",ik,"imec",imec,"imag"
-!               Meca_diff%RW(imec) = 0
-!             end if
-!           end do
-                     
-            ! campo libre en estrato de la fuerza
-!           Meca_ff = calcFF(zf,ef,dir, & 
-!                    zi,ei,& 
-!                    k,cOME) ! ------------------------------------------- cambiar por solución analítica
-!           auxK(ik,mecStart:mecEnd) = Meca_ff%Rw(mecStart:mecEnd) + &
-!                                    Meca_diff%Rw(mecStart:mecEnd)
-                                     
-!           auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd)
-!           auxK(ik,mecStart:mecEnd) = Meca_ff%Rw(mecStart:mecEnd) 
             cycle
             ! trim K integration domain if it is zero 
             if (abs(auxK(ik,mecStart)) .lt. minKvalueW .and. & 
@@ -3554,11 +3530,13 @@
             if (thislapse .le. 0) warning = .true.
           end do ! ik
           
-         ! doblar la crepa ...............................................
+         
+        
+      ! doblar la crepa ...............................................
            !        calculado              crepa 
            !   _________|____________ _______|________  
-           !    1 2 3 ... NMAX NMAX+1 0 0 0 0 0 2*NMAX     
-           ! k= 0 1 2 ... N/2-1 -N/2 ... -3 -2 -1
+           !    1 2 3 ... NMAX NMAX+1  ...      2*NMAX     
+           ! k=                       nmax*  ... (2)*
         do iMec = mecStart,mecEnd
          auxK(nmax+2:nmax*2,iMec) = sign(iMec,dir)* auxK(nmax:2:-1,iMec)         
         end do !iMec
@@ -3567,9 +3545,9 @@
         if (i_zfuente .eq. 0) then
           nXis = 1 ! y la fuente real es una
         else
-          nXis = pota(i_zfuente,2) ! puede haber varias vuentes virtuales
+          nXis = pota(i_zfuente,2) ! puede haber varias fuentes virtuales
         end if
-        ! para cada fuente a la profundidad iz ...................
+        ! para cada fuente a la profundidad iz ...............................
 
         ! guardar auxK
          savedAuxK = auxK
@@ -3580,6 +3558,7 @@
              xf = pXi%Gq_xXx_coords(iGq,1)
              nf(dir) = pXi%normal(dir)
          end if!
+         
         ! para cada X receptor a la profundidad itabla_z ......................
          if (verbose .ge. 3) print*,"nPXs ",nPXs
             do itabla_x =1,nPXs
@@ -3604,61 +3583,45 @@
                     cycle !skip to the next receptor if any
                 end if
               end if
-              
-!             p_X%center(1) = xf             
+                          
               ! información X de fuente y receptor
               do imec = mecStart,mecEnd
-                auxk(1:nmax+1,imec) = auxk(1:nmax+1,imec) * & 
-                exp(cmplx(0.0,(/((ik-1)*dk,ik=1,nmax+1)/)* & 
+                auxk(1:nmax,imec) = auxk(1:nmax,imec) * & 
+                exp(cmplx(0.0,(/((ik-1)*dk,ik=1,nmax)/)* & 
                      (p_x%center(1)-xf) ,8))
-        
+!               auxk(1:nmax+1,imec) = auxk(1:nmax+1,imec) * & 
+!               exp(cmplx(0.0,(/((ik-1)*dk,ik=1,nmax+1)/)* & 
+!                    (p_x%center(1)-xf) ,8)) 
                 auxk(1     ,imec) = auxk(1,imec)* &
                 exp(cmplx(0.0,0.01*dk * & 
                     (p_x%center(1)-xf) ,8))!*0.01
         
-                auxk(nmax+2:nmax*2,imec) = auxk(nmax+2:nmax*2,imec) * & 
-                exp(cmplx(0.0,(/((-ik)*dk,ik=nmax,2,-1)/)* & 
+                auxk(nmax+1:nmax*2,imec) = auxk(nmax+1:nmax*2,imec) * & 
+                exp(cmplx(0.0,(/((-ik)*dk,ik=nmax,1,-1)/)* & 
                     (p_x%center(1)-xf) ,8))
-        
+!               auxk(nmax+2:nmax*2,imec) = auxk(nmax+2:nmax*2,imec) * & 
+!               exp(cmplx(0.0,(/((-ik)*dk,ik=nmax,2,-1)/)* & 
+!                   (p_x%center(1)-xf) ,8))
                 auxk(:,iMec) = auxk(:,iMec)* & 
                     cmplx(Hf(J)* Hk,0.0,8)/(4*pi)! taper     -------------------------------------  ? 
 !               auxk(:,iMec) = auxk(:,iMec) / pi
               end do !imec
-           
-!          do ik = 1,nmax*2
-!          do imec=mecStart,mecEnd
-!             if (isnan(real(auxK(ik,imec)))) then
-!               print*, "J",J,"ik",ik,"imec",imec,"real"
-!               auxk(ik,imec) = 0
-!             end if
-!             if (isnan(aimag(auxk(ik,imec)))) then
-!               print*, "J",J,"ik",ik,"imec",imec,"imag"
-!               auxk(ik,imec) = 0
-!             end if
-!           end do
-!          end do
-!          CALL METAFL('PDF')
-!          write(nombre,'(a,I0,a)'),"W",J,".pdf"
-!          CALL SETFIL(trim(adjustl(nombre)))
-!          call disini
-!          call qplot((/((ik-1)*dk,ik=1,nmax)/),real(auxk(1:nmax,1),4),nmax)
-!          call system("open W.pdf")
 
-           
-!          open(88,file="out1.txt")
+                      
+!          inquire(file="out1.txt", exist=exist)
+!          if (exist) then
+!      open(12, file="out1.txt", status="old", position="append", action="write")
+!          else
+!      open(12, file="out1.txt", status="new", action="write")
+!          end if
 !          do ik=1,size(auxK(:,1))
-!          write(88,*) real(auxK(ik,1)),aimag(auxK(ik,1))
+!          write(12,'(E12.3,1x)',advance='NO') abs(auxK(ik,2))
 !          end do !ik
-!          close (88)
-!          open(88,file="out2.txt")
-!          do ik=1,size(auxK(:,2))
-!          write(88,*) real(auxK(ik,2)),aimag(auxK(ik,2))
-!          end do !ik
-!          close (88)
-!          stop "file"
-!          return              
+!          write(12,*) " "
+!          close(12)  
+                     
               ! guardar el FK si es que es interesante verlo
-              if ((mecStart .eq. 1) .and. (mecEnd .eq. 2)) then
+              if ((mecStart .eq. 1) .and. (mecEnd .ge. 2)) then
               if(i_zfuente .eq. 0) then ; if (p_x%guardarFK) then
                 if (dir .eq. dirStart) then
                   p_x%FK(J,1:nmax,1) = 0
@@ -3704,13 +3667,15 @@
               !   fuente real      |     W,U   |  term. indep.
               !   fuente virtual   |      G    |      T
               
-              if (i_zfuente .eq. 0) then !fuente real (no hay integral GQ).......
+              if (i_zfuente .eq. 0) then !fuente real (no hay integral GQ)....................
                 if (p_x%isBoundary) then ! term. indep.
                      if (verbose .ge. 3) print*,"term indep"
                      ! el indice en el vector de terms indep depende
                      ! del punto receptor sobre la frontera
                      !  | Tx |
                      !  | Tz |
+                     FF%W = 0
+                     FF%U = 0
                      FF%Tx = 0
                      FF%Tz = 0
                      if (.not. pXi%isOnInterface) then
@@ -3727,12 +3692,12 @@
                    trac0vec(p_x%boundaryIndex * 2 - (1 - 1)) = &
                    trac0vec(p_x%boundaryIndex * 2 - (1 - 1)) - &
                     (Traction(RW * nf(dir), p_x%normal,1) + FF%Tz * nf(dir))
-                else ! W,U
-!                    if (verbose .ge. 1) print*,"W,U"
-                     if (p_x%guardarMovieSiblings) then
+                else ! W,U.....................................................................
+!                 if (verbose .ge. 1) print*,"W,U"
+                  if (p_x%guardarMovieSiblings) then
 !                      if (verbose .ge. 3) print*,"movie"
                        ! (1) reordenar la crepa existente en X
-                       do iMec = 1,2
+                       do iMec = 1,5                                                                  ! 2
                         auxK(1:nmax*2,iMec) = cshift(auxK(1:nmax*2,iMec),SHIFT=nmax)
                        end do
                        ! (2) guardar sólo los interesantes
@@ -3742,47 +3707,81 @@
                             meshdxmultiplo
                             FF%W = 0
                             FF%U = 0
+                            FF%Tz = 0
+                            FF%Tx = 0
                             if (.not. pXi%isOnInterface) then
                             if (p_x%layer .eq. pXi%layer) then !agregar campo libre
                               ! la coord X de este hermanito
                               mov_x = (i-(nmax+1)) * DeltaX 
                               if (verbose .ge. 3) print*,xXx,i,"--",mov_x
                               ! el campo libre
+!                             print*,p_X%normal;stop "norm"
                               call calcFreeField(FF,dir,(/mov_x,p_x%center(2)/),p_X%normal, & 
                                                  pXi%center,p_x%layer,cOME,mecStart,mecEnd)
                             end if
                             end if
+                            auxk(i,:)=0
               p_x%WmovieSiblings(xXx,J,1) = (auxK(i,1) + FF%W)* nf(dir) + &
               p_x%WmovieSiblings(xXx,J,1)
               
               p_x%WmovieSiblings(xXx,J,2) = (auxK(i,2) + FF%U)* nf(dir) + &
               p_x%WmovieSiblings(xXx,J,2)              
-                            
+              
+              ! tZ
+              p_x%WmovieSiblings(xXx,J,3) =  & 
+              p_x%WmovieSiblings(xXx,J,3) + (auxK(i,4)*p_X%normal(1) + auxK(i,3)*p_X%normal(2)+ FF%Tz)* nf(dir)                !   ------------------------- borrar
+              ! tX
+              p_x%WmovieSiblings(xXx,J,4) =  & 
+              p_x%WmovieSiblings(xXx,J,4) + (auxK(i,5)*p_X%normal(1) + auxK(i,4)*p_X%normal(2)+ FF%Tx)* nf(dir)                !   ------------------------- borrar
+                       
                             xXx = xXx + 1
                        end do
-                     else !no movie
+                   else !no movie ......................................................................
                        FF%W = 0
                        FF%U = 0
-!                      print*, "first W: ", p_x%W(J,:)
+                       FF%Tz = 0
+                       FF%Tx = 0
+                        
+!                       Print*,""
+!                       print*,"x=",p_x%center
+!                       print*,"n=",p_X%normal
+!                       print*,"diffracted="
+!                       print*,"W=",RW(1),abs(RW(1))
+!                       print*,"U=",RW(2),abs(RW(2))
+!                       print*,"sig33=",RW(3),abs(RW(3))
+!                       print*,"sig13=",RW(4),abs(RW(4))
                      if (.not. pXi%isOnInterface) then
                      if (p_x%layer .eq. pXi%layer) then !agregar campo libre
                      call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
                         pXi%center,p_x%layer,cOME,mecStart,mecEnd)
+                       
+!                       print*,"+ direct="
 !                       print*,"W",FF%W,abs(FF%W)
 !                       print*,"U",FF%U,abs(FF%U)
 !                       print*,"Tz",FF%Tz,abs(FF%Tz)
-!                       print*,"Tx",FF%Tx,abs(FF%Tx)                        
+!                       print*,"Tx",FF%Tx,abs(FF%Tx) 
+!                       print*,"total="
+!                       print*,"W",RW(1)+FF%W,abs(RW(1)+FF%W)
+!                       print*,"U",RW(2)+ FF%U,abs(RW(2)+ FF%U)
+!                       print*,"Tz",RW(3)+FF%Tz,abs(RW(3)+FF%Tz)
+!                       print*,"Tx",RW(4)+ FF%Tx,abs(RW(4)+ FF%Tx) 
                      end if
                      end if
-!                      FF%W = 0
-!                      FF%U = 0
+!                      FF%W = 0                                                  !   ------------------------- borrar 
+!                      FF%U = 0                                                  !
                        p_x%W(J,1) = &
                        p_x%W(J,1) + (RW(1)+ FF%W) * nf(dir)
                        p_x%W(J,2) = &
                        p_x%W(J,2) + (RW(2)+ FF%U) * nf(dir)
+                       
+                       p_x%W(J,3) =  & 
+                       p_x%W(J,3) + (RW(4)*p_X%normal(1) + RW(3)*p_X%normal(2)+ FF%Tz)* nf(dir)                !   ------------------------- borrar
+                       p_x%W(J,4) =  & 
+                       p_x%W(J,4) + (RW(5)*p_X%normal(1) + RW(4)*p_X%normal(2)+ FF%Tx)* nf(dir)                !   ------------------------- borrar
+!                      p_x%W(J,5) =  p_x%W(J,5) + RW(5)* nf(dir)                !   ------------------------- borrar
                      end if ! movie?
                 end if
-              else !fuente virtual (puede haber integral GQ)..........................
+              else !fuente virtual (puede haber integral GQ)..........
                 if (nGqs .eq. 1) then
                   peso = pXi%length
                 else
@@ -3999,7 +3998,7 @@
       complex*16, dimension(2,4) :: subMatD, subMatS, subMatD0, subMatS0
 !     complex*16, dimension(4,1) :: diagMat
       complex*16, dimension(4,4) :: diagMat
-      complex*16 :: gamma,nu,mukanu2,mukagam2,l2m,xi,g2,k2,lk2!,lg2!,eta
+      complex*16 :: gamma,nu,xi!,mukanu2,mukagam2,l2m,g2,k2,lk2!,lg2!,eta
       complex*16 :: egammaN,enuN,egammaP,enuP
       integer    :: iR,iC,e,bord
       
@@ -4020,13 +4019,13 @@
           if(aimag(gamma).gt.0.0)gamma = -gamma
           if(aimag(nu).gt.0.0)nu=-nu
           
-          mukanu2  = 2* amu(e)* k * nu
-          mukagam2 = 2* amu(e)* k * gamma
-          l2m = lambda(e) + 2 * amu(e)
-          xi = (nu**2 - k**2) * amu(e)
-          g2 = gamma**2
-          k2 = k**2
-          lk2 = lambda(e)*k2
+!         mukanu2  = 2* amu(e)* k * nu
+!         mukagam2 = 2* amu(e)* k * gamma
+!         l2m = lambda(e) + 2 * amu(e)
+          xi = k**2-nu**2 !(nu**2 - k**2) * amu(e)
+!         g2 = gamma**2
+!         k2 = k**2
+!         lk2 = lambda(e)*k2
 !         lg2 = lambda(e)*g2
 !         eta = 2*gamma**2 - cOME_i**2/BETA(e)**2
           
@@ -4036,14 +4035,15 @@
                                  gamma,-k*UR,-k*UR,-nu /), &
                            (/ 2,4 /))
           subMatD0 = UI * subMatD0 
-!         subMatS = RESHAPE((/ xi,-2*k*gamma,-2*k*nu,-xi,& 
-!                              xi,2*k*gamma,2*k*nu,-xi /),&
-!                          (/2,4/))  
-          subMatS0 = RESHAPE((/ l2m*(-1*g2)-lk2 , -mukagam2, &
-                               -mukanu2        , xi, &
-                               l2m*(-1*g2)-lk2 , mukagam2, & 
-                               mukanu2         , xi /),&
-                           (/2,4/))
+          subMatS0 = RESHAPE((/ xi,-2*k*gamma,-2*k*nu,-xi,& 
+                               xi,2*k*gamma,2*k*nu,-xi /),&
+                           (/2,4/)) 
+          subMatS0 = amu(e) * subMatS0                  
+!         subMatS0 = RESHAPE((/ l2m*(-1*g2)-lk2 , -mukagam2, &
+!                              -mukanu2        , xi, &
+!                              l2m*(-1*g2)-lk2 , mukagam2, & 
+!                              mukanu2         , xi /),&
+!                          (/2,4/))
           
           ! la profundidad z de la frontera superior del estrato
 !         z_i = Z(e)   ! e=1  ->  z = z0 = 0
@@ -4125,7 +4125,7 @@
           if (verbose >= 3) then
              call showMNmatrixZ(4*N+2,4*N+2,this_A,"A    ",outpf) 
           end if
-
+      
       end subroutine matrixA_borderCond
       
       
@@ -4302,7 +4302,7 @@
       complex*16, intent(in)       :: cOME_i  
       integer, intent(in)          :: e,outpf,dir,mecStart,mecEnd
       complex*16, dimension(4*N+2),intent(in) :: thisIP_B
-      complex*16 :: gamma,nu,mukanu2,mukagam2,l2m,xi,g2,k2,lk2,lg2,eta
+      complex*16 :: gamma,nu,xi,eta!,mukanu2,mukagam2,l2m,g2,k2,lk2,lg2
       complex*16 :: egammaN,enuN,egammaP,enuP
       complex*16, dimension(2,4) :: subMatD
       complex*16, dimension(3,4) :: subMatS
@@ -4325,14 +4325,14 @@
       if(aimag(gamma).gt.0.0)gamma = -gamma
       if(aimag(nu).gt.0.0)nu=-nu
       
-          mukanu2  = 2* amu(e)* k * nu
-          mukagam2 = 2* amu(e)* k * gamma
-          l2m = lambda(e) + 2 * amu(e)
-          xi = (nu**2 - k**2) * amu(e)
-          g2 = gamma**2
-          k2 = k**2
-          lk2 = lambda(e)*k2
-          lg2 = lambda(e)*g2
+!         mukanu2  = 2* amu(e)* k * nu
+!         mukagam2 = 2* amu(e)* k * gamma
+!         l2m = lambda(e) + 2 * amu(e)
+          xi = k**2-nu**2!(nu**2 - k**2) * amu(e)
+!         g2 = gamma**2
+!         k2 = k**2
+!         lk2 = lambda(e)*k2
+!         lg2 = lambda(e)*g2
           eta = 2*gamma**2 - cOME_i**2/BETA(e)**2
           
       !downward waves
@@ -4375,10 +4375,10 @@
         subMatD = matmul(subMatD,diagMat)
         resD = matmul(subMatD,partOfXX)
       
-        if (dir .eq. 2) then
+        if (dir .eq. 2) then !vertical
         calcMecaAt_k_zi%Rw(1) = resD(1,1) !W
         calcMecaAt_k_zi%Rw(2) = - resD(2,1) !U 
-        else ! dir eq. 1
+        else ! dir eq. 1 !horizontal
         calcMecaAt_k_zi%Rw(1) = - resD(1,1) !W
         calcMecaAt_k_zi%Rw(2) = resD(2,1) !U 
         end if
@@ -4387,128 +4387,41 @@
       ! esfuerzos
       if (mecEnd .eq. 5) then
      
-!     subMatS = RESHAPE((/ xi,      -2.0*k*gamma,     eta,     &
-!                         -2.0*k*nu,     -xi,        2.0*k*nu,   &
-!                          xi,       2.0*k*gamma,     eta,     &
-!                          2.0*k*nu,     -xi,       -2.0*k*nu /),&
-!                          (/3,4/))      
+      subMatS = RESHAPE((/ xi,      -2.0*k*gamma,     eta,     &
+                          -2.0*k*nu,     -xi,        2.0*k*nu,   &
+                           xi,       2.0*k*gamma,     eta,     &
+                           2.0*k*nu,     -xi,       -2.0*k*nu /),&
+                           (/3,4/))      
      
-      
-        subMatS = RESHAPE((/ l2m*(-1*g2)-lk2 , -mukagam2, l2m*(-1*k2)-lg2, &
-                               -mukanu2        , xi   , mukanu2, &
-                               l2m*(-1*g2)-lk2 , mukagam2, l2m*(-1*k2)-lg2, & 
-                               mukanu2         , xi   , -mukanu2 /),&
-                           (/3,4/))
+      subMatS = amu(e) * subMatS
+!       subMatS = RESHAPE((/ l2m*(-1*g2)-lk2 , -mukagam2, l2m*(-1*k2)-lg2, &
+!                              -mukanu2        , xi   , mukanu2, &
+!                              l2m*(-1*g2)-lk2 , mukagam2, l2m*(-1*k2)-lg2, & 
+!                              mukanu2         , xi   , -mukanu2 /),&
+!                          (/3,4/))
         subMatS = matmul(subMatS,diagMat)
         resS = matmul(subMatS,partOfXX)
+        if (dir .eq. 2) then ! vertical
         calcMecaAt_k_zi%Rw(3) = resS(1,1) !s33
+        calcMecaAt_k_zi%Rw(4) = - resS(2,1) !s31
+        calcMecaAt_k_zi%Rw(5) = - resS(3,1) !s11
+        else ! dir eq. 1 !horizontal
+        calcMecaAt_k_zi%Rw(3) = - resS(1,1) !s33
         calcMecaAt_k_zi%Rw(4) = resS(2,1) !s31
-        calcMecaAt_k_zi%Rw(5) = resS(3,1) !s11
+        calcMecaAt_k_zi%Rw(5) = - resS(3,1) !s11
+        
+        end if
+        
+        
       end if ! esfuerzos
           
       end function calcMecaAt_k_zi
       
-      
-      function calcFF(z_f,e_f,dir,zX,eX,k,cOME)
-      use soilVars 
-      use gloVars  
-!     use waveNumVars, only : NFREC,NMAX!,DK
-      use resultvars, only: Punto,MecaElem
-      
-      implicit none
-      integer,    intent(in)     :: e_f,eX,dir
-      real,       intent(in)     :: z_f,zX
-      real,       intent(in)     :: k
-      complex*16, intent(in)     :: cOME
-      type (MecaElem)            :: calcFF
-      
-      real                       :: z_i,SGNz
-      complex*16 :: G11,G33,G31,S333,S313,S113,s331,s131,s111
-      complex*16 :: egamz,enuz
-      complex*16                 :: gamma,nu,DEN,L2M
-      complex*16                 :: omeAlf,omeBet
-      real     :: errT = 0.001
-      egamz=cmplx(1.0,0.0,8);enuz=cmplx(1.0,0.0,8);SGNz=0
-      calcFF%Rw = cmplx(0.0,0.0,8)
-      
-      if (e_f .ne. eX) return
-      
-      DEN = 4.0*PI*RHO(e_f)*cOME**2.0
-      omeAlf = cOME**2/ALFA(e_f)**2.0
-      omeBet = cOME**2/BETA(e_f)**2.0
-      L2M = LAMBDA(e_f) + 2.0*AMU(e_f)
-      
-      z_i = zX - z_f
-!     if (z_i .ne. 0) then
-      if (abs(z_i) > errT) then
-        SGNz = z_i / ABS(z_i)
-      end if
-      
-        gamma = sqrt(omeAlf - k**2.0)
-        nu = sqrt(omeBet - k**2.0)
-        if(aimag(gamma).gt.0.0) then 
-           gamma = -gamma
-        end if!
-        if(aimag(nu).gt.0.0) then 
-           nu=-nu
-        end if 
-        
-        
-          egamz = exp(-UI*gamma*ABS(z_i))
-          enuz = exp(-UI*nu*ABS(z_i)) 
-          
-          
-          G31 = -UI/DEN * SGNz*k*(egamz - enuz)
-          
-      if(dir .eq. 2) then
-         G33 = -UI/DEN * (gamma*egamz + k**2.0/nu*enuz) 
-         S333 = -UR/DEN * SGNz*( &
-                    (gamma**2.0*L2M + k**2.0*lambda(e_f))* egamz &
-                  + (2.0*amu(e_f)*k**2.0)* enuz &
-                    ) 
-         S313 = -UR/DEN * amu(e_f) * ( &
-                    (2.0*k*gamma)* egamz &
-                  - (k/nu*(nu**2.0-k**2.0))* enuz &
-                    ) 
-         S113 = -UR/DEN * SGNz * ( &
-                    (k**2.0*L2M + gamma**2.0*lambda(e_f))* egamz &
-                  + (-2.0*amu(e_f)*k**2.0)* enuz &
-                    ) 
-      
-        calcFF%RW(1) = G33
-        calcFF%RW(2) = G31
-        calcFF%RW(3) = S333
-        calcFF%RW(4) = S313
-        calcFF%RW(5) = S113
-      else
-         G11 = -UI/DEN * (k**2.0/gamma*egamz + nu*enuz) 
-         
-         s331 = -UR/DEN * ( &
-                    (k*gamma*L2M + lambda(e_f)*k**3.0/gamma)* egamz &
-                  + (-2.0*amu(e_f)*k*nu)* enuz &
-                    )
-         s131 = -UR/DEN * amu(e_f)*SGNz * ( &             
-                    (2.0*k**2.0)* egamz &
-                    + (nu**2.0-k**2.0)* enuz &
-                    )
-         s111 = -UR/DEN * ( & 
-                    (k*gamma*lambda(e_f)+L2M*k**3.0/gamma)* egamz &
-                    + (2.0*amu(e_f)*k*nu)* enuz & 
-                    )
-     
-        calcFF%RW(1) = G31 !W
-        calcFF%RW(2) = G11 !U
-        calcFF%RW(3) = S331!s33
-        calcFF%RW(4) = S131!s31
-        calcFF%RW(5) = S111!s11
-      end if
-!       calcFF%RW = calcFF%RW * exp(-UI * k * xX)
-      end function calcFF            
       subroutine calcFreeField(FF,j,p_X,nX,pXi,e,cOME,mecStart,mecEnd)
       !                      |  |   |  |__ estrato de fuente y receptor
       !                      |  |   |__ coordenadsa de la fuente (2)
       !                               normal al receptor
-      !                      |  |__ coordenadsa del receptor (2)
+      !                      |  |__ coordenadas del receptor (2)
       !                      |__ dirección de la fuerza (1;2) :: (X,Z)
       ! solucion de campo libre para fuente y receptor en el mismo estrato
       
@@ -4537,8 +4450,8 @@
 !     freef = 0
       ! preliminary functions
       r = sqrt((p_x(1)-pXi(1))**2 + (p_x(2)-pXi(2))**2)
-      gamma(1) = (p_X(1) - pXi(1)) / r
-      gamma(2) = (p_X(2) - pXi(2)) / r
+      gamma(1) = (p_X(1) - pXi(1)) / r ! gamma x
+      gamma(2) = (p_X(2) - pXi(2)) / r ! gamma z
 !     print*,r
 !     print*,gamma
 !     print*,alfa(e)
@@ -4664,6 +4577,102 @@
 !       return
 !     end if 
       end function deltaij
+      
+      function calcFF(z_f,e_f,dir,zX,eX,k,cOME)
+      use soilVars 
+      use gloVars  
+!     use waveNumVars, only : NFREC,NMAX!,DK
+      use resultvars, only: Punto,MecaElem
+      
+      implicit none
+      integer,    intent(in)     :: e_f,eX,dir
+      real,       intent(in)     :: z_f,zX
+      real,       intent(in)     :: k
+      complex*16, intent(in)     :: cOME
+      type (MecaElem)            :: calcFF
+      
+      real                       :: z_i,SGNz
+      complex*16 :: G11,G33,G31,S333,S313,S113,s331,s131,s111
+      complex*16 :: egamz,enuz
+      complex*16                 :: gamma,nu,DEN,L2M
+      complex*16                 :: omeAlf,omeBet
+      real     :: errT = 0.001
+      egamz=cmplx(1.0,0.0,8);enuz=cmplx(1.0,0.0,8);SGNz=0
+      calcFF%Rw = cmplx(0.0,0.0,8)
+      
+      if (e_f .ne. eX) return
+      
+      DEN = 4.0*PI*RHO(e_f)*cOME**2.0
+      omeAlf = cOME**2/ALFA(e_f)**2.0
+      omeBet = cOME**2/BETA(e_f)**2.0
+      L2M = LAMBDA(e_f) + 2.0*AMU(e_f)
+      
+      z_i = zX - z_f
+!     if (z_i .ne. 0) then
+      if (abs(z_i) > errT) then
+        SGNz = z_i / ABS(z_i)
+      end if
+      
+        gamma = sqrt(omeAlf - k**2.0)
+        nu = sqrt(omeBet - k**2.0)
+        if(aimag(gamma).gt.0.0) then 
+           gamma = -gamma
+        end if!
+        if(aimag(nu).gt.0.0) then 
+           nu=-nu
+        end if 
+        
+        
+          egamz = exp(-UI*gamma*ABS(z_i))
+          enuz = exp(-UI*nu*ABS(z_i)) 
+          
+          
+          G31 = -UI/DEN * SGNz*k*(egamz - enuz)
+          
+      if(dir .eq. 2) then
+         G33 = -UI/DEN * (gamma*egamz + k**2.0/nu*enuz) 
+         S333 = -UR/DEN * SGNz*( &
+                    (gamma**2.0*L2M + k**2.0*lambda(e_f))* egamz &
+                  + (2.0*amu(e_f)*k**2.0)* enuz &
+                    ) 
+         S313 = -UR/DEN * amu(e_f) * ( &
+                    (2.0*k*gamma)* egamz &
+                  - (k/nu*(nu**2.0-k**2.0))* enuz &
+                    ) 
+         S113 = -UR/DEN * SGNz * ( &
+                    (k**2.0*L2M + gamma**2.0*lambda(e_f))* egamz &
+                  + (-2.0*amu(e_f)*k**2.0)* enuz &
+                    ) 
+      
+        calcFF%RW(1) = G33
+        calcFF%RW(2) = G31
+        calcFF%RW(3) = S333
+        calcFF%RW(4) = S313
+        calcFF%RW(5) = S113
+      else
+         G11 = -UI/DEN * (k**2.0/gamma*egamz + nu*enuz) 
+         
+         s331 = -UR/DEN * ( &
+                    (k*gamma*L2M + lambda(e_f)*k**3.0/gamma)* egamz &
+                  + (-2.0*amu(e_f)*k*nu)* enuz &
+                    )
+         s131 = -UR/DEN * amu(e_f)*SGNz * ( &             
+                    (2.0*k**2.0)* egamz &
+                    + (nu**2.0-k**2.0)* enuz &
+                    )
+         s111 = -UR/DEN * ( & 
+                    (k*gamma*lambda(e_f)+L2M*k**3.0/gamma)* egamz &
+                    + (2.0*amu(e_f)*k*nu)* enuz & 
+                    )
+     
+        calcFF%RW(1) = G31 !W
+        calcFF%RW(2) = G11 !U
+        calcFF%RW(3) = S331!s33
+        calcFF%RW(4) = S131!s31
+        calcFF%RW(5) = S111!s11
+      end if
+!       calcFF%RW = calcFF%RW * exp(-UI * k * xX)
+      end function calcFF            
       subroutine inverseA(A,n)
       integer, intent(in) :: n
       complex*16, dimension(n,n), intent(inout) :: A
@@ -4690,7 +4699,7 @@
       deallocate(work)
       deallocate(ipiv)
       end subroutine inverseA
-      subroutine makeTaperFuncs(Npol,cutoff_fracFmax,cutoff_fracKmax)
+      subroutine makeTaperFuncs_cutF_cutK(Npol,cutoff_fracFmax,cutoff_fracKmax)
       use resultvars, only: Hf,Hk 
       use waveNumVars, only : NFREC,NMAX,DFREC,DK
       
@@ -4705,11 +4714,11 @@
          Hf = (/ (i,i=0,nfrec) /) * DFREC
          Hf = 1.0/sqrt(1.0+(Hf/(cutoff_fracFmax*NFREC*DFREC))**(2*Npol)) 
          
-         Hk(1:nmax) = (/ (i,i=0,nmax-1) /) * DK
-         Hk(nmax+1:2*nmax) = (/ (nmax-i,i=0,nmax-1) /) * DK 
+         Hk(1:nmax+1) = (/ (i,i=0,nmax) /) * DK
+         Hk(nmax+2:2*nmax) = (/ (i,i=nmax-1,1,-1) /) * DK 
          HK = 1.0/sqrt(1.0+(Hk/(cutoff_fracKmax*NMAX*DK))**(2*Npol))
          
-      end subroutine makeTaperFuncs  
+      end subroutine makeTaperFuncs_cutF_cutK  
       
       subroutine expPIK(expK)
       use waveNumVars, only : NMAX,DK
@@ -4861,14 +4870,14 @@
       use wavelets
       implicit none
       integer ,intent(in) :: iP,outpf
-      complex*16, dimension(Nfrec+1,2), intent(in) :: W
+      complex*16, dimension(Nfrec+1,4), intent(in) :: W                !        a 2
       complex*16, dimension(2*NFREC) :: S
       real, dimension(2), intent(in) :: coords  
 !     character(LEN=10),intent(in) :: tt
-      character(LEN=3), dimension(5)   :: nombre
+      character(LEN=3), dimension(4)   :: nombre                       !        a 2
       character(LEN=100) :: titleN
       character(LEN=9)   :: logflag
-      integer :: i,iMec,t,n_maxtime
+      integer :: i,iMec,t,n_maxtime,mecmax
       real :: x_i,z_i,factor
       factor = sqrt(2.*NFREC)
       
@@ -4876,12 +4885,13 @@
       nombre(2)= 'u--'
       nombre(3)= 's33'
       nombre(4)= 's31'
-      nombre(5)= 's11'
+!     nombre(5)= 's11'
+      mecmax = 4                                                       !        a 2
       
       x_i=coords(1)
       z_i=coords(2)
       
-      do iMec = 1,2
+      do iMec = 1,mecmax
       print*,sum(W(:,imec))
       !  (0) crepa en f
       !           1 2 3 4 ... Nfrec Nfrec+1
@@ -4948,7 +4958,7 @@
          n_maxtime = int(maxtime/real(dt,4))
          print*,"maxtime = ",maxtime," segs :: @",dt," : ",n_maxtime," puntos"
       !  (3) plot the damn thing
-      if (verbose .ge. 2) then
+      if (verbose .ge. 1) then
       !guardar en texto
          write(titleN,'(a,a,I0,a,I0,a,I0,a,I0,a,I0,a)') & 
                'S_',nombre(iMec),iP,'[', &
@@ -4988,12 +4998,12 @@
       integer ,intent(in) :: outpf
       real       ::  X(nxXxmpts)
       real       ::           Y(nz)
-      complex*16 :: Sm(nxXxmpts,nz,3,2*NFREC)      
+      complex*16 :: Sm(nxXxmpts,nz,4,2*NFREC)                         ! 3
       integer  :: iP,iMec
       integer  :: ix,iz,iT,i,Iframe,Fframe,mecMAx,t, n_maxtime
       real     :: factor,ColorRangeMaximumScale,tlabel
       integer*4 :: lentitle
-      character(LEN=3), dimension(3)      :: nombre
+      character(LEN=3), dimension(4)      :: nombre                   ! 3
       character(LEN=60) :: textoTimeStamp
       character(LEN=15) :: auxTxt
       CHARACTER(len=400) :: path
@@ -5008,11 +5018,11 @@
       
       nombre(1)= 'w--'
       nombre(2)= 'u--'
-      nombre(3)= 'mod'
-!     nombre(3)= 's33'
-!     nombre(4)= 's31'
+!     nombre(3)= 'mod'
+      nombre(3)= 'Tz' 
+      nombre(4)= 'Tx'
 !     nombre(5)= 's11'
-      mecMax = 3
+      mecMax = 4
 !     if(workboundary) mecMax = 2
       
       !tiempo maximo para graficar
@@ -5050,7 +5060,7 @@
         Y(iz) = allpoints(IP)%center(2) !;print*,iP,'z=',Y(iz)
         
         ! los espectros de cada coordenada ya están ordenaditos
-        do iMec = 1,2
+        do iMec = 1,4                                                                                                !   2
         ! (1) crepa
         Sm(ix,iz,iMec,1:nfrec+1) = allpoints(iP)%WmovieSiblings(ix,1:nfrec+1:+1,iMec)* & 
       exp(cmplx(0.0,- 2*pi*(/((t-1)*dfrec,t=1,nfrec+1)/) * t0,8))/(2*pi) !* Uo(1:nfrec+1)
@@ -5072,20 +5082,20 @@
           
           
         end do !iMec
-        ! el módulo de los desplazameintos
-        Sm(ix,iz,3,:) = sqrt(Sm(ix,iz,1,:)**2 + Sm(ix,iz,2,:)**2)
-        
-        Sm(ix,iz,3,:) = log(1. + exp(sharp) * abs(Sm(ix,iz,3,:)))/ &
-                        log(exp(sharp) + 1.)
+!       ! el módulo de los desplazameintos                                                                            ! descomentar
+!       Sm(ix,iz,3,:) = sqrt(Sm(ix,iz,1,:)**2 + Sm(ix,iz,2,:)**2)
+!       
+!       Sm(ix,iz,3,:) = log(1. + exp(sharp) * abs(Sm(ix,iz,3,:)))/ &
+!                       log(exp(sharp) + 1.)
         
       end do !ix
       iz = iz + 1
       end do !iP
-        Sm(:,:,3,:) = Sm(:,:,3,:) / maxval(real(Sm(:,:,3,:)))
+!       Sm(:,:,3,:) = Sm(:,:,3,:) / maxval(real(Sm(:,:,3,:)))                                                        ! descomentar
       !color table boundaries
       ColorRangeMaximumScale = 0.1
       
-  123 do i=1,2
+  123 do i=1,4                                                                                                      ! 2
        maV = maxVal(real(Sm(:,:,i,:),4))
        miV = minVal(real(Sm(:,:,i,:),4))
        maV = max(maV,abs(miV))
@@ -5116,8 +5126,8 @@
        end if
       end do
       ! y para el módulo
-        colorBounds(3,1) = 1.!1.41* max(colorBounds(1,1),colorBounds(2,1))
-        colorBounds(3,2) = 0.!1.41* min(colorBounds(1,2),colorBounds(2,2))
+!       colorBounds(3,1) = 1.!1.41* max(colorBounds(1,1),colorBounds(2,1))                                      ! descomentar
+!       colorBounds(3,2) = 0.!1.41* min(colorBounds(1,2),colorBounds(2,2))
 !     stop 0
             ! plotting boundaries according to geometry of topography
       minX=0.;maxX=0.;minY=0.;maxY=0.
@@ -5214,6 +5224,8 @@
       call graf3(real(minX,4),real(maxX,4),real(minX,4),real(xstep,4), & 
                  real(maxY,4),real(minY,4),real(maxY,4),real(-zstep,4),& 
                  real(miV,4),real(maV,4),real(miV,4),real(Vstep*4.0,4)) 
+      CALL SHDMOD ('CELL', 'CONTUR')
+      CALL SHDMOD ('MIDDLE', 'COLOR')
       
       CALL CONSHD(real(X,4),int(size(X),4),real(Y,4),int(size(Y),4), & 
                 real(real(Sm(:,:,iMec,iT)),4), real(ZLVRAY,4),int(41,4))
