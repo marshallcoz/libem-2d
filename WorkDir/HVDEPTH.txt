@@ -1,4 +1,12 @@
 N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
+1
+H(m)  Alfa(m/s) Beta(m/ s) Dens(T/m3) 
+1.5     2.0      0.8        1.0
+888     4.0      1.0        1.0
+DFREC   nFREC   DeltaK    nK       Q      t0
+0.05    512     0.001     4096    500.0    0.0
+
+N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
 3
 H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
 50     80     40        1.0 
@@ -17,62 +25,5 @@ H(m)  Alfa(m/s) Beta(m/ s) Dens(T/m3)
 DFREC   nFREC   DeltaK   nmax    Q        t0
 0.05     512     0.001   2048   1000.0     0.0
     
-0.06666   64     0.078125    256   1000.0
-
-N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
-1
-H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
-1.5     2.0      0.8        1.0
-8888    4.0      1.0        1.0
-DFREC   nFREC   DeltaK   nK     Q   (Original scheme)
-0.046875   1024     0.0625     32    5000.0
-
-0.0234375   128     0.0625     32    1000.0
-
-0.0234375   128     0.0625     32    1000.0
-
-0.01171875   256     0.0625     32    1000.0
-
-0.046875   64     0.0625     32    1000.0
-
-N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
-1
-H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
-6000    150     40        1.0
-8888    150     40        1.0
-DFREC   nFREC   DeltaK   nK     Q   (Original scheme)
-0.05    128     0.0625     32    500.0
-
-
-0.046875    64     0.0625     64    1000.0
-
-N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
-2
-H(m) Alfa(m/s) Beta(m/s) Dens(T/m3)   
-5        50    20        1.5  
-25       50    20        1.5  
-8888     50    20        1.5
-DFREC   nFREC   DeltaK   nK     Q   (Original scheme)
-0.08   64      0.0078   128    1000.0
-
-0.01   512      0.001   1024    1000.0  !el que use para los videos
-
-
-0.01   32      0.001   512    1000.0
-
-0.01   254      0.001   1024    1000.0
-
-
-N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
-1
-H(m) Alfa(m/s) Beta(m/s) Dens(T/m3)   
-90       120    60        1.5
-8888     300    120        1.5
-DFREC   nFREC   DeltaK   nKmax     Q   (Original scheme)
-0.01     256    0.0001    1024    1000.0
-
-usar para reproducir lo de mathieu:
-0.2   512    10000.0    60000.0     1000.0
-
 
 Keep calm and carry on the file format
