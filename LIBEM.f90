@@ -160,7 +160,7 @@
       integer,save      :: NFREC
       real*8   ,save    :: FREC,DFREC,OME,OMEI
       !Discrete Wave-number:
-      real   ,save      :: DK    ! delta k on discrete wave number
+      real*8   ,save    :: DK    ! delta k on discrete wave number
       integer,save      :: NMAX
       real   ,save      :: LFREC,Qq
       complex*16, dimension(:), allocatable :: expK
@@ -1034,6 +1034,7 @@
       subroutine plotXYcomp(y_in,Dt,n,titleN,xAx,yAx,W,H)
       ! (Uo,Dt,size(Uo),'FIGURE_NAME.pdf','time[sec]','amplitude',1200,800) 
       USE DISLIN
+      use glovars, only : pi
       implicit none
       real, intent(in)                              :: Dt
       integer, intent(in)                           :: n,H,W
@@ -1304,7 +1305,7 @@
       nombre(5)= '_s11.png'
       
       do i=1,NFREC
-         vHorz(i) = 0 + (i-1) * real(DFREC,4) * 2 * pi ! frec angular
+         vHorz(i) = 0 + (i-1) * real(DFREC,4)  ! Hz
       end do
       !
       do ik=1,nmax
@@ -1640,10 +1641,10 @@
          
         ! Azimi attenuation
         do l=1,N+1
-          Alfa(l) = Alfa0(l)*(cmplx(1+1/(pi*Qp)*log(ome/(2*pi)),1/(2*Qp),8))
-          beta(l) = beta0(l)*(cmplx(1+1/(pi*Qs)*log(ome/(2*pi)),1/(2*Qs),8))
+          alfa(l) = 2*pi*alfa0(l)*(cmplx(1-1/(pi*Qp)*log((2*pi)/ome),1/(2*Qp),8))
+          beta(l) = 2*pi*beta0(l)*(cmplx(1-1/(pi*Qs)*log((2*pi)/ome),1/(2*Qs),8))
           aMU(l) = RHO(l) * beta(l)**2
-          Lambda(l) = RHO(l)*Alfa(l)**2 - real(2.)*aMU(l)
+          Lambda(l) = RHO(l)*alfa(l)**2 - real(2.)*aMU(l)
         end do
          
 !       ! complex frecuency for avoiding poles and provide damping
@@ -1860,7 +1861,7 @@
       use soilVars
       use waveNumVars
       use waveVars, only : dt,t0
-      use gloVars, only : verbose!,PI
+      use gloVars, only : verbose,PI
       implicit none
       integer, intent(in) :: outpf
       logical :: lexist
@@ -1933,8 +1934,15 @@
 !      ALFA(N+1)=BET/BEALF
       
       READ(7,*)
-      READ(7,*)DFREC,NFREC,DK,nmax,Qq,t0 
+      READ(7,*)DFREC,NFREC,nmax,Qq,t0 
       close(7)
+      
+      ! estimamos dk para que con nmax dado se vea la onda de Rayligh incluso
+      ! en la frec más alta
+      DK = (DFREC * NFREC)/(beta0(1) * nmax * 1.1)
+      if (verbose .ge. 1) write(outpf,'(a,F7.5)') "DK = ",DK
+      
+      
       Qs = Qq
       Qp = Qq
       ! aplicamos el amortiguamiento en las velocidades
@@ -1963,7 +1971,7 @@
       
 !        LFREC = 2*PI/DK
          
-      Dt = 1.0 / (2.0 * real(NFREC) * DFREC)
+      Dt = 1.0 / (2.0 * real(NFREC) * DFREC/(2*pi))
    
       if (verbose >= 1) then
        write(outpf,'(a,I0,a,F8.4,a,F8.4,a,/,a,F8.1,/)') & 
@@ -3425,7 +3433,7 @@
       integer, dimension(5,2) :: sign
       complex*16, dimension (:), pointer :: RW
       type(FFres),target :: FF
-!     logical :: exist
+      logical :: exist
 !     character(LEN=90) :: nombre
       !  fza horiz     fza vert       !(para la crepa)
       sign(1,1) = -1 ; sign(1,2) = 1  !W        impar           par
@@ -3479,8 +3487,24 @@
         k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.01
         call vectorB_force(B(:,ik),zf,ef,intf,dir,cOME,k)  
         B(:,ik) = matmul(AK(:,:,ik),B(:,ik))
+        
+!       if (i_zfuente .ne. 0) then
+!       if (ik .eq. 20) then
+!          inquire(file="out1.txt", exist=exist)
+!          if (exist) then
+!      open(12, file="out1.txt", status="old", position="append", action="write")
+!          else
+!      open(12, file="out1.txt", status="new", action="write")
+!          end if
+!          do i=1,size(B(:,ik))
+!          write(12,'(E12.3,1x)',advance='NO') abs(B(i,ik))
+!          end do !i
+!          write(12,*) " "
+!          close(12)  
+!       end if
+!       end if
        end do ! ik
-      
+     
       ! resultados para cada Z donde hay receptores ..............................
       do itabla_z = 1,nZs !(en la tabla pota todos los puntos son receptores)        
       ! ¿En este Z hay algún punto que requiera integración gaussiana?
@@ -4191,9 +4215,9 @@
       if (fisInterf) then
       if(direction .eq. 1) then
         s331(1) = 0
-        S131(1) = - cmplx(1.0 / (2.0 * PI ),0.0,8)
+        S131(1) = + cmplx(1.0 / (2.0 * PI ),0.0,8)
       elseif (direction .eq. 2) then
-        s333(1) = - cmplx(1.0 / (2.0 * PI ),0.0,8)
+        s333(1) = + cmplx(1.0 / (2.0 * PI ),0.0,8)
         S313(1) = 0
       end if
         G33(1) = 0
@@ -4397,7 +4421,8 @@
       type (FFres), intent(out) :: FF
       real*8 :: r,gamma(2)
       complex*16 :: A,B,C,Dqr,Dkr
-      complex*16 :: omeP,omeS!,psi,Dpsi,chi,Dchi !preliminary
+      complex*16 :: omeP,omeS
+!     complex*16 :: psi,chi!,Dpsi,Dchi !preliminary
 !     complex*16 :: dg1j1,dg1j3,dg3j1,dg3j3 !complenetary
       complex*16 :: H0s,H1s,H2s,H0p,H1p,H2p !Hankel 
 !     complex*16 :: i_4, b_a_2 !auxiliar
@@ -4435,11 +4460,15 @@
       ! W
       i = 2
       FF%W = -UI/8.0/rho(e)*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
+!     psi = i_4 * (((H1s/omeS) - b_a_2 * (H1p/omeP)) - H0s)
+!     chi = i_4 * (b_a_2 * H2p - H2s)
+!     FF%W = 1/amu(e)* (psi * deltaij(2,j) + chi * gamma(2) * gamma(j))
 !     print*,"W == ",FF%W, ":",abs(FF%W)
       
       ! U
       i = 1
       FF%U = -UI/8.0/rho(e)*(A*deltaij(i,j)-(2*gamma(i)*gamma(j)-deltaij(i,j))*B)
+!     FF%U = 1/amu(e)* (psi * deltaij(1,j) + chi * gamma(1) * gamma(j))
 !     print*,"U == ",FF%U, ":",abs(FF%U)
       end if!
       
@@ -4934,7 +4963,7 @@
                'S_',nombre(iMec),iP,'[', &
                int(x_i),'.',abs(int((x_i-int(x_i))*10)),';', & 
                int(z_i),'.',abs(int((z_i-int(z_i))*10)),'].pdf'
-         call plotXYcomp(S(1:n_maxtime),real(dt,4),n_maxtime,titleN, & 
+         call plotXYcomp(S(1:n_maxtime) ,real(dt,4),n_maxtime,titleN, & 
          'time[sec]','amplitude',1200,800)
       
       end do !imec
@@ -5256,16 +5285,20 @@
         go to 123
       end if
       print *, char(7)
-      write(6,'(a)') 'Delete *.png files? [Y]'
+      write(6,'(a)') 'Keep *.png files? [Y]'
       read(5,*)imdone
       if(imdone .eq. 'Y' .or. imdone .eq. 'y') then
+        write(6,'(a)') 'kept the files'
+      else 
         write(path,'(a)') 'rm *.png'
         call system(trim(path))
       end if!
       if (verbose .ge. 2) then
-        write(6,'(a)') 'Delete *.txt files? [Y]'
+        write(6,'(a)') 'Keep *.txt files? [Y]'
         read(5,*)imdone
         if(imdone .eq. 'Y' .or. imdone .eq. 'y') then
+          write(6,'(a)') 'kept the files'
+        else
           write(path,'(a)') 'rm *.txt'
           call system(trim(path))
         end if
