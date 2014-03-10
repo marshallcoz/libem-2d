@@ -145,7 +145,8 @@
       integer ::  N !number of layers. HALF-SPACE at N+1
       real*8, dimension(:),  allocatable :: Z,RHO,BETA0,ALFA0
       complex*16 ,dimension(:), allocatable :: ALFA,BETA,AMU,LAMBDA
-      real*8 :: Qs,Qp
+      real*8 :: Qq
+      real*8, dimension(:), allocatable :: Qs,Qp
       end module soilVars
       
       module sourceVars
@@ -161,12 +162,14 @@
       real*8   ,save    :: FREC,DFREC,OME,OMEI
       !Discrete Wave-number:
       real*8   ,save    :: DK    ! delta k on discrete wave number
-      integer,save      :: NMAX
-      real   ,save      :: LFREC,Qq
+      integer,save      :: NMAX,nKmax,nKmax_J
+      real   ,save      :: LFREC
       complex*16, dimension(:), allocatable :: expK
       complex*16, dimension(:,:), allocatable :: Vout
-      real   ,save      :: minKvalueW, minKvalueU
-      integer,save      :: lapse,KtrimStart
+!     real   ,save      :: minKvalueW, minKvalueU 
+      real              :: KmagnitudeChange
+      integer,save      :: lapse, KtrimIndex !contadores
+      logical,save      :: trimKplease
       end module waveNumVars
       
       module refSolMatrixVars
@@ -604,6 +607,7 @@
         cf = af
         mflag = .true.
         i = 0
+        d = 0.
 !       write(outpf,*)"a:f(",a,")=",af
 !       write(outpf,*)"b:f(",b,")=",bf
         do while( (abs(bf) > errortol) .and. (abs(a-b) > errorTol ) )
@@ -1034,7 +1038,7 @@
       subroutine plotXYcomp(y_in,Dt,n,titleN,xAx,yAx,W,H)
       ! (Uo,Dt,size(Uo),'FIGURE_NAME.pdf','time[sec]','amplitude',1200,800) 
       USE DISLIN
-      use glovars, only : pi
+!     use glovars, only : pi
       implicit none
       real, intent(in)                              :: Dt
       integer, intent(in)                           :: n,H,W
@@ -1045,20 +1049,35 @@
       
       real, dimension(n) :: x
       real maxY,minY,maxYc,minYc,xstep,ystep
-      integer :: i
+      integer :: i,nPow10x
 !     integer :: Modo,nx,ny
       character(LEN=100) :: dumb
       CHARACTER(LEN=30) :: CBUF
+      character(LEN=60) :: CTIT
+      integer*4 :: lentitle
 !     character(LEN=100),parameter :: f1='(F50.16,2x,F50.16)'
       
       
 !     allocate(x(n))
 !     print*,size(y)
+      
+      ! para que se vea el texto en los ejes si es muy pequeño en formato F3.1
+      nPow10x = 0
+      if (Dt *(n-1) < 0.6) then
+        do i = 1,10
+          if (Dt *(n-1)*(10**i) > 1.0) then
+            exit
+          end if 
+        end do 
+        nPow10x = i
+      end if
+
       DO i = 1,n
-        x(i) = Dt*(i-1)
+        x(i) = Dt*(i-1)*(10**nPow10x)
         y(i) = cmplx(real(y_in(i)),aimag(y_in(i)),4) 
 !       write(6,*) x(i), y(i)
       END DO
+      
       
       minY=MINVAL(real(y(:)),1)
 !     write(6,*)"MinReal Val= ",minY
@@ -1071,6 +1090,10 @@
       minY =MIN(minY,minYc)
       maxY =MAX(maxY,maxYc)
       
+      ! para que se vea lindo el eje y
+!     if (abs(maxY) < 0.3) then
+!     
+!     end if
       
 !     print*,"plotting"
 ! Dislin plotting routines ...
@@ -1091,7 +1114,12 @@
       CALL HWFONT()
       CALL axspos (int(370,4) ,int(H+100,4)) !the position of an axis system. Lower left corner
       call axslen (int(W,4) ,int(H,4)) !size of the axis system.
-      call name(trim(xAx),'X') 
+      if (nPow10x .ne. 0) then
+       write(dumb,'(a,a,I0)') trim(xAx),'x10^-',nPow10x
+       call name(trim(dumb),'X')
+      else
+       call name(trim(xAx),'X') 
+      end if
       call name(trim(yAx),'Y') 
       call labels('EXP','Y')
       call labdig(int(1,4),'X') !number of decimal places for labels
@@ -1143,6 +1171,16 @@
       call leglin(CBUF,dumb,int(2,4))
       call legtit('') ! or '' for nothing
       call legend(CBUF,int(2,4))
+      
+!     if (nPow10x .ne. 0) then
+!     write(dumb,'(a,E9.5,a,I0,a)') 'dt=',Dt*(10**nPow10x),'x10^-',nPow10x,' seg'
+!     write(CTIT,'(a)') trim(dumb)
+!     else
+!     write(CTIT,'(a,F9.5,a)') 'dt=',Dt,' seg'
+!     end if
+      write(CTIT,'(a,ES11.4E2,a)') 'dt=',Dt,' seg'
+      lentitle = NLMESS(CTIT)
+      CALL MESSAG(CTIT,int((1700),4),int(200,4))
 
       call errmod ("protocol", "off") !suppress dislin info
       call disfin()      
@@ -1292,7 +1330,7 @@
 !     real :: k
       real :: minX,minY,maxX,maxY,xstep,ystep,miV,maV,Vstep!,x_i,z_i
       real, dimension(41)   :: ZLVRAY
-      real, parameter :: p = 12. ! sharpness parameter
+      real, parameter :: p = 18. ! sharpness parameter
       
       
       if(verbose>=2)write(outpf,'(a,a,a)') "will plot ",trim(tt),"..."
@@ -1558,7 +1596,7 @@
       nIpts=0; nMpts=0; nBpts = 0
       iPtfin = 0
       mPtfin = 0
-      KtrimStart = 1
+      KtrimIndex = nmax+1
       allocate(vout(1,2))
       if (getInquirePointsSol) call getInquirePoints(PrintNum)
       call getVideoPoints(PrintNum)
@@ -1571,6 +1609,8 @@
       ALLOCATE (IPIV(4*N+2)) ! pivote
       allocate (auxKvect(2*Nmax))
       allocate(expK(2*nmax))
+      allocate(Qs(N+1))
+      allocate(Qp(N+1))
       factor = sqrt(2.*NMAX*2)
       
       if (getInquirePointsSol) then 
@@ -1630,24 +1670,29 @@
       else 
           write(PrintNum,'(A)', ADVANCE = "YES") " | t span"
       end if
-      DO J=1,NFREC+1
+      DO J=NFREC+1,1,-1
       ! complex frecuency for avoiding poles and provide damping
         FREC=DFREC*real(J-1) ! Hz
         if (J .eq. 1)  FREC = DFREC*0.01
         call cpu_time(tstart)
         OME=2.0*PI*FREC !rad/s
-        !periodic sources damping
+        ! complex frecuency to "smooth" the poles and be able to integrate
         cOME = cmplx(OME, - DFREC / periodicdamper,8) !* cmplx(1.0, -1.0/2.0/Qq,8)
          
-        ! Azimi attenuation
+        ! Azimi attenuation: see Kennett, The seismic wavefield, vol1 pag 148-150
         do l=1,N+1
-          alfa(l) = 2*pi*alfa0(l)*(cmplx(1-1/(pi*Qp)*log((2*pi)/ome),1/(2*Qp),8))
-          beta(l) = 2*pi*beta0(l)*(cmplx(1-1/(pi*Qs)*log((2*pi)/ome),1/(2*Qs),8))
+          ! "Normally we expect that loss in dilatation is very small compared 
+          ! with that in shear so that Qp^-1 << Qs^-1 , and then "
+          Qs(l) = Qq !* 4./3. * (beta0(l)/alfa0(l))**2. !; print*,"Qs ",Qs(l)
+          Qp(l) = Qq !; print*,"Qp ",Qp(l)
+          ! alfa0 y beta0 son velocidades de referencia a T=1sec
+          beta(l) = (beta0(l)*2*pi)*cmplx(1+1/pi/Qs(l)*log(ome/2/pi),-1/2/Qs(l),8)
+          alfa(l) = (alfa0(l)*2*pi)*cmplx(1+1/pi/Qp(l)*log(ome/2/pi),-1/2/Qp(l),8)
           aMU(l) = RHO(l) * beta(l)**2
           Lambda(l) = RHO(l)*alfa(l)**2 - real(2.)*aMU(l)
         end do
          
-!       ! complex frecuency for avoiding poles and provide damping
+!       and provide damping
 !       FREC=DFREC*real(J-1)
 !       if (J .eq. 1) FREC = DFREC*0.001 
 !       OME=2.0*PI*FREC
@@ -1671,26 +1716,27 @@
          call subdivideTopo(J,PrintNum)
 !        call allocintegPoints(J)
          call preparePointerTable(.false.,PrintNum)
+        trac0vec = 0
+        ibemMat = 0
       end if
          
       Ak = 0
-      Do ik=1,nmax+1 !WAVE NUMBER LOOP-
-         k = real(ik-1) * dK
-         if (ik .eq. 1) k = dk * 0.001
+      Do ik=1, KtrimIndex !strata cotinuity conditions matrix (all k)
+         k = real(ik-1,8) * dK
+         if (ik .eq. 1) k = real(dk * 0.01,8)
          call matrixA_borderCond(Ak(:,:,ik),k,cOME,PrintNum)
          call inverseA(Ak(:,:,ik),4*N+2)
       end do ! ik
       
-      if (workboundary) then
-        trac0vec = 0
-        ibemMat = 0
-      end if
         ! for the discrete wave number
 !     LFREC=2000 + L*exp(-PI*(FLOAT(J-1)/NFREC)**2)  !EMPIRICAL (improve)
 !     DK=2.0*PI/LFREC
       
 !     NMAX=(OME/minval(BETA))/DK+1                   !EMPIRICAL (improve)
 !     NMAX=2*NMAX+100                                !EMPIRICAL (improve)
+      
+      ! decidimos el nKmax_J
+      
       
       call crunch(0,J,cOME,PrintNum)
       !           ^--- the real source
@@ -1813,7 +1859,8 @@
       subroutine getMainInput
       use glovars
       use Gquadrature, only : WLmulti
-      use wavenumvars, only : minKvalueW, minKvalueU,lapse
+      use wavenumvars, only : KmagnitudeChange,lapse, trimKplease
+      use wavevars, only : maxtime
       implicit none
       logical :: lexist
       
@@ -1841,13 +1888,15 @@
       read(35,*)
       read(35,*) periodicdamper; print*,"Periodic sources damping factor ", periodicdamper
       read(35,*)
-      read(35,*) minKvalueW; print*,"min k para despreciar W= ", minKvalueW
-      read(35,*) minKvalueU; print*,"min k para despreciar W= ", minKvalueU
-      read(35,*) lapse; print*,"number of minimum values commited ", lapse
+      read(35,*) trimKplease; print*,"We will try to trim the K integrand"
+      read(35,*) KmagnitudeChange; print*,"if k * this < k(peak) we trim ", KmagnitudeChange
+      read(35,*) lapse; print*,"after this number of incidences ", lapse
       read(35,*)
       read(35,*) plotStress
       read(35,*)
       read(35,*) plotModule
+      READ(35,*)
+      READ(35,*) maxtime; print*,"seismograms will be plotted up to", maxtime,"secs"
       close(35)
       if (plotStress) then 
        imecMax = 4 ! dos desps , dos tracs
@@ -1939,17 +1988,18 @@
       
       ! estimamos dk para que con nmax dado se vea la onda de Rayligh incluso
       ! en la frec más alta
-      DK = (DFREC * NFREC)/(beta0(1) * nmax * 1.1)
-      if (verbose .ge. 1) write(outpf,'(a,F7.5)') "DK = ",DK
+      DK = (DFREC * NFREC)/(beta0(1) * nmax / 1.1)
+      if (verbose .ge. 1) write(outpf,'(a,F9.7)') "DK = ",DK
       
+!     ! si el medio es isotropo, la atenuación también:
+!     Qs = Qq 
+!     Qp = Qq
       
-      Qs = Qq
-      Qp = Qq
       ! aplicamos el amortiguamiento en las velocidades
       do J=1,N+1
         !non dispersive           
-        Alfa(J) = Alfa0(J) * (cmplx(1.0,1/(2*Qq)))
-        beta(J) = beta0(J) * (cmplx(1.0,1/(2*Qq)))
+        Alfa(J) = Alfa0(J) * (cmplx(1.0,-1/(2*Qq),8 ))
+        beta(J) = beta0(J) * (cmplx(1.0,-1/(2*Qq),8 ))
         aMU(J) = RHO(J) * beta(J)**2
         Lambda(J) = RHO(J)*Alfa(J)**2 - real(2.)*aMU(J)
         ! or Azimi every frec -> OK
@@ -1972,7 +2022,8 @@
 !        LFREC = 2*PI/DK
          
       Dt = 1.0 / (2.0 * real(NFREC) * DFREC/(2*pi))
-   
+      if (verbose .ge. 1) write(outpf,'(a,F9.7)') "dt = ",Dt
+      
       if (verbose >= 1) then
        write(outpf,'(a,I0,a,F8.4,a,F8.4,a,/,a,F8.1,/)') & 
            'N. frequencies: ',NFREC,'  @',DFREC,'Hertz :. Fmax = ', & 
@@ -2073,7 +2124,7 @@
       
       end function tellisoninterface
       subroutine getsource
-      use wavevars, only: Escala,Ts,Tp, tipoPulso,maxtime
+      use wavevars, only: Escala,Ts,Tp, tipoPulso
       use sourceVars
       use resultvars, only:Po
       implicit none
@@ -2097,8 +2148,6 @@
       READ(77,*) Ts
       READ(77,*)
       READ(77,*) Tp
-      READ(77,*)
-      READ(77,*) maxtime
       close(77)
       
       efsource = thelayeris(real(zfsource))
@@ -2164,9 +2213,9 @@
       if (makeVideo .eqv. .false.) return 
         
         write(outpf,'(a,F12.2,a)') "Lfrec = 2*pi/DK = ",2*PI/DK, "m"
-        DeltaX = pi / (nMax * DK)
+        DeltaX = real(pi / (nMax * DK),4)
         write(outpf,'(a,F9.3)')"Delta X = ",DeltaX
-        boundingXp =  1.0 / DK
+        boundingXp =  1.0 / real(DK,4)
         boundingXn = - boundingXp
         if (boundingXp .lt. MeshMaxX) stop "You need to reduce dK"
         ! encontrmos un multiplo de deltaX que sea mayor o igual a meshmaxX
@@ -3380,7 +3429,7 @@
                              trac0vec,ibemMat, NxXxMpts,FFres
       use Gquadrature, only : Gquad_n
       use refSolMatrixVars, only : B,Ak
-      use waveNumVars, only : NMAX,DK, minKvalueW,minKvalueU,lapse,KtrimStart
+      use waveNumVars, only : NMAX,DK,KmagnitudeChange,lapse, KtrimIndex,trimKplease
       use wavelets !fork
       use meshVars, only: MeshDXmultiplo
       use meshVars, only: DeltaX, MeshDXmultiplo
@@ -3422,18 +3471,20 @@
       integer, intent(in) :: outpf
       integer :: iGq,iGq_med,mecStart,mecEnd,xXx,dirStart,dirEnd
       integer :: itabla_z,itabla_x,ik,ef,dir,nGqs,ei,iMec,nPXs,ixi,nxis,i,thislapse
-      real :: k,zf,xf,zi,factor,peso,mov_x
+      real :: zf,xf,zi,factor,peso,mov_x
+      real*8 :: k, localmaxW, localmaxU
       logical :: intf
       type(Punto), pointer :: pXi,p_x
 !     type(Punto), pointer :: pXs(:)
-      logical :: anyone,warning
+      logical :: anyone
       real*8, dimension(2) :: nf
       type(MecaElem)  :: calcMecaAt_k_zi, Meca_diff!, Meca_ff,calcff
       complex*16, dimension(2*nmax,5), target :: auxK,savedAuxK
       integer, dimension(5,2) :: sign
       complex*16, dimension (:), pointer :: RW
       type(FFres),target :: FF
-      logical :: exist
+!     logical :: exist
+      
 !     character(LEN=90) :: nombre
       !  fza horiz     fza vert       !(para la crepa)
       sign(1,1) = -1 ; sign(1,2) = 1  !W        impar           par
@@ -3482,27 +3533,11 @@
          zf = pXi%Gq_xXx_coords(iGq,2) ! = zfsource si iz = 0
         end if!
         if (verbose .ge. 3) print*,"xi : (",xf,",",zf,")"
-        
-       do ik = 1,nmax+1 ! amplitud de ondas planas dada fuente en Z .......
-        k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.01
+       
+       do ik = 1,KtrimIndex ! amplitud de ondas planas dada fuente en Z .......
+        k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
         call vectorB_force(B(:,ik),zf,ef,intf,dir,cOME,k)  
         B(:,ik) = matmul(AK(:,:,ik),B(:,ik))
-        
-!       if (i_zfuente .ne. 0) then
-!       if (ik .eq. 20) then
-!          inquire(file="out1.txt", exist=exist)
-!          if (exist) then
-!      open(12, file="out1.txt", status="old", position="append", action="write")
-!          else
-!      open(12, file="out1.txt", status="new", action="write")
-!          end if
-!          do i=1,size(B(:,ik))
-!          write(12,'(E12.3,1x)',advance='NO') abs(B(i,ik))
-!          end do !i
-!          write(12,*) " "
-!          close(12)  
-!       end if
-!       end if
        end do ! ik
      
       ! resultados para cada Z donde hay receptores ..............................
@@ -3528,37 +3563,38 @@
             end if
             if (verbose .ge. 3) print*,"mec (",mecstart,mecend,")"
             auxK = cmplx(0.0d0,0.0d0,8); savedauxk = auxK
-            warning = .false.
-            thislapse = lapse
             
-          do ik = 1,nmax+1 ! k loop : campo difractado por estratos
-            k = real(ik-1) * dK; if (ik .eq. 1) k = dk * 0.01
+            thislapse = 0
+            localmaxW = -10000000.0; localmaxU = localmaxW
+            
+          do ik = 1,KtrimIndex ! k loop : campo difractado por estratos
+            k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
             Meca_diff = calcMecaAt_k_zi(B(:,ik),&  
                      zi,ei,cOME,k, & 
                      dir,mecStart,mecEnd,outpf)
             auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd) 
-            
-            cycle
-            ! trim K integration domain if it is zero 
-            if (abs(auxK(ik,mecStart)) .lt. minKvalueW .and. & 
-                abs(auxK(ik,mecEnd)) .lt. minKvalueU .and. & 
-                warning .eqv. .true.) then 
-                   if (verbose .ge. 1) print*,"trim loop at ik = ",ik
-                   KtrimStart = max(KtrimStart,ik)
-                   exit ! ----------------------------- esto es arriesgado 
-            end if!
-            if (abs(auxK(ik,mecStart)) .lt. minKvalueW .and. & 
-                abs(auxK(ik,mecEnd)) .lt. minKvalueU) then 
-                   thislapse = thislapse - 1
+ 
+        ! trim K integration 
+            !local max
+            localmaxW = max(localmaxW,abs(auxK(ik,mecStart)))
+            localmaxU = max(localmaxU,abs(auxK(ik,mecEnd)))
+            if (abs(auxK(ik,mecStart)) .lt. localmaxW/KmagnitudeChange .and. &
+                abs(auxK(ik,mecEnd)) .lt. localmaxU/KmagnitudeChange .and. &
+                trimKplease .eqv. .true.) then
+                thislapse = thislapse + 1
             else
-                   if (thislapse .lt. lapse) &
-                   thislapse = thislapse + 1
-            end if!
-            if (thislapse .le. 0) warning = .true.
+                thislapse = thislapse - 1
+                thislapse = max(0,thislapse)
+            end if
+            ! if it is enough we discard the rest
+!           if (ik .le. KtrimIndex) then
+            if (thislapse .ge. lapse) then
+               KtrimIndex = ik
+               exit
+            end if
+!           end if 
           end do ! ik
           
-         
-        
       ! doblar la crepa ...............................................
            !        calculado              crepa 
            !   _________|____________ _______|________  
@@ -3648,11 +3684,17 @@
                   p_x%FK(J,1:nmax,1) = 0
                   p_x%FK(J,1:nmax,2) = 0
                 end if
-                
+                ! FK                
                 p_x%FK(J,1:nmax,1) = &
                 p_x%FK(J,1:nmax,1) + auxK(1:nmax,1)* nf(dir)
                 p_x%FK(J,1:nmax,2) = &
                 p_x%FK(J,1:nmax,2) + auxK(1:nmax,2)* nf(dir)
+                
+                ! F - velocidad 
+!               p_x%FK(J,1:nmax,1) = &
+!               p_x%FK(J,1:nmax,1) + ((come/2/pi)/auxK(nmax:1:-1,1)) * nf(dir)
+!               p_x%FK(J,1:nmax,2) = &
+!               p_x%FK(J,1:nmax,2) + ((come/2/pi)/auxK(nmax:1:-1,2)) * nf(dir)
               end if ; end if !guardar
               end if
               
@@ -3966,7 +4008,7 @@
 !     real, parameter    :: x_i = 0
       complex*16,    intent(inout), dimension(4*N+2,4*N+2) :: this_A
       real*8               :: z_i
-      real*8,       intent(in)     :: k
+      real*8,     intent(in)     :: k
       complex*16, intent(in)     :: cOME_i  
       
       integer, intent(in) :: outpf
@@ -4114,7 +4156,8 @@
       
       complex*16,    intent(inout), dimension(4*N+2) :: this_B
       integer,    intent(in)    :: direction,e
-      real,       intent(in)    :: k,z_f
+      real,       intent(in)    :: z_f
+      real*8,     intent(in)    :: k
       complex*16, intent(in)    :: cOME
       logical,    intent(in)    :: fisInterf
       integer :: iIf,nInterf!,iP
@@ -4274,7 +4317,8 @@
       use resultVars, only : MecaElem
       implicit none
       type (MecaElem)              :: calcMecaAt_k_zi
-      real, intent(in)             ::  z_i, k
+      real, intent(in)             ::  z_i
+      real*8, intent(in)           :: k
       complex*16, intent(in)       :: cOME_i  
       integer, intent(in)          :: e,outpf,dir,mecStart,mecEnd
       complex*16, dimension(4*N+2),intent(in) :: thisIP_B

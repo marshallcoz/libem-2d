@@ -1,5 +1,5 @@
  X        Z          nx       nz [real]
-0.0      160.0         0.0      1.0
+0.0      5.0         0.0      1.0
       Amplitude function scale [real]
 1.0
       Tipo de funcion 0 dirac; 1 ricker [int]
@@ -8,5 +8,3 @@
 0.0
       Tp [real]
 1.5
-     max time [real]
-15.0

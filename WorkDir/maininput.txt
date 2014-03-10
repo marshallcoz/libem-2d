@@ -13,11 +13,13 @@ Threshold to discriminate the method of integration (Simple or Gaussian quadratu
 1.0
 periodic sources damping; omega = (omega , -DFREC/fact i) [float :: fact] {recommended 1 or 2}
 2.0
-valor minimo en FK a partir del cual se desprecia el cálculo
-0.0001
-0.0001
+si k * esto es menor que el pico, se recorta.. despues de n ocurrencias
+T
+1000
 30
 plot Stresses on incident field? [logical]
 F
 plot Module of displacements? [logical]
 F
+max time for the plot in seconds [real]
+0.006
