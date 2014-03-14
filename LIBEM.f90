@@ -201,7 +201,7 @@
       ! polynomial fit parameters:
 !     use gloVars, only: dp
       use resultVars
-      integer,  parameter :: degree = 4
+      integer,  parameter :: degree = 8
       real,  dimension(degree+1) :: surf_poly 
       
       !integer, save :: numberOffixedBoundaryPoints
@@ -612,9 +612,9 @@
       !encontramos el cero de surf_poly0 entre a y b
       af = polyVal(surf_poly0,degree,a)
       bf = polyVal(surf_poly0,degree,b)
-!     write(outpf,*)"f(",a,")=",af
-!     write(outpf,*)"f(",b,")=",bf
-      
+      write(6,*)"f(",a,")=",af
+      write(6,*)"f(",b,")=",bf
+      stop 617
             ! usamos el método de Brent.
       if (af*bf >= real(0,8)) then
         if (af < bf ) then
@@ -819,9 +819,18 @@
       deallocate(X)
       deallocate(XT)
       deallocate(XTX)
-      if (verbose >= 2) then
+      if (verbose >= 3) then
        write(outpf,'(a)')'polyfit='
        write (outpf, '(E12.3)') polyfit
+      end if
+      if (verbose .ge. 2) then
+      !fit a polynomial Anx^n + ... + A2x^2 + A1x + A0 = 0
+      !of degree 'd' to data: (vx,vy)
+      ! coefficients are orthered from the lower power: A0 A1 A2 .. AN
+       write(outpf,'(a)', ADVANCE = "NO") "0 ="
+       do i=1,d+1
+          write(outpf,'(ES12.3,a,i0)', ADVANCE = "NO") polyfit(i),"x^",i-1
+       end do
       end if
       end function
       
@@ -1767,8 +1776,8 @@
         KtrimIndex = nmax+1
 !     allocate(vout(1,2))
       if (getInquirePointsSol) call getInquirePoints(PrintNum)
-      call getVideoPoints(PrintNum)
-      if (workBoundary) call getTopography(PrintNum)
+      call getVideoPoints(PrintNum) ;verbose = 3
+      if (workBoundary) call getTopography(PrintNum) ; verbose = 1
         NPts = nIpts + nMpts
         write(PrintNum,'(a,I0)') 'Number of fixed receptors: ',npts
         allocate (allpoints(Npts))
@@ -1778,7 +1787,7 @@
         allocate (auxKvect(2*Nmax))
         allocate(expK(2*nmax))
       factor = sqrt(2.*NMAX*2)
-      
+      print*,"here"
       if (getInquirePointsSol) then 
          allpoints(iPtini:iPtfin)= inqPoints !;deallocate(inqPoints)
          end if!
@@ -1885,17 +1894,17 @@
         else if (verbose .gt. 2) then
       write(PrintNum,'(A,I0,A,EN13.2,1x,EN13.2,A,EN18.2)', ADVANCE = "YES") &
       'w(',J,') ',REAL(COME),aimag(COME),'i | ',FREC
-        end if 
-!       verbose = 3
+        end if
       ! Subsegment the topography if neccesssary
       if (workBoundary) then 
+        verbose = 3
          call subdivideTopo(J)
          call preparePointerTable(.false.,PrintNum)
+        verbose = 1
         trac0vec = 0
         ibemMat = 0
+         stop "1898"
       end if
-!        verbose = 1
-!        stop "1846"
       ! strata cotinuity conditions matrix A
          Ak = 0
          ik = 1
@@ -2525,14 +2534,21 @@
       READ(77,*)
       READ(77,*) nXI !number of points
       ALLOCATE (Xcoord(nXI,2)) !coordinates of points
-      ALLOCATE (x(nXI))
-      ALLOCATE (y(nXI))
+!     ALLOCATE (x(nXI))
+!     ALLOCATE (y(nXI))
       allocate(auxVector(nXI+1))
       DO iXI = 1,nXI
          READ(77,*) XIx , XIy
          Xcoord(iXI,1) = XIx ; Xcoord(iXI,2) = XIy
       END DO
       close(77)
+      
+      ! Right hand normals
+      ALLOCATE (normXI(nXI-1,2))
+      do ixi=1,nxi-1
+        normXI(ixi,1) = Xcoord(iXI+1,2) - Xcoord(iXI,2)
+        normXI(ixi,1) = Xcoord(iXI,1) - Xcoord(iXI+1,1)
+      end do
       
       if (verbose >= 1) then
         write(outpf,'(A,I0,A)') ' We read ',nXI, & 
@@ -2541,12 +2557,50 @@
          write(outpf,'(a,F12.5,a,F12.5,a)') & 
          "[",Xcoord(iXI,1),";",Xcoord(iXI,2),"]"
         END DO
+        print*,""
+        do ixi = 1,nxi-1
+         
+        end do
       end if
+      
+      stop "right the wrongs"
+      
+      ! cut if it crosses an interface
+      allocate (isOnIF(nXI-1)) ; isOnIF = .false.
+      allocate (layerXI(nXI-1))
+      
+      ! finally decide the midpoints
+      allocate (midPoint(nXI-1,2)) !center of Big Segment XI
+      
+      ! save original Geometry for the posterity
+      allocate(origGeom(nXI-1))
+      ! central point
+      origGeom(:)%center(1) = midPoint(:,1)
+      origGeom(:)%center(2) = midPoint(:,2)
+      !borders of segment
+      origGeom(:)%bord_A(1) = Xcoord(1:nXI-1,1)
+      origGeom(:)%bord_A(2) = Xcoord(1:nXI-1,2)
+      origGeom(:)%bord_B(1) = Xcoord(2:nXI,1)
+      origGeom(:)%bord_B(2) = Xcoord(2:nXI,2)
+      !add normal
+      origGeom(:)%normal(1) = normXI(:,1)
+      origGeom(:)%normal(2) = normXI(:,2)
+      !add length
+      origGeom(:)%length = lengthXI
+      !add layer
+      origGeom(:)%layer = int(layerXI)
+      origGeom(:)%isBoundary = .true.
+      origGeom(:)%isOnInterface = isOnIF
+      origGeom(:)%guardarFK = .false.
+      origGeom(:)%guardarMovieSiblings = .false.
+      print*,"out of getTopography"
+      return
+      
       
       ! Fit Polynomial so we can find more points along the surface.
       x = Xcoord(:,1)
       y = Xcoord(:,2)
-      surf_poly = polyfit(x,y,size(x),degree,verbose,outpf)
+      surf_poly = polyfit(x,y,size(x),degree,verbose-1,outpf)
       !are the polynomial coefficients from lower to top. A0 A1 A2 ... An
       
       ! we need to add a point at every intersection of the 
@@ -2554,29 +2608,28 @@
       iXI = 1
       DO WHILE (iXI <= nXI-1)!iXI = 1,nXI-1 !para cada segmento
      ! we check if there is a change of medium along segment [iXI,iXI+1]
-!        if (verbose >= 2 ) then
-!          write(outpf,'(a)')" "
-!          write(outpf,'(a)')"next segment "
-!        end if
-         DO e = 2,size(Z) !en cada estrato
+         if (verbose .ge. 3 ) then
+           write(outpf,*) iXI,"of ",nXI
+         end if
+         DO e = 2,size(Z) !en cada interfaz (excepto la superficie)
             if (verbose >= 3 ) then
           write(outpf,'(a,F12.8)')"Z =",Z(e)
-          write(outpf,'(a,F8.6,a,F8.6,a)')"L: (",y(iXI),",",y(iXI+1),")"
+          write(outpf,'(a,F14.6,a,F14.6,a)') &
+                "deltaZ of segm: (",y(iXI),",",y(iXI+1),")"
             end if
          
-          ! 
 !         if (anint(y(iXI) * 1000) == anint(Z(e) * 1000)) then
           if (abs(anint(y(iXI) * 1000) - anint(Z(e) * 1000)) < errT) then
-           if (verbose >= 2) then; write(outpf,*)"equal"; end if
+           if (verbose >= 3) write(outpf,*)"equal"
           else 
       ! si es un segmento que se forma recorriendo los puntos hacia Z+
             if (y(iXI) < Z(e)  .AND. y(iXI+1) > Z(e)) then
                !hay un cambio de estrato
                nuevoPx = splitatY(surf_poly,degree,real(Z(e),4),x(iXI),x(iXI+1))
              if (verbose >= 2) then
-              write(outpf,'(a,F10.4,a,F10.4,a,F10.4,a,F10.4,a)') & 
-              "(dn)Segment [",y(iXI),"-" &
-              ,y(iXI+1),"] crosses interface Z= (",nuevoPx,"-",Z(e),")"
+              write(outpf,'(a,F10.4,F10.4,a,F10.4,F10.4,a,F10.4,a,F10.4,a)') & 
+              "(dn)Segment (x,z):[",x(iXI),y(iXI)," to" &
+              ,x(iXI+1),y(iXI+1),"] crosses interface at (x,z)=(",nuevoPx,",",Z(e),")"
              end if
                ! insertamos el nuevo punto en el vector de puntos
                deallocate(auxVector)
@@ -2604,9 +2657,9 @@
                !hay un cambio de estrato
                nuevoPx = splitatY(surf_poly,degree,real(Z(e),4),x(iXI),x(iXI+1))
              if (verbose >= 2) then
-               write(outpf,'(a,F10.4,a,F10.4,a,F10.4,a,F10.4,a)') &
-               "(up)Segment [",y(iXI),"-" &
-               ,y(iXI+1),"] crosses interface Z= (",nuevoPx,"-",Z(e),")"
+               write(outpf,'(a,F10.4,F10.4,a,F10.4,F10.4,a,F10.4,a,F10.4,a)') & 
+              "(dn)Segment (x,z):[",x(iXI),y(iXI)," to" &
+              ,x(iXI+1),y(iXI+1),"] crosses interface at (x,z)=(",nuevoPx,",",Z(e),")"
              end if
                ! insertamos el nuevo punto en el vector de puntos
                deallocate(auxVector)
@@ -2715,8 +2768,8 @@
 !     if (verbose >= 1) then
 !      write(outpf,'(a)')'Normal vectors at midpoint of segments [Z+ orientation]'
 !     end if
- !normal vector componts at midPoints of BigSegments
-      ALLOCATE (normXI(nXI-1,2)) 
+ !normal vector componts at midPoints of BigSegmentsallocate (lengthXI(nXI-1)) !length of Big Segment XI
+       
       normXI = normalto(midPoint(:,1),midPoint(:,2),nXI-1,surf_poly, & 
                degree,verbose,outpf)
       ! reuglarizar normales
@@ -2756,7 +2809,7 @@
       origGeom(:)%isOnInterface = isOnIF
       origGeom(:)%guardarFK = .false.
       origGeom(:)%guardarMovieSiblings = .false.
-      
+      print*,"out of getTopography"
       end subroutine getTopography
 !     ! ----------.-.----------.-.----------.-.----------.-.----------.-.----------.-.----------.-.
 !     
@@ -3467,7 +3520,7 @@
       end subroutine oldsubdivideTopo
       subroutine subdivideTopo(iJ)
       !optimized segementation of geometry.
-      use gloVars, only : multSubdiv,verbose,pi,makevideo
+      use gloVars, only : multSubdiv,V => verbose,pi,makevideo
       use GeometryVars, only : origGeom,nXI,subdiv
       use waveNumVars, only : frec
       use soilVars, only : BETA
@@ -3487,7 +3540,7 @@
       real*8 :: resi
       real :: deltax,deltaz
       character(LEN=100) :: txt
-      
+      print*,"verbose=",V
       if (allocated(subdiv)) then
         nsubdivs = size(subdiv)
         do ixi = 1,nsubdivs
@@ -3500,6 +3553,7 @@
       nSegmeTotal = 0
       ! dividimos cada elemento original
       do iXI = 1,nXI-1
+      if(V .ge. 3) print*,"dividing big segment",iXI
       sixthofWL = real(real(BETA(origGeom(iXI)%layer))/2./pi) / (multSubdiv * frec)
       ! delta normalizado y luego del tamaño sixthofWL
       deltaX = (origGeom(iXI)%bord_B(1) - origGeom(iXI)%bord_A(1))
@@ -3512,8 +3566,8 @@
 !     print*,"beta at layer ",origGeom(iXI)%layer,"is ", & 
 !     real(BETA(origGeom(iXI)%layer))/2/pi,"i",aimag(BETA(origGeom(iXI)%layer))
 !     print*,""
-!     print*,"segm,",iXI,"of L =",origGeom(iXI)%length,"  wl/6=",sixthofWL, & 
-!     " nMxDeDivi=", nMxDeDivi
+      if(V .ge. 3) print*,"segm,",iXI,"of L =",origGeom(iXI)%length, & 
+      "  wl/6=",sixthofWL,  " nMxDeDivi=", nMxDeDivi
       
       if (origGeom(iXI)%length .le. sixthofWL ) then ! no hace falta segmentar
         allocate(subdiv(ixi)%x(2));allocate(subdiv(ixi)%z(2))
@@ -3572,7 +3626,7 @@
         end if ! (origGeom(iXI)%length .le. 2.* sixthofWL)
       end if ! origGeom(iXI)%length .le. sixthofWL
       
-      if(verbose.ge.3) then; DO idi = 1, nsubdivs
+      if(V .ge. 3) then; DO idi = 1, nsubdivs
        print*,"(",subdiv(ixi)%x(idi),",",subdiv(ixi)%z(idi),")"
       end do; end if
       end do !iXI
@@ -3603,6 +3657,7 @@
       bou_conta_fin = 0
       do ixi = 1,nXI-1 !nuevamente para cada segmento original
       nsubSegme = size(subdiv(ixi)%x)-1
+      if(V .ge. 3) print*,"Gau pst for segms in Big segm",ixi,"with",nsubSegme,"subs"
       bou_conta_fin = bou_conta_fin + nsubSegme
       
       BouPoints(1+bou_conta_ini:bou_conta_fin)%bord_A(1) = subdiv(ixi)%x(1:nsubSegme)
@@ -3628,7 +3683,7 @@
       bou_conta_ini = bou_conta_ini + nsubSegme
       end do !iXI
       
-      if (verbose .ge. 3) then;do idi = 1, nSegmeTotal
+      if (V .ge. 3) then;do idi = 1, nSegmeTotal
         print*,idi,":(", BouPoints(idi)%bord_A,") - (", & 
                          BouPoints(idi)%bord_B,") : ",BouPoints(idi)%length
         print*,"              (",BouPoints(idi)%center,")"
@@ -3660,7 +3715,7 @@
       end if
       
       ! draw the subdivision
-      if (verbose .ge. 1) then
+      if (V .ge. 1) then
        CALL chdir("outs")
        call system('mkdir subdivs')
        CALL chdir("subdivs")
@@ -3890,7 +3945,7 @@
       subroutine crunch(i_zfuente,J,cOME,outpf)
       ! esta función es llamada con cada profundidad donde hay
       ! por lo menos una fuente.
-      use gloVars, only: verbose,plotStress,pi
+      use gloVars, only: verbose,plotStress
       use resultVars, only : pota,Punto,nZs, & 
                              MecaElem,Hf,Hk, NxXxMpts, & 
                              trac0vec,ibemMat, NxXxMpts,FFres
@@ -4238,17 +4293,36 @@
                        end do !i de pelicula
            else !not a movie point ...............................................
                        FF%W = 0;FF%U = 0;FF%Tz = 0;FF%Tx = 0
-                     if (.not. pXi%isOnInterface) then
-                     if (p_x%layer .eq. pXi%layer) then !agregar campo libre
+                     
+                     if (p_x%layer .eq. pXi%layer .and. .not. pXi%isOnInterface) then !agregar campo libre
                      call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
                         pXi%center,p_x%layer,cOME,mecStart,mecEnd) 
-                     end if
-                     end if
+                       if (dir .eq. 1) then !fuerza en direccion x
                        p_x%W(J,1) = &
-                       p_x%W(J,1) + (RW(1)+ FF%W) * nf(dir) * Hf(J)
+                       p_x%W(J,1) + (- RW(1) + FF%W) * nf(dir) * Hf(J) ! ok
                        p_x%W(J,2) = &
-                       p_x%W(J,2) + (RW(2)+ FF%U) * nf(dir) * Hf(J)
-                       
+                       p_x%W(J,2) + (- RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
+                       else !fuerza en direccion y
+                       p_x%W(J,1) = &
+                       p_x%W(J,1) + (RW(1) + FF%W) * nf(dir) * Hf(J) ! ok
+                       p_x%W(J,2) = &
+                       p_x%W(J,2) + (RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
+                       end if
+                     else 
+                       if (dir .eq. 1) then!fuerza en direccion x
+                       p_x%W(J,1) = &
+                       p_x%W(J,1) - (RW(1)) * nf(dir) * Hf(J) ! ok
+                       p_x%W(J,2) = &
+                       p_x%W(J,2) + (RW(2)) * nf(dir) * Hf(J) ! ok
+                       else !fuerza en direccion y
+                       p_x%W(J,1) = &
+                       p_x%W(J,1) + (RW(1)) * nf(dir) * Hf(J) ! ok
+                       p_x%W(J,2) = &
+                       p_x%W(J,2) - (RW(2)) * nf(dir) * Hf(J) ! ok
+                       end if
+                     end if
+                      
+                      
                if (plotStress) then
                p_x%W(J,3) =  & 
                p_x%W(J,3) + (RW(4)*p_X%normal(1) + & 
@@ -4851,15 +4925,15 @@
         subMatD = matmul(subMatD,diagMat)
         resD = matmul(subMatD,partOfXX)
         
-!       calcMecaAt_k_zi%Rw(1) = resD(1,1) !W
-!       calcMecaAt_k_zi%Rw(2) = resD(2,1) !U
-        if (dir .eq. 2) then !vertical
-          calcMecaAt_k_zi%Rw(1) = resD(1,1) !W
-          calcMecaAt_k_zi%Rw(2) = - resD(2,1) !U 
-        else ! dir eq. 1 !horizontal
-          calcMecaAt_k_zi%Rw(1) = - resD(1,1) !W
-          calcMecaAt_k_zi%Rw(2) = resD(2,1) !U 
-        end if
+        calcMecaAt_k_zi%Rw(1) = resD(1,1) !W
+        calcMecaAt_k_zi%Rw(2) = resD(2,1) !U
+!       if (dir .eq. 2) then !vertical
+!         calcMecaAt_k_zi%Rw(1) = resD(1,1) !W
+!         calcMecaAt_k_zi%Rw(2) = - resD(2,1) !U 
+!       else ! dir eq. 1 !horizontal
+!         calcMecaAt_k_zi%Rw(1) = - resD(1,1) !W
+!         calcMecaAt_k_zi%Rw(2) = resD(2,1) !U 
+!       end if
       end if ! desplazamientos
       
       ! esfuerzos
@@ -4880,18 +4954,18 @@
         subMatS = matmul(subMatS,diagMat)
         resS = matmul(subMatS,partOfXX)
         
-!       calcMecaAt_k_zi%Rw(3) = resS(1,1) !s33
-!       calcMecaAt_k_zi%Rw(4) = resS(2,1) !s31
-!       calcMecaAt_k_zi%Rw(5) = resS(3,1) !s11 
-        if (dir .eq. 2) then ! vertical
-          calcMecaAt_k_zi%Rw(3) = resS(1,1) !s33
-          calcMecaAt_k_zi%Rw(4) = - resS(2,1) !s31
-          calcMecaAt_k_zi%Rw(5) = resS(3,1) !s11
-        else ! dir eq. 1 !horizontal
-          calcMecaAt_k_zi%Rw(3) = - resS(1,1) !s33
-          calcMecaAt_k_zi%Rw(4) = resS(2,1) !s31
-          calcMecaAt_k_zi%Rw(5) = - resS(3,1) !s11
-        end if
+        calcMecaAt_k_zi%Rw(3) = resS(1,1) !s33
+        calcMecaAt_k_zi%Rw(4) = resS(2,1) !s31
+        calcMecaAt_k_zi%Rw(5) = resS(3,1) !s11 
+!       if (dir .eq. 2) then ! vertical
+!         calcMecaAt_k_zi%Rw(3) = resS(1,1) !s33
+!         calcMecaAt_k_zi%Rw(4) = - resS(2,1) !s31
+!         calcMecaAt_k_zi%Rw(5) = resS(3,1) !s11
+!       else ! dir eq. 1 !horizontal
+!         calcMecaAt_k_zi%Rw(3) = - resS(1,1) !s33
+!         calcMecaAt_k_zi%Rw(4) = resS(2,1) !s31
+!         calcMecaAt_k_zi%Rw(5) = - resS(3,1) !s11
+!       end if
         
         
       end if ! esfuerzos

@@ -4,7 +4,7 @@ H(m) Alfa(m/s) Beta(m/s) Dens(T/m3)
 1      6354    3133       2.7
 8888   5900    3200       7.87
 DFREC   nFREC    nK       Q      t0
-80.0    2048     8192    10000.0    0.0
+80.0    2048     4096    10000.0    0.0
 
 N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
 1

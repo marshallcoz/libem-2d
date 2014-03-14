@@ -9,4 +9,4 @@
       Ricker Tp [real]
 1.5
       Gaussian sigma as % of Fmax [real]
-40.0
+80.0
