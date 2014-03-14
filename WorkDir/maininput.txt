@@ -5,7 +5,7 @@ F
 Solve topography [logical]
 F
 Plot FK [logical]
-T
+F
 max segment length  = beta / ( wavelength * R)   [int :: R]
 6
 Threshold to discriminate the method of integration (Simple or Gaussian quadrature)
@@ -17,7 +17,7 @@ si k * esto es menor que el pico, se recorta.. despues de n ocurrencias
 T
 1000
 30
-plot Stresses on incident field? [logical]
+plot Stresses of incident field? [logical]
 F
 plot Module of displacements? [logical]
 F
