@@ -4301,45 +4301,30 @@
                        end do !i de pelicula
            else !not a movie point ...............................................
                        FF%W = 0;FF%U = 0;FF%Tz = 0;FF%Tx = 0
-                     
+                 
+                 
                  if (p_x%layer .eq. pXi%layer .and. .not. pXi%isOnInterface) then !agregar campo libre
                    call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
                         pXi%center,p_x%layer,cOME,mecStart,mecEnd) 
-                    if (dir .eq. 1) then !fuerza en direccion x
+                        
                        p_x%W(J,1) = &
-                       p_x%W(J,1) + (- RW(1) + FF%W) * nf(dir) * Hf(J) ! ok
+                       p_x%W(J,1) + ( RW(1) + FF%W) * nf(dir) * Hf(J) ! ok
+                         
                        if (Npar) then !numero de estratos par
                          p_x%W(J,2) = &
-                         p_x%W(J,2) + ( RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
+                         p_x%W(J,2) + ( - RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
                        else !numero de estratos impar
                          p_x%W(J,2) = &
-                         p_x%W(J,2) + (- RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
+                         p_x%W(J,2) + (   RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
                        end if
-                    else !fuerza en direccion y
-                       p_x%W(J,1) = &
-                       p_x%W(J,1) + (RW(1) + FF%W) * nf(dir) * Hf(J) ! ok
-                       if (Npar) then !numero de estratos par
-                         p_x%W(J,2) = &
-                         p_x%W(J,2) + (- RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
-                       else !numero de estratos impar
-                         p_x%W(J,2) = &
-                         p_x%W(J,2) + (RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
-                       end if
-                    end if
                  else ! no es el estrato de la fueza, sólo el campo difractado
-                    if (dir .eq. 1) then!fuerza en direccion x
-                       p_x%W(J,1) = &
-                       p_x%W(J,1) - (RW(1)) * nf(dir) * Hf(J) ! ok
-                       p_x%W(J,2) = &
-                       p_x%W(J,2) + (RW(2)) * nf(dir) * Hf(J) ! ok
-                    else !fuerza en direccion y
                        p_x%W(J,1) = &
                        p_x%W(J,1) + (RW(1)) * nf(dir) * Hf(J) ! ok
+
                        p_x%W(J,2) = &
                        p_x%W(J,2) - (RW(2)) * nf(dir) * Hf(J) ! ok
-                    end if
                  end if
-                      
+                 !
                       
                if (plotStress) then
                p_x%W(J,3) =  & 
@@ -4697,7 +4682,7 @@
       
       
       subroutine vectorB_force(this_B,z_f,e,fisInterf,direction,cOME,k)
-      use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA,RHO
+      use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA,RHO,NPAR
       use gloVars, only : UR,UI,PI  
       use debugStuff   
 !     use resultVars, only : allpoints,NPts
@@ -4709,8 +4694,8 @@
       real*8,     intent(in)    :: k
       complex*16, intent(in)    :: cOME
       logical,    intent(in)    :: fisInterf
-      integer :: iIf,nInterf!,iP
-      real    :: SGNz!,x_i
+      integer :: iIf,nInterf
+      real    :: SGNz
       complex*16 :: gamma,nu,DEN,L2M
       real     :: errT = 0.001
       complex*16 :: omeAlf,omeBet!,AUX
@@ -4818,34 +4803,33 @@
       end if
       
       ! El vector de términos independientes genera el campo difractado
-      
       if (direction .eq. 1) then ! fuerza HORIZONTAL
       !                     =      (1) interfaz de arriba
        if (e .ne. 1) then
-        this_B(1+4*(e-1)-2) = + G31(1)!  w
-        this_B(1+4*(e-1)-1) = + G11(1)!  u
+        this_B(1+4*(e-1)-2) = - G31(1)!  w
+        this_B(1+4*(e-1)-1) = - G11(1)!  u
        end if 
-        this_B(1+4*(e-1)  ) = + S331(1)! szz
-        this_B(1+4*(e-1)+1) = + S131(1)! szx   ! delta
+        this_B(1+4*(e-1)  ) = - S331(1)! szz
+        this_B(1+4*(e-1)+1) = - S131(1)! szx   ! delta
     
       if (.not. fisInterf) then ! la fuerza no calló en la interfaz
       !                     =      (2) interfaz de abajo
        if (e .ne. N+1) then
-        this_B(1+4*(e-1)+2) = - G31(2)!  w
-        this_B(1+4*(e-1)+3) = - G11(2)!  u
-        this_B(1+4*(e-1)+4) = - S331(2)! szz
-        this_B(1+4*(e-1)+5) = - S131(2)! szx
+        this_B(1+4*(e-1)+2) = G31(2)!  w
+        this_B(1+4*(e-1)+3) = G11(2)!  u
+        this_B(1+4*(e-1)+4) = S331(2)! szz
+        this_B(1+4*(e-1)+5) = S131(2)! szx
        end if
       end if
       
       elseif (direction .eq. 2) then ! fuerza VERTICAL
       !                     =     (1) interfaz de arriba
        if (e .ne. 1) then
-        this_B(1+4*(e-1)-2) = + G33(1)!  w 
-        this_B(1+4*(e-1)-1) = + G31(1)!  u 
+        this_B(1+4*(e-1)-2) = G33(1)!  w 
+        this_B(1+4*(e-1)-1) = G31(1)!  u 
        end if 
-        this_B(1+4*(e-1)  ) = + S333(1)! szz   ! delta
-        this_B(1+4*(e-1)+1) = + S313(1)! szx 
+        this_B(1+4*(e-1)  ) = S333(1)! szz   ! delta
+        this_B(1+4*(e-1)+1) = S313(1)! szx 
     
       if (.not. fisInterf) then
       !                     =      (2) interfaz de abajo
@@ -4857,6 +4841,8 @@
        end if
       end if
       end if ! direction
+      
+      
 !     print*,""
 !     print*,this_B; stop "B"
       end subroutine vectorB_force
