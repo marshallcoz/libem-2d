@@ -146,6 +146,7 @@
       real*8, dimension(:),  allocatable :: Z,RHO,BETA0,ALFA0
       complex*16 ,dimension(:), allocatable :: ALFA,BETA,AMU,LAMBDA
       real*8 :: Qq
+      logical :: Npar
 !     real*8, dimension(:), allocatable :: Qs,Qp
       end module soilVars
       
@@ -2131,6 +2132,12 @@
       ALLOCATE (LAMBDA(N+1))
       ALLOCATE (RHO(N+1))
       
+      if (mod(N,2) .eq. 0) then
+        Npar = .true.
+      else
+        Npar = .false.
+      end if
+      
       Z(1)=real(0,8)
       if (verbose >= 1) then
        write(outpf,'(a)')& 
@@ -3955,6 +3962,7 @@
       use wavelets !fork
       use meshVars, only: MeshDXmultiplo
       use meshVars, only: DeltaX, MeshDXmultiplo
+      use soilVars, only: Npar
       use dislin
       implicit none
       
@@ -4093,7 +4101,7 @@
             k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
             Meca_diff = calcMecaAt_k_zi(B(:,ik),&  
                      zi,ei,cOME,k, & 
-                     dir,mecStart,mecEnd,outpf)
+                     mecStart,mecEnd,outpf)
             auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd) 
  
         ! trim K integration 
@@ -4294,33 +4302,43 @@
            else !not a movie point ...............................................
                        FF%W = 0;FF%U = 0;FF%Tz = 0;FF%Tx = 0
                      
-                     if (p_x%layer .eq. pXi%layer .and. .not. pXi%isOnInterface) then !agregar campo libre
-                     call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
+                 if (p_x%layer .eq. pXi%layer .and. .not. pXi%isOnInterface) then !agregar campo libre
+                   call calcFreeField(FF,dir,p_X%center,p_X%normal, & 
                         pXi%center,p_x%layer,cOME,mecStart,mecEnd) 
-                       if (dir .eq. 1) then !fuerza en direccion x
+                    if (dir .eq. 1) then !fuerza en direccion x
                        p_x%W(J,1) = &
                        p_x%W(J,1) + (- RW(1) + FF%W) * nf(dir) * Hf(J) ! ok
-                       p_x%W(J,2) = &
-                       p_x%W(J,2) + (- RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
-                       else !fuerza en direccion y
+                       if (Npar) then !numero de estratos par
+                         p_x%W(J,2) = &
+                         p_x%W(J,2) + ( RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
+                       else !numero de estratos impar
+                         p_x%W(J,2) = &
+                         p_x%W(J,2) + (- RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
+                       end if
+                    else !fuerza en direccion y
                        p_x%W(J,1) = &
                        p_x%W(J,1) + (RW(1) + FF%W) * nf(dir) * Hf(J) ! ok
-                       p_x%W(J,2) = &
-                       p_x%W(J,2) + (RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
+                       if (Npar) then !numero de estratos par
+                         p_x%W(J,2) = &
+                         p_x%W(J,2) + (- RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
+                       else !numero de estratos impar
+                         p_x%W(J,2) = &
+                         p_x%W(J,2) + (RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
                        end if
-                     else 
-                       if (dir .eq. 1) then!fuerza en direccion x
+                    end if
+                 else ! no es el estrato de la fueza, sólo el campo difractado
+                    if (dir .eq. 1) then!fuerza en direccion x
                        p_x%W(J,1) = &
                        p_x%W(J,1) - (RW(1)) * nf(dir) * Hf(J) ! ok
                        p_x%W(J,2) = &
                        p_x%W(J,2) + (RW(2)) * nf(dir) * Hf(J) ! ok
-                       else !fuerza en direccion y
+                    else !fuerza en direccion y
                        p_x%W(J,1) = &
                        p_x%W(J,1) + (RW(1)) * nf(dir) * Hf(J) ! ok
                        p_x%W(J,2) = &
                        p_x%W(J,2) - (RW(2)) * nf(dir) * Hf(J) ! ok
-                       end if
-                     end if
+                    end if
+                 end if
                       
                       
                if (plotStress) then
@@ -4546,7 +4564,6 @@
       integer, intent(in) :: outpf
 
       complex*16, dimension(2,4) :: subMatD, subMatS, subMatD0, subMatS0
-!     complex*16, dimension(4,1) :: diagMat
       complex*16, dimension(4,4) :: diagMat
       complex*16 :: gamma,nu,xi!,mukanu2,mukagam2,l2m,g2,k2,lk2!,lg2!,eta
       complex*16 :: egammaN,enuN,egammaP,enuP
@@ -4820,6 +4837,7 @@
         this_B(1+4*(e-1)+5) = - S131(2)! szx
        end if
       end if
+      
       elseif (direction .eq. 2) then ! fuerza VERTICAL
       !                     =     (1) interfaz de arriba
        if (e .ne. 1) then
@@ -4842,7 +4860,7 @@
 !     print*,""
 !     print*,this_B; stop "B"
       end subroutine vectorB_force
-      function calcMecaAt_k_zi(thisIP_B,z_i,e,cOME_i,k,dir,mecStart,mecEnd,outpf)
+      function calcMecaAt_k_zi(thisIP_B,z_i,e,cOME_i,k,mecStart,mecEnd,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
       use gloVars, only : verbose,UI,UR,Z0!,PI
 !     use waveVars, only : Theta
@@ -4852,7 +4870,7 @@
       real, intent(in)             ::  z_i
       real*8, intent(in)           :: k
       complex*16, intent(in)       :: cOME_i  
-      integer, intent(in)          :: e,outpf,dir,mecStart,mecEnd
+      integer, intent(in)          :: e,outpf,mecStart,mecEnd
       complex*16, dimension(4*N+2),intent(in) :: thisIP_B
       complex*16 :: gamma,nu,xi,eta!,mukanu2,mukagam2,l2m,g2,k2,lk2,lg2
       complex*16 :: egammaN,enuN,egammaP,enuP
