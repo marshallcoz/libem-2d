@@ -202,7 +202,7 @@
       ! polynomial fit parameters:
 !     use gloVars, only: dp
       use resultVars
-      integer,  parameter :: degree = 8
+      integer,  parameter :: degree = 1 !recta
       real,  dimension(degree+1) :: surf_poly 
       
       !integer, save :: numberOffixedBoundaryPoints
@@ -613,9 +613,9 @@
       !encontramos el cero de surf_poly0 entre a y b
       af = polyVal(surf_poly0,degree,a)
       bf = polyVal(surf_poly0,degree,b)
-      write(6,*)"f(",a,")=",af
-      write(6,*)"f(",b,")=",bf
-      stop 617
+!     write(6,*)"f(",a,")=",af
+!     write(6,*)"f(",b,")=",bf
+!     stop 617
             ! usamos el método de Brent.
       if (af*bf >= real(0,8)) then
         if (af < bf ) then
@@ -1771,14 +1771,19 @@
       if (status .eq. 0) call chdir("..")
       
       call getMainInput
-      call getSoilProps (PrintNum)    
+      call getSoilProps (PrintNum)
         nIpts=0; nMpts=0; nBpts = 0
         iPtfin = 0; mPtfin = 0
         KtrimIndex = nmax+1
 !     allocate(vout(1,2))
       if (getInquirePointsSol) call getInquirePoints(PrintNum)
-      call getVideoPoints(PrintNum) ;verbose = 3
-      if (workBoundary) call getTopography(PrintNum) ; verbose = 1
+      call getVideoPoints(PrintNum)
+      call getsource
+      if (verbose .ge. 1) then
+        write(PrintNum,'(a,F8.2,a,F8.2,a)') & 
+                            "source is at (",xfsource,",",zfsource,")"
+      end if!
+      if (workBoundary) call getTopography(PrintNum)
         NPts = nIpts + nMpts
         write(PrintNum,'(a,I0)') 'Number of fixed receptors: ',npts
         allocate (allpoints(Npts))
@@ -1824,12 +1829,7 @@
 !      end if
 !     end if
       
-      ! source application point:
-      call getsource
-      if (verbose .ge. 1) then
-        write(PrintNum,'(a,F8.2,a,F8.2,a)') & 
-                            "source is at (",xfsource,",",zfsource,")"
-      end if
+      
       
       ! draw the initial geometry
       if(.not. workboundary) then
@@ -2513,9 +2513,14 @@
       integer, intent(in) :: outpf
       logical :: lexist
       real, dimension(:), allocatable :: auxVector
-      real :: nuevoPx,deltaX,deltaZ
-      integer :: iXI,e,indice
+      real*8 :: l
+      real :: m
       real :: XIx, XIy
+      integer :: iXI,e,indice
+      
+      
+      real :: nuevoPx,deltaX,deltaZ
+     
       character(LEN=100) :: txt
       real     :: errT = 0.001
       logical, dimension(:), allocatable  :: isOnIF
@@ -2550,89 +2555,34 @@
       END DO
       close(77)
       
-      ! Right hand normals
-      ALLOCATE (normXI(nXI-1,2))
-      do ixi=1,nxi-1
-        normXI(ixi,1) = Xcoord(iXI+1,2) - Xcoord(iXI,2)
-        normXI(ixi,1) = Xcoord(iXI,1) - Xcoord(iXI+1,1)
-      end do
-      
-      if (verbose >= 1) then
-        write(outpf,'(A,I0,A)') ' We read ',nXI, & 
-         ' nodes describing the boundary.'
-        DO iXI = 1,nXI
-         write(outpf,'(a,F12.5,a,F12.5,a)') & 
-         "[",Xcoord(iXI,1),";",Xcoord(iXI,2),"]"
-        END DO
-        print*,""
-        do ixi = 1,nxi-1
-         
-        end do
-      end if
-      
-      stop "right the wrongs"
-      
-      ! cut if it crosses an interface
-      allocate (isOnIF(nXI-1)) ; isOnIF = .false.
-      allocate (layerXI(nXI-1))
-      
-      ! finally decide the midpoints
-      allocate (midPoint(nXI-1,2)) !center of Big Segment XI
-      
-      ! save original Geometry for the posterity
-      allocate(origGeom(nXI-1))
-      ! central point
-      origGeom(:)%center(1) = midPoint(:,1)
-      origGeom(:)%center(2) = midPoint(:,2)
-      !borders of segment
-      origGeom(:)%bord_A(1) = Xcoord(1:nXI-1,1)
-      origGeom(:)%bord_A(2) = Xcoord(1:nXI-1,2)
-      origGeom(:)%bord_B(1) = Xcoord(2:nXI,1)
-      origGeom(:)%bord_B(2) = Xcoord(2:nXI,2)
-      !add normal
-      origGeom(:)%normal(1) = normXI(:,1)
-      origGeom(:)%normal(2) = normXI(:,2)
-      !add length
-      origGeom(:)%length = lengthXI
-      !add layer
-      origGeom(:)%layer = int(layerXI)
-      origGeom(:)%isBoundary = .true.
-      origGeom(:)%isOnInterface = isOnIF
-      origGeom(:)%guardarFK = .false.
-      origGeom(:)%guardarMovieSiblings = .false.
-      print*,"out of getTopography"
-      return
-      
-      
+      ! cortar en intersección con estratos y determinar estrato de cada segemento
       ! Fit Polynomial so we can find more points along the surface.
       x = Xcoord(:,1)
       y = Xcoord(:,2)
-      surf_poly = polyfit(x,y,size(x),degree,verbose-1,outpf)
-      !are the polynomial coefficients from lower to top. A0 A1 A2 ... An
       
       ! we need to add a point at every intersection of the 
       ! topography and an interface
       iXI = 1
       DO WHILE (iXI <= nXI-1)!iXI = 1,nXI-1 !para cada segmento
      ! we check if there is a change of medium along segment [iXI,iXI+1]
-         if (verbose .ge. 3 ) then
-           write(outpf,*) iXI,"of ",nXI
-         end if
+         if (verbose .ge. 3 ) write(outpf,*) iXI,"of ",nXI
          DO e = 2,size(Z) !en cada interfaz (excepto la superficie)
-            if (verbose >= 3 ) then
-          write(outpf,'(a,F12.8)')"Z =",Z(e)
-          write(outpf,'(a,F14.6,a,F14.6,a)') &
-                "deltaZ of segm: (",y(iXI),",",y(iXI+1),")"
-            end if
-         
-!         if (anint(y(iXI) * 1000) == anint(Z(e) * 1000)) then
+            if (verbose >= 3 ) write(outpf,'(a,F12.8,/,a,F14.6,a,F14.6,a)') & 
+                 "Z =",Z(e),"deltaZ of segm: (",y(iXI),",",y(iXI+1),")"
           if (abs(anint(y(iXI) * 1000) - anint(Z(e) * 1000)) < errT) then
-           if (verbose >= 3) write(outpf,*)"equal"
+            if (verbose >= 1) write(outpf,*)"already sliced here"
           else 
       ! si es un segmento que se forma recorriendo los puntos hacia Z+
             if (y(iXI) < Z(e)  .AND. y(iXI+1) > Z(e)) then
                !hay un cambio de estrato
-               nuevoPx = splitatY(surf_poly,degree,real(Z(e),4),x(iXI),x(iXI+1))
+               if (abs(x(ixi+1) - x(ixi)) .le. 0.001) then ! es vertical
+                 nuevoPx = real(z(e),4)
+               else ! es inclinado
+                 m = (y(ixi+1) - y(ixi))/(x(ixi+1) - x(ixi))
+                 surf_poly = (/y(ixi) - x(ixi)*m , m /)
+                 !are the polynomial coefficients from lower to top. A0 A1 A2 ... An
+                 nuevoPx = splitatY(surf_poly,1,real(Z(e),4),x(iXI),x(iXI+1))
+               end if !
              if (verbose >= 2) then
               write(outpf,'(a,F10.4,F10.4,a,F10.4,F10.4,a,F10.4,a,F10.4,a)') & 
               "(dn)Segment (x,z):[",x(iXI),y(iXI)," to" &
@@ -2662,7 +2612,13 @@
       ! si es un segmento que se forma recorriendo los puntos hacia Z-
             if (y(iXI) > Z(e)  .AND. y(iXI+1) < Z(e)) then
                !hay un cambio de estrato
-               nuevoPx = splitatY(surf_poly,degree,real(Z(e),4),x(iXI),x(iXI+1))
+               if (abs(x(ixi+1) - x(ixi)) .le. 0.001) then ! es vertical
+                 nuevoPx = real(z(e),4)
+               else ! es inclinado
+                 m = (y(ixi+1) - y(ixi))/(x(ixi+1) - x(ixi))
+                 surf_poly = (/y(ixi) - x(ixi)*m , m /)
+                 nuevoPx = splitatY(surf_poly,1,real(Z(e),4),x(iXI),x(iXI+1))
+               end if!
              if (verbose >= 2) then
                write(outpf,'(a,F10.4,F10.4,a,F10.4,F10.4,a,F10.4,a,F10.4,a)') & 
               "(dn)Segment (x,z):[",x(iXI),y(iXI)," to" &
@@ -2693,6 +2649,7 @@
          end do
          iXI = iXI + 1
       END DO
+      deallocate(auxVector)
       deallocate(Xcoord)
       nXI = size(x)
       allocate(Xcoord(nXI,2))
@@ -2701,99 +2658,70 @@
       Xcoord(:,1) = x
       Xcoord(:,2) = y
       
-      if (verbose >= 1) then
-       write(outpf,'(a,I0,a,I0,a)')"We have ",nXI," nodes describing " &
-                    ,nXI-1," segments"
-       if (Verbose >= 2) then
-        DO iXI = 1,nXI
-         write(outpf,'(a,F12.5,a,F12.5,a)')"[[",Xcoord(iXI,1),";",Xcoord(iXI,2),"]]"
-        END DO
-       end if
-      end if
+      ! Right hand normals
+      ALLOCATE (normXI(nXI-1,2))
+      do ixi=1,nxi-1
+        normXI(ixi,1) = Xcoord(iXI,2) - Xcoord(iXI+1,2)
+        normXI(ixi,2) = Xcoord(iXI+1,1) - Xcoord(iXI,1)
+        l = sqrt(normxi(ixi,1)**2. + normxi(ixi,2)**2.)
+        normxi(ixi,1) = normxi(ixi,1)/ l
+        normxi(ixi,2) = normxi(ixi,2)/ l
+      end do
       
-      deallocate(auxVector)
+      ! midpoints and lenght
+      allocate (midPoint(nXI-1,2))
+      allocate (lengthXI(nXI-1))
+      do ixi=1,nxi-1
+        midPoint(ixi,1) = (x(ixi+1) + x(ixi))/2.
+        midPoint(ixi,2) = (y(ixi+1) + y(ixi))/2.
+        lengthXI(ixi) = sqrt((x(ixi+1)-x(ixi))**2. + (y(ixi+1)-y(ixi))**2.)
+      end do
       
-      if (verbose >= 1) then
-       CALL chdir("outs",status)
-       write(txt,'(a)') 'original_Geometry.pdf'
-       call drawGEOM(txt,.true.,outpf)
-       CALL chdir("..")
-      end if
-      
- ! Unit Normal vector at the midle of BigSegments (shared to subsegments)
-      allocate (lengthXI(nXI-1)) !length of Big Segment XI
+      ! estrato
       allocate (layerXI(nXI-1))
-      allocate (midPoint(nXI-1,2)) !center of Big Segment XI
       allocate (isOnIF(nXI-1)) ; isOnIF = .false.
-      do iXI = 1,nXI-1
-         deltaX = Xcoord(iXI,1) - Xcoord(iXI+1,1)
-         deltaZ = Xcoord(iXI,2) - Xcoord(iXI+1,2)
-         midPoint(iXI,1) = min(Xcoord(iXI,1),Xcoord(iXI+1,1)) + & 
-                           abs(deltaX)/2.
-         midPoint(iXI,2) = min(Xcoord(iXI,2),Xcoord(iXI+1,2)) + & 
-                           abs(deltaZ)/2.
-         lengthXI(iXI) = sqrt(deltaX**2 + deltaZ**2)
-         
-         e = 0
-         do while(Z(e+1) < midPoint(iXI,2))
-            e = e + 1
-            if (e .gt. N) then
-              e = e - 1
-              exit
-            end if
-         end do
-         if (e .eq. 0) e = 1
-         
-         layerXI(iXI) = e
-         
-         do e=1,N+1
-            if((Z(e)-errT .lt. midPoint(iXI,2)) & 
-            .and. (midPoint(iXI,2) .lt. Z(e)+errT)) then
-            isOnIF(iXI) = .true.
-            end if
-         end do
-      end do
       
-      ! rebuild a polynomial that fits Xcoord and the midpoints
-      deallocate(x)
-      deallocate(y)
-      !        nodes + midpoints
-      allocate(x(nXI + nXI-1))
-      allocate(y(nXI + nXI-1))
-      x(1) = Xcoord(1,1)
-      y(1) = Xcoord(1,2)
-      indice = 1
-      do iXI = 2,(2*nXI-1),2
-         x(iXI) = midPoint(indice,1)
-         x(iXI+1) = Xcoord(indice+1,1)
-         y(iXI) = midPoint(indice,2)
-         y(iXI+1) = Xcoord(indice+1,2)
-         indice = indice + 1
-      end do
-      surf_poly = polyfit(x,y,size(x),degree,verbose,outpf)
+      layerxi(:) = N+1
+      forall(e=1:N, ixi=1:nxi-1, & 
+      (z(e) < midpoint(ixi,2) .and. midpoint(ixi,2) <= z(e+1))) layerxi(ixi) = e
       
-!     if (verbose >= 1) then
-!      write(outpf,'(a)')'Normal vectors at midpoint of segments [Z+ orientation]'
-!     end if
- !normal vector componts at midPoints of BigSegmentsallocate (lengthXI(nXI-1)) !length of Big Segment XI
-       
-      normXI = normalto(midPoint(:,1),midPoint(:,2),nXI-1,surf_poly, & 
-               degree,verbose,outpf)
-      ! reuglarizar normales
-      bigN = 100000
-      do iXi = 1,nXi-1
-        normXI(iXi,1) = anint(normXI(iXi,1)* bigN)/bigN
-        normXI(iXi,2) = anint(normXI(iXi,2)* bigN)/bigN
-      end do
+!     do ixi=1,nxi-1
+!       e = 0
+!        print*,ixi," --- ",midPoint(ixi,2)
+!        do while(Z(e+1) < midPoint(iXI,2))
+!           e = e + 1
+!           print*,"  ", e, "(+)"
+!           if (e .gt. N) then
+!             exit
+!           end if
+!        end do
+!        if (e .eq. 0) e = 1
+!        
+!        layerXI(iXI) = e
+!        
+!        do e=1,N+1
+!           if((Z(e)-errT .lt. midPoint(iXI,2)) & 
+!           .and. (midPoint(iXI,2) .lt. Z(e)+errT)) then
+!           isOnIF(iXI) = .true.
+!           end if
+!        end do
+!     end do
       
-      ! Xcoord stores the BigSegment nodes coordinates. 
-      ! x and y vectors will be subdivided 
-      deallocate(x)
-      deallocate(y)
-      allocate( x(size(Xcoord(:,1))) )
-      allocate( y(size(Xcoord(:,2))) )
-      x = Xcoord(:,1)
-      y = Xcoord(:,2)
+      if (verbose >= 1) then
+        write(outpf,'(A,I0,A)') ' We have ',nXI, & 
+         ' nodes describing the boundary.'
+        DO iXI = 1,nXI
+         write(outpf,'(a,F12.5,a,F12.5,a)') & 
+         "[",Xcoord(iXI,1),";",Xcoord(iXI,2),"]"
+        END DO
+        print*,""
+        do ixi = 1,nxi-1
+         write(outpf,*) ' [',Xcoord(ixi,1),Xcoord(ixi,2),"]-[", &
+          Xcoord(ixi+1,1),Xcoord(ixi+1,2),"] n=[",normxi(ixi,1),normxi(ixi,2), &
+          "] e=",layerXI(ixi)," mid[",midPoint(ixi,1),midPoint(ixi,2),"] L=", &
+          lengthxi(ixi)," i",isonif(ixi)
+        end do
+      end if
       
       ! save original Geometry for the posterity
       allocate(origGeom(nXI-1))
@@ -2816,8 +2744,118 @@
       origGeom(:)%isOnInterface = isOnIF
       origGeom(:)%guardarFK = .false.
       origGeom(:)%guardarMovieSiblings = .false.
-      print*,"out of getTopography"
+      
+      ! draw the subdivision
+      if (Verbose .ge. 1) then
+       CALL chdir("outs")
+       write(txt,'(a)') 'original_Geometry.pdf'
+       call drawBoundary(txt)
+       CALL chdir("..") !out of outs
+      end if
+      
+!     stop "right the wrongs"
       end subroutine getTopography
+      
+      
+      
+!! Unit Normal vector at the midle of BigSegments (shared to subsegments)
+!     allocate (lengthXI(nXI-1)) !length of Big Segment XI
+!     allocate (layerXI(nXI-1))
+!     allocate (midPoint(nXI-1,2)) !center of Big Segment XI
+!     allocate (isOnIF(nXI-1)) ; isOnIF = .false.
+!     do iXI = 1,nXI-1
+!        deltaX = Xcoord(iXI,1) - Xcoord(iXI+1,1)
+!        deltaZ = Xcoord(iXI,2) - Xcoord(iXI+1,2)
+!        midPoint(iXI,1) = min(Xcoord(iXI,1),Xcoord(iXI+1,1)) + & 
+!                          abs(deltaX)/2.
+!        midPoint(iXI,2) = min(Xcoord(iXI,2),Xcoord(iXI+1,2)) + & 
+!                          abs(deltaZ)/2.
+!        lengthXI(iXI) = sqrt(deltaX**2 + deltaZ**2)
+!        
+!        e = 0
+!        do while(Z(e+1) < midPoint(iXI,2))
+!           e = e + 1
+!           if (e .gt. N) then
+!             e = e - 1
+!             exit
+!           end if
+!        end do
+!        if (e .eq. 0) e = 1
+!        
+!        layerXI(iXI) = e
+!        
+!        do e=1,N+1
+!           if((Z(e)-errT .lt. midPoint(iXI,2)) & 
+!           .and. (midPoint(iXI,2) .lt. Z(e)+errT)) then
+!           isOnIF(iXI) = .true.
+!           end if
+!        end do
+!     end do
+!     
+!     ! rebuild a polynomial that fits Xcoord and the midpoints
+!     deallocate(x)
+!     deallocate(y)
+!     !        nodes + midpoints
+!     allocate(x(nXI + nXI-1))
+!     allocate(y(nXI + nXI-1))
+!     x(1) = Xcoord(1,1)
+!     y(1) = Xcoord(1,2)
+!     indice = 1
+!     do iXI = 2,(2*nXI-1),2
+!        x(iXI) = midPoint(indice,1)
+!        x(iXI+1) = Xcoord(indice+1,1)
+!        y(iXI) = midPoint(indice,2)
+!        y(iXI+1) = Xcoord(indice+1,2)
+!        indice = indice + 1
+!     end do
+!     surf_poly = polyfit(x,y,size(x),degree,verbose,outpf)
+!     
+!     if (verbose >= 1) then
+!      write(outpf,'(a)')'Normal vectors at midpoint of segments [Z+ orientation]'
+!     end if
+!!normal vector componts at midPoints of BigSegmentsallocate (lengthXI(nXI-1)) !length of Big Segment XI
+!      
+!     normXI = normalto(midPoint(:,1),midPoint(:,2),nXI-1,surf_poly, & 
+!              degree,verbose,outpf)
+!     ! reuglarizar normales
+!     bigN = 100000
+!     do iXi = 1,nXi-1
+!       normXI(iXi,1) = anint(normXI(iXi,1)* bigN)/bigN
+!       normXI(iXi,2) = anint(normXI(iXi,2)* bigN)/bigN
+!     end do
+!     
+!     ! Xcoord stores the BigSegment nodes coordinates. 
+!     ! x and y vectors will be subdivided 
+!     deallocate(x)
+!     deallocate(y)
+!     allocate( x(size(Xcoord(:,1))) )
+!     allocate( y(size(Xcoord(:,2))) )
+!     x = Xcoord(:,1)
+!     y = Xcoord(:,2)
+!     
+!     ! save original Geometry for the posterity
+!     allocate(origGeom(nXI-1))
+!     ! central point
+!     origGeom(:)%center(1) = midPoint(:,1)
+!     origGeom(:)%center(2) = midPoint(:,2)
+!     !borders of segment
+!     origGeom(:)%bord_A(1) = Xcoord(1:nXI-1,1)
+!     origGeom(:)%bord_A(2) = Xcoord(1:nXI-1,2)
+!     origGeom(:)%bord_B(1) = Xcoord(2:nXI,1)
+!     origGeom(:)%bord_B(2) = Xcoord(2:nXI,2)
+!     !add normal
+!     origGeom(:)%normal(1) = normXI(:,1)
+!     origGeom(:)%normal(2) = normXI(:,2)
+!     !add length
+!     origGeom(:)%length = lengthXI
+!     !add layer
+!     origGeom(:)%layer = int(layerXI)
+!     origGeom(:)%isBoundary = .true.
+!     origGeom(:)%isOnInterface = isOnIF
+!     origGeom(:)%guardarFK = .false.
+!     origGeom(:)%guardarMovieSiblings = .false.
+!     print*,"out of getTopography"
+!     end subroutine getTopography
 !     ! ----------.-.----------.-.----------.-.----------.-.----------.-.----------.-.----------.-.
 !     
 !     allocate(Nodes_xz_n(size(x),2,2)) ! para luego heredar las normales
