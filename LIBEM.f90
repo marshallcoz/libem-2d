@@ -1898,10 +1898,10 @@
         end if
       ! Subsegment the topography if neccesssary
       if (workBoundary) then 
-        verbose = 3
+!       verbose = 3
          call subdivideTopo(J)
          call preparePointerTable(.false.,PrintNum)
-        verbose = 1
+!       verbose = 1
         trac0vec = 0
         ibemMat = 0
          stop "1898"
@@ -2546,8 +2546,8 @@
       READ(77,*)
       READ(77,*) nXI !number of points
       ALLOCATE (Xcoord(nXI,2)) !coordinates of points
-!     ALLOCATE (x(nXI))
-!     ALLOCATE (y(nXI))
+      ALLOCATE (x(nXI))
+      ALLOCATE (y(nXI))
       allocate(auxVector(nXI+1))
       DO iXI = 1,nXI
          READ(77,*) XIx , XIy
@@ -2681,9 +2681,17 @@
       allocate (layerXI(nXI-1))
       allocate (isOnIF(nXI-1)) ; isOnIF = .false.
       
+!     layerxi(:) = N+1
+!     forall(e=1:N, ixi=1:nxi-1, & 
+!     (z(e) < midpoint(ixi,2) .and. midpoint(ixi,2) <= z(e+1))) layerxi(ixi) = e
+      
       layerxi(:) = N+1
-      forall(e=1:N, ixi=1:nxi-1, & 
-      (z(e) < midpoint(ixi,2) .and. midpoint(ixi,2) <= z(e+1))) layerxi(ixi) = e
+      do e=1,N
+        forall(ixi=1:nxi-1, &
+          (z(e) < midpoint(ixi,2) .and. midpoint(ixi,2) <= z(e+1))) & 
+          layerxi(ixi) = e
+      end do
+      
       
 !     do ixi=1,nxi-1
 !       e = 0
@@ -3118,6 +3126,288 @@
       end if
 !     print*, b-bola, "<=", a, "<=",b+bola ," :: ", nearby
       end function nearby 
+      subroutine subdivideTopo(iJ)
+      !optimized segementation of geometry.
+      use gloVars, only : multSubdiv,V => verbose,pi,makevideo
+      use GeometryVars, only : origGeom,nXI,subdiv
+      use waveNumVars, only : frec
+      use soilVars, only : BETA
+      
+      use resultVars, only : BouPoints, nBpts, & 
+                             iPtini,iPtfin,mPtini,mPtfin, & !bPtini,bPtfin,
+                             allpoints,NxXxMpts, &
+                             ibemMat,trac0vec,IPIVbem
+      use ploteo10pesos
+      use Gquadrature, only: Gqu_n => Gquad_n
+      
+      implicit none
+      integer, intent(in) :: iJ
+      integer :: iXI,nMxDeDivi,iDi,nsubdivs,ndivsiguales,nSegmeTotal
+      integer :: bou_conta_ini, bou_conta_fin,nsubSegme
+      real*8 :: sixthofWL
+      real*8 :: resi
+      real :: deltax,deltaz
+      character(LEN=100) :: txt
+      
+      if (allocated(subdiv)) then
+        nsubdivs = size(subdiv)
+        do ixi = 1,nsubdivs
+          deallocate(subdiv(ixi)%x)
+          deallocate(subdiv(ixi)%z)
+        end do
+      else
+        allocate(subdiv(nxi-1))
+      end if
+      nSegmeTotal = 0
+      ! dividimos cada elemento original
+      do iXI = 1,nXI-1
+      if(V .ge. 3) print*,"dividing big segment",iXI
+      sixthofWL = real(real(BETA(origGeom(iXI)%layer))/2./pi) / (multSubdiv * frec)
+      ! delta normalizado y luego del tamaño sixthofWL
+      deltaX = (origGeom(iXI)%bord_B(1) - origGeom(iXI)%bord_A(1))
+      deltaX = deltaX / origGeom(iXI)%length * real(sixthofWL,4)
+      deltaZ = (origGeom(iXI)%bord_B(2) - origGeom(iXI)%bord_A(2))
+      deltaZ = deltaZ / origGeom(iXI)%length * real(sixthofWL,4)
+      
+      nMxDeDivi = ceiling(origGeom(iXI)%length/sixthofWL)
+      
+!     print*,"beta at layer ",origGeom(iXI)%layer,"is ", & 
+!     real(BETA(origGeom(iXI)%layer))/2/pi,"i",aimag(BETA(origGeom(iXI)%layer))
+!     print*,""
+      if(V .ge. 3) print*,"segm,",iXI,"of L =",origGeom(iXI)%length, & 
+      "  wl/6=",sixthofWL,  " nMxDeDivi=", nMxDeDivi
+      
+      if (origGeom(iXI)%length .le. sixthofWL ) then ! no hace falta segmentar
+        allocate(subdiv(ixi)%x(2));allocate(subdiv(ixi)%z(2))
+        subdiv(ixi)%x(1) = origGeom(iXI)%bord_A(1) !x
+        subdiv(ixi)%z(1) = origGeom(iXI)%bord_A(2) !z
+        subdiv(ixi)%x(2) = origGeom(iXI)%bord_B(1) !x
+        subdiv(ixi)%z(2) = origGeom(iXI)%bord_B(2) !z
+        nsubdivs = 2
+        nSegmeTotal = nSegmeTotal + 1
+      else ! origGeom(iXI)%length .gt. sixthofWL     ! si hace falta segmentar 
+        if (nMxDeDivi .lt. 3) nMxDeDivi = 3
+        ! ¿Sólo dividir por la mitad u optimizando?
+        if (origGeom(iXI)%length .le. 2.* sixthofWL) then
+                                                             ! sólo por la mitad
+        allocate(subdiv(ixi)%x(3));allocate(subdiv(ixi)%z(3))
+        subdiv(ixi)%x(1) = origGeom(iXI)%bord_A(1) !x
+        subdiv(ixi)%z(1) = origGeom(iXI)%bord_A(2) !z
+        subdiv(ixi)%x(2) = (origGeom(iXI)%bord_A(1) + origGeom(iXI)%bord_B(1))/2.
+        subdiv(ixi)%z(2) = (origGeom(iXI)%bord_A(2) + origGeom(iXI)%bord_B(2))/2.
+        subdiv(ixi)%x(3) = origGeom(iXI)%bord_B(1) !x
+        subdiv(ixi)%z(3) = origGeom(iXI)%bord_B(2) !z
+        nsubdivs = 3
+        nSegmeTotal = nSegmeTotal + 2
+        else ! origGeom(iXI)%length .gt. 2* sixthofWL
+                                                             ! segmentar chido
+        ndivsiguales = floor(origGeom(iXI)%length/2./sixthofWL)
+        resi = origGeom(iXI)%length - 2. * ndivsiguales * sixthofWL
+!       print*,"ndivsiguales", ndivsiguales
+!       print*,"resi", resi
+        if (resi .le. sixthofWL) then
+          ! dividir segmento central por la mitad
+          nsubdivs = 2*ndivsiguales + 2 + 1
+          allocate(subdiv(ixi)%x(nsubdivs));allocate(subdiv(ixi)%z(nsubdivs))
+          subdiv(ixi)%x(ndivsiguales+1) = origGeom(iXI)%bord_A(1) + deltaX*ndivsiguales
+          subdiv(ixi)%z(ndivsiguales+1) = origGeom(iXI)%bord_A(2) + deltaZ*ndivsiguales
+          subdiv(ixi)%x(ndivsiguales+3) = origGeom(iXI)%bord_B(1) - deltaX*ndivsiguales
+          subdiv(ixi)%z(ndivsiguales+3) = origGeom(iXI)%bord_B(2) - deltaZ*ndivsiguales 
+          subdiv(ixi)%x(ndivsiguales+2) = (subdiv(ixi)%x(ndivsiguales+1) + subdiv(ixi)%x(ndivsiguales+3))/2.
+          subdiv(ixi)%z(ndivsiguales+2) = (subdiv(ixi)%z(ndivsiguales+1) + subdiv(ixi)%z(ndivsiguales+3))/2.
+        else
+          ! odd number
+          nsubdivs = 2*ndivsiguales + 1 + 1
+          allocate(subdiv(ixi)%x(nsubdivs));allocate(subdiv(ixi)%z(nsubdivs))
+          subdiv(ixi)%x(ndivsiguales+1) = origGeom(iXI)%bord_A(1) + deltaX*ndivsiguales
+          subdiv(ixi)%z(ndivsiguales+1) = origGeom(iXI)%bord_A(2) + deltaZ*ndivsiguales
+          subdiv(ixi)%x(ndivsiguales+2) = origGeom(iXI)%bord_B(1) - deltaX*ndivsiguales
+          subdiv(ixi)%z(ndivsiguales+2) = origGeom(iXI)%bord_B(2) - deltaZ*ndivsiguales 
+        end if ! resi .le. sixthofWL
+        nSegmeTotal = nSegmeTotal + nsubdivs -1
+        do idi = 1, ndivsiguales
+            subdiv(ixi)%x(idi) = origGeom(iXI)%bord_A(1) + deltaX *(idi-1)
+            subdiv(ixi)%z(idi) = origGeom(iXI)%bord_A(2) + deltaZ *(idi-1)
+            subdiv(ixi)%x(nsubdivs +1 - idi) = origGeom(iXI)%bord_B(1) - deltaX *(idi-1)
+            subdiv(ixi)%z(nsubdivs +1 - idi) = origGeom(iXI)%bord_B(2) - deltaZ *(idi-1)
+        end do !idi
+        end if ! (origGeom(iXI)%length .le. 2.* sixthofWL)
+      end if ! origGeom(iXI)%length .le. sixthofWL
+      
+      if(V .ge. 3) then; DO idi = 1, nsubdivs
+       print*,"(",subdiv(ixi)%x(idi),",",subdiv(ixi)%z(idi),")"
+      end do; end if
+      end do !iXI
+      
+      ! para no chorrear memoria
+      if (allocated(boupoints)) then
+        do idi = 1,size(boupoints)
+          deallocate(BouPoints(idi)%FK)
+          deallocate(BouPoints(idi)%W)
+          deallocate(BouPoints(idi)%Gq_xXx_coords)
+          deallocate(BouPoints(idi)%Gq_xXx_C)
+          if(allocated(BouPoints(idi)%GT_gq)) deallocate(BouPoints(idi)%GT_gq)
+        end do 
+        deallocate(boupoints)
+      end if
+      
+      allocate(boupoints(nSegmeTotal)) !numero de segmentos total
+      nBpts = nSegmeTotal
+      if(allocated(ibemMat)) deallocate(ibemMat)!,Vout)
+      if(allocated(trac0vec)) deallocate(trac0vec)
+      if(allocated(IPIVbem)) deallocate(IPIVbem)
+!     allocate(Vout(2*nbpts,2))
+      allocate(ibemMat(2*nBpts,2*nBpts))
+      allocate(trac0vec(2*nBpts))
+      allocate(IPIVbem(2*nBpts))
+      ! Heredar
+      bou_conta_ini = 0
+      bou_conta_fin = 0
+      do ixi = 1,nXI-1 !nuevamente para cada segmento original
+      nsubSegme = size(subdiv(ixi)%x)-1
+      if(V .ge. 3) print*,"Gau pst for segms in Big segm",ixi,"with",nsubSegme,"subs"
+      bou_conta_fin = bou_conta_fin + nsubSegme
+      
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%bord_A(1) = subdiv(ixi)%x(1:nsubSegme)
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%bord_A(2) = subdiv(ixi)%z(1:nsubSegme)
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%bord_B(1) = subdiv(ixi)%x(2:nsubSegme+1)
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%bord_B(2) = subdiv(ixi)%z(2:nsubSegme+1)
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%center(1) = &
+         (subdiv(ixi)%x(2:nsubSegme+1) + subdiv(ixi)%x(1:nsubSegme))/2.
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%center(2) = &
+         (subdiv(ixi)%z(2:nsubSegme+1) + subdiv(ixi)%z(1:nsubSegme))/2.
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%normal(1) = origGeom(iXI)%normal(1)
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%normal(2) = origGeom(iXI)%normal(2)
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%layer = origGeom(iXI)%layer
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%isBoundary = .true.
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%isOnInterface = .false.
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%guardarFK = .false.
+      BouPoints(1+bou_conta_ini:bou_conta_fin)% guardarMovieSiblings = .false.
+      
+      BouPoints(1+bou_conta_ini:bou_conta_fin)%length = ( & 
+        (subdiv(ixi)%x(2:nsubSegme+1) - subdiv(ixi)%x(1:nsubSegme))**2. + &
+        (subdiv(ixi)%z(2:nsubSegme+1) - subdiv(ixi)%z(1:nsubSegme))**2. )** 0.5
+          
+      bou_conta_ini = bou_conta_ini + nsubSegme
+      end do !iXI
+      
+      if (V .ge. 3) then;do idi = 1, nSegmeTotal
+        print*,idi,":(", BouPoints(idi)%bord_A,") - (", & 
+                         BouPoints(idi)%bord_B,") : ",BouPoints(idi)%length
+        print*,"              (",BouPoints(idi)%center,")"
+        print*,"       n = ", BouPoints(idi)%normal
+        print*,"       e = ", BouPoints(idi)%layer
+      end do;end if
+      
+      do ixi = 1,nBpts
+        allocate(BouPoints(iXi)%GT_gq(nBpts,2,2)); BouPoints(iXi)%GT_gq = 0
+!       allocate(BouPoints(iXi)%FK(1,2*NMAX,5))
+        allocate(BouPoints(iXi)%W(1,2))
+        allocate(BouPoints(iXi)%Gq_xXx_coords(Gqu_n,2))
+        allocate(BouPoints(iXi)%Gq_xXx_C(Gqu_n))
+        BouPoints(iXi)%boundaryIndex = iXi
+        call punGa(ixi) ! the Gaussian integration points
+      end do
+      !
+      do ixi = iPtini,iPtfin
+        if(allocated(allpoints(ixi)%GT_gq)) deallocate(allpoints(ixi)%GT_gq)
+        allocate(allpoints(ixi)%GT_gq(nBpts,2,2)); allpoints(ixi)%GT_gq = 0
+      end do
+      
+      if (makeVideo) then
+        do iXi = mPtini,mPtfin
+        if(allocated(allpoints(ixi)%GT_gq_mov)) deallocate(allpoints(ixi)%GT_gq_mov)
+          allocate(allpoints(ixi)%GT_gq_mov(nBpts,2,2,NxXxMpts))
+          allpoints(ixi)%GT_gq_mov = 0
+        end do
+      end if
+      
+      ! draw the subdivision
+      if (V .ge. 1) then
+       CALL chdir("outs")
+       call system('mkdir subdivs')
+       CALL chdir("subdivs")
+       write(txt,'(a,I0,a)') 'Division_at[J=',iJ,'].pdf'
+       call drawBoundary(txt)
+       CALL chdir("..") !out of subdivs
+       CALL chdir("..") !out of outs
+      end if
+      
+!     stop "subdivideTopo"
+      end subroutine subdivideTopo
+      
+      subroutine punGa (ixi) 
+      ! Coordenadas de los puntos de integración Gaussiana.
+      use glovars, only : verbose
+      use resultVars, only : BouPoints
+      use Gquadrature, only: Gqu_n => Gquad_n, & 
+                             Gqu_t => Gqu_t_3, & 
+                             Gqu_A => Gqu_A_3
+      implicit none
+      integer, intent(in) :: ixi                 
+      real, dimension(:), pointer :: A,B,G_c ! 1:x 2:z
+      real, pointer :: L
+      real, dimension(:,:), pointer :: Gq
+      real, dimension(2) :: norm_comp
+      real, dimension(2) :: ABp !x or y coords of points A and B
+      integer :: i, xory, xoryOtro
+      real :: xA,yA,xB,yB
+      real :: interpol
+      
+      A => Boupoints(ixi)%bord_A(1:2)
+      B => Boupoints(ixi)%bord_B(1:2)
+      L => Boupoints(ixi)%length
+      Gq => Boupoints(ixi)%Gq_xXx_coords(1:Gqu_n,1:2)
+      G_c => Boupoints(ixi)%Gq_xXx_C(1:Gqu_n)
+      
+      norm_comp(1)=abs(B(1)-A(1)) / L
+      norm_comp(2)=abs(B(2)-A(2)) / L
+      
+      if (norm_comp(2) > norm_comp(1)) then
+!           print*," la pendiente es mayormente vertical "
+         xory = 2 
+         xoryOtro = 1
+      else 
+!           print*," la pendiente es mayormente horizontal "
+         xory = 1 
+         xoryOtro = 2
+      end if
+      
+      ABp(1) = A(xory)
+      ABp(2) = B(xory)
+      
+      do i = 1,Gqu_n !ceros de Legendre (una coordenada):
+        Gq(i,xory) = (ABp(2)+ABp(1))/2. + (ABp(2)-ABp(1))/2. * Gqu_t(i)
+        G_c(i) = abs(L)/2. * Gqu_A(i)
+      end do
+      
+      ! la otra coordenada:
+        xA = ABp(1)
+        yA = A(xoryOtro)
+        xB = ABp(2)
+        yB = B(xoryOtro)
+        do i = 1,Gqu_n
+          Gq(i,xoryOtro) = interpol(xA,yA,xB,yB,Gq(i,xory))
+        end do
+      
+        if (verbose .ge. 3) then
+        write(6,'(a,F12.5,a,F12.5,a,F12.5,a,F12.5,a,F12.8,a,F12.6,a,F12.6,a)') & 
+               "[",A(1),",",A(2),"]-[", & 
+                 B(1),",",B(2), & 
+                 "] L:", L, &
+                 " n:[",BouPoints(iXi)%normal(1),",",BouPoints(iXi)%normal(2),"]"
+        if (xory .eq. 1) print*,"mayormente horizontal"
+        if (xory .eq. 2) print*,"mayormente vertical"          
+!       print*,"{",xA,",",yA,"}-{",xB,",",yB,"} Gquad points:"
+        do i = 1,Gqu_n
+          print*,"Gq",i,"[",BouPoints(iXi)%Gq_xXx_coords(i,1), " , ", &
+          BouPoints(iXi)%Gq_xXx_coords(i,2), "] :: ",BouPoints(iXi)%Gq_xXx_C(i)
+        end do
+        print*,""
+        end if
+      
+      end subroutine punGa
+      
       subroutine oldsubdivideTopo(iJ,outpf)
       !Read coordinates of collocation points and fix if there are
       !intersections with inferfaces. Also find normal vectors of segments.
@@ -3563,287 +3853,6 @@
       end if ! huboCambios
       if (verbose .eq. 1) write(outpf,'(EN11.1,a,I0,a)', ADVANCE = "NO") smallestBeta/thisFrec," | [",nXI-1,"] | "
       end subroutine oldsubdivideTopo
-      subroutine subdivideTopo(iJ)
-      !optimized segementation of geometry.
-      use gloVars, only : multSubdiv,V => verbose,pi,makevideo
-      use GeometryVars, only : origGeom,nXI,subdiv
-      use waveNumVars, only : frec
-      use soilVars, only : BETA
-      
-      use resultVars, only : BouPoints, nBpts, & 
-                             iPtini,iPtfin,mPtini,mPtfin, & !bPtini,bPtfin,
-                             allpoints,NxXxMpts, &
-                             ibemMat,trac0vec,IPIVbem
-      use ploteo10pesos
-      use Gquadrature, only: Gqu_n => Gquad_n
-      
-      implicit none
-      integer, intent(in) :: iJ
-      integer :: iXI,nMxDeDivi,iDi,nsubdivs,ndivsiguales,nSegmeTotal
-      integer :: bou_conta_ini, bou_conta_fin,nsubSegme
-      real*8 :: sixthofWL
-      real*8 :: resi
-      real :: deltax,deltaz
-      character(LEN=100) :: txt
-      print*,"verbose=",V
-      if (allocated(subdiv)) then
-        nsubdivs = size(subdiv)
-        do ixi = 1,nsubdivs
-          deallocate(subdiv(ixi)%x)
-          deallocate(subdiv(ixi)%z)
-        end do
-      else
-        allocate(subdiv(nxi-1))
-      end if
-      nSegmeTotal = 0
-      ! dividimos cada elemento original
-      do iXI = 1,nXI-1
-      if(V .ge. 3) print*,"dividing big segment",iXI
-      sixthofWL = real(real(BETA(origGeom(iXI)%layer))/2./pi) / (multSubdiv * frec)
-      ! delta normalizado y luego del tamaño sixthofWL
-      deltaX = (origGeom(iXI)%bord_B(1) - origGeom(iXI)%bord_A(1))
-      deltaX = deltaX / origGeom(iXI)%length * real(sixthofWL,4)
-      deltaZ = (origGeom(iXI)%bord_B(2) - origGeom(iXI)%bord_A(2))
-      deltaZ = deltaZ / origGeom(iXI)%length * real(sixthofWL,4)
-      
-      nMxDeDivi = ceiling(origGeom(iXI)%length/sixthofWL)
-      
-!     print*,"beta at layer ",origGeom(iXI)%layer,"is ", & 
-!     real(BETA(origGeom(iXI)%layer))/2/pi,"i",aimag(BETA(origGeom(iXI)%layer))
-!     print*,""
-      if(V .ge. 3) print*,"segm,",iXI,"of L =",origGeom(iXI)%length, & 
-      "  wl/6=",sixthofWL,  " nMxDeDivi=", nMxDeDivi
-      
-      if (origGeom(iXI)%length .le. sixthofWL ) then ! no hace falta segmentar
-        allocate(subdiv(ixi)%x(2));allocate(subdiv(ixi)%z(2))
-        subdiv(ixi)%x(1) = origGeom(iXI)%bord_A(1) !x
-        subdiv(ixi)%z(1) = origGeom(iXI)%bord_A(2) !z
-        subdiv(ixi)%x(2) = origGeom(iXI)%bord_B(1) !x
-        subdiv(ixi)%z(2) = origGeom(iXI)%bord_B(2) !z
-        nsubdivs = 2
-        nSegmeTotal = nSegmeTotal + 1
-      else ! origGeom(iXI)%length .gt. sixthofWL     ! si hace falta segmentar 
-        if (nMxDeDivi .lt. 3) nMxDeDivi = 3
-        ! ¿Sólo dividir por la mitad u optimizando?
-        if (origGeom(iXI)%length .le. 2.* sixthofWL) then
-                                                             ! sólo por la mitad
-        allocate(subdiv(ixi)%x(3));allocate(subdiv(ixi)%z(3))
-        subdiv(ixi)%x(1) = origGeom(iXI)%bord_A(1) !x
-        subdiv(ixi)%z(1) = origGeom(iXI)%bord_A(2) !z
-        subdiv(ixi)%x(2) = (origGeom(iXI)%bord_A(1) + origGeom(iXI)%bord_B(1))/2.
-        subdiv(ixi)%z(2) = (origGeom(iXI)%bord_A(2) + origGeom(iXI)%bord_B(2))/2.
-        subdiv(ixi)%x(3) = origGeom(iXI)%bord_B(1) !x
-        subdiv(ixi)%z(3) = origGeom(iXI)%bord_B(2) !z
-        nsubdivs = 3
-        nSegmeTotal = nSegmeTotal + 2
-        else ! origGeom(iXI)%length .gt. 2* sixthofWL
-                                                             ! segmentar chido
-        ndivsiguales = floor(origGeom(iXI)%length/2./sixthofWL)
-        resi = origGeom(iXI)%length - 2. * ndivsiguales * sixthofWL
-!       print*,"ndivsiguales", ndivsiguales
-!       print*,"resi", resi
-        if (resi .le. sixthofWL) then
-          ! dividir segmento central por la mitad
-          nsubdivs = 2*ndivsiguales + 2 + 1
-          allocate(subdiv(ixi)%x(nsubdivs));allocate(subdiv(ixi)%z(nsubdivs))
-          subdiv(ixi)%x(ndivsiguales+1) = origGeom(iXI)%bord_A(1) + deltaX*ndivsiguales
-          subdiv(ixi)%z(ndivsiguales+1) = origGeom(iXI)%bord_A(2) + deltaZ*ndivsiguales
-          subdiv(ixi)%x(ndivsiguales+3) = origGeom(iXI)%bord_B(1) - deltaX*ndivsiguales
-          subdiv(ixi)%z(ndivsiguales+3) = origGeom(iXI)%bord_B(2) - deltaZ*ndivsiguales 
-          subdiv(ixi)%x(ndivsiguales+2) = (subdiv(ixi)%x(ndivsiguales+1) + subdiv(ixi)%x(ndivsiguales+3))/2.
-          subdiv(ixi)%z(ndivsiguales+2) = (subdiv(ixi)%z(ndivsiguales+1) + subdiv(ixi)%z(ndivsiguales+3))/2.
-        else
-          ! odd number
-          nsubdivs = 2*ndivsiguales + 1 + 1
-          allocate(subdiv(ixi)%x(nsubdivs));allocate(subdiv(ixi)%z(nsubdivs))
-          subdiv(ixi)%x(ndivsiguales+1) = origGeom(iXI)%bord_A(1) + deltaX*ndivsiguales
-          subdiv(ixi)%z(ndivsiguales+1) = origGeom(iXI)%bord_A(2) + deltaZ*ndivsiguales
-          subdiv(ixi)%x(ndivsiguales+2) = origGeom(iXI)%bord_B(1) - deltaX*ndivsiguales
-          subdiv(ixi)%z(ndivsiguales+2) = origGeom(iXI)%bord_B(2) - deltaZ*ndivsiguales 
-        end if ! resi .le. sixthofWL
-        nSegmeTotal = nSegmeTotal + nsubdivs -1
-        do idi = 1, ndivsiguales
-            subdiv(ixi)%x(idi) = origGeom(iXI)%bord_A(1) + deltaX *(idi-1)
-            subdiv(ixi)%z(idi) = origGeom(iXI)%bord_A(2) + deltaZ *(idi-1)
-            subdiv(ixi)%x(nsubdivs +1 - idi) = origGeom(iXI)%bord_B(1) - deltaX *(idi-1)
-            subdiv(ixi)%z(nsubdivs +1 - idi) = origGeom(iXI)%bord_B(2) - deltaZ *(idi-1)
-        end do !idi
-        end if ! (origGeom(iXI)%length .le. 2.* sixthofWL)
-      end if ! origGeom(iXI)%length .le. sixthofWL
-      
-      if(V .ge. 3) then; DO idi = 1, nsubdivs
-       print*,"(",subdiv(ixi)%x(idi),",",subdiv(ixi)%z(idi),")"
-      end do; end if
-      end do !iXI
-      
-      ! para no chorrear memoria
-      if (allocated(boupoints)) then
-        do idi = 1,size(boupoints)
-          deallocate(BouPoints(idi)%FK)
-          deallocate(BouPoints(idi)%W)
-          deallocate(BouPoints(idi)%Gq_xXx_coords)
-          deallocate(BouPoints(idi)%Gq_xXx_C)
-          if(allocated(BouPoints(idi)%GT_gq)) deallocate(BouPoints(idi)%GT_gq)
-        end do 
-        deallocate(boupoints)
-      end if
-      
-      allocate(boupoints(nSegmeTotal)) !numero de segmentos total
-      nBpts = nSegmeTotal
-      if(allocated(ibemMat)) deallocate(ibemMat)!,Vout)
-      if(allocated(trac0vec)) deallocate(trac0vec)
-      if(allocated(IPIVbem)) deallocate(IPIVbem)
-!     allocate(Vout(2*nbpts,2))
-      allocate(ibemMat(2*nBpts,2*nBpts))
-      allocate(trac0vec(2*nBpts))
-      allocate(IPIVbem(2*nBpts))
-      ! Heredar
-      bou_conta_ini = 0
-      bou_conta_fin = 0
-      do ixi = 1,nXI-1 !nuevamente para cada segmento original
-      nsubSegme = size(subdiv(ixi)%x)-1
-      if(V .ge. 3) print*,"Gau pst for segms in Big segm",ixi,"with",nsubSegme,"subs"
-      bou_conta_fin = bou_conta_fin + nsubSegme
-      
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%bord_A(1) = subdiv(ixi)%x(1:nsubSegme)
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%bord_A(2) = subdiv(ixi)%z(1:nsubSegme)
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%bord_B(1) = subdiv(ixi)%x(2:nsubSegme+1)
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%bord_B(2) = subdiv(ixi)%z(2:nsubSegme+1)
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%center(1) = &
-         (subdiv(ixi)%x(2:nsubSegme+1) + subdiv(ixi)%x(1:nsubSegme))/2.
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%center(2) = &
-         (subdiv(ixi)%z(2:nsubSegme+1) + subdiv(ixi)%z(1:nsubSegme))/2.
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%normal(1) = origGeom(iXI)%normal(1)
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%normal(2) = origGeom(iXI)%normal(2)
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%layer = origGeom(iXI)%layer
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%isBoundary = .true.
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%isOnInterface = .false.
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%guardarFK = .false.
-      BouPoints(1+bou_conta_ini:bou_conta_fin)% guardarMovieSiblings = .false.
-      
-      BouPoints(1+bou_conta_ini:bou_conta_fin)%length = ( & 
-        (subdiv(ixi)%x(2:nsubSegme+1) - subdiv(ixi)%x(1:nsubSegme))**2. + &
-        (subdiv(ixi)%z(2:nsubSegme+1) - subdiv(ixi)%z(1:nsubSegme))**2. )** 0.5
-          
-      bou_conta_ini = bou_conta_ini + nsubSegme
-      end do !iXI
-      
-      if (V .ge. 3) then;do idi = 1, nSegmeTotal
-        print*,idi,":(", BouPoints(idi)%bord_A,") - (", & 
-                         BouPoints(idi)%bord_B,") : ",BouPoints(idi)%length
-        print*,"              (",BouPoints(idi)%center,")"
-        print*,"       n = ", BouPoints(idi)%normal
-        print*,"       e = ", BouPoints(idi)%layer
-      end do;end if
-      
-      do ixi = 1,nBpts
-        allocate(BouPoints(iXi)%GT_gq(nBpts,2,2)); BouPoints(iXi)%GT_gq = 0
-!       allocate(BouPoints(iXi)%FK(1,2*NMAX,5))
-        allocate(BouPoints(iXi)%W(1,2))
-        allocate(BouPoints(iXi)%Gq_xXx_coords(Gqu_n,2))
-        allocate(BouPoints(iXi)%Gq_xXx_C(Gqu_n))
-        BouPoints(iXi)%boundaryIndex = iXi
-        call punGa(ixi) ! the Gaussian integration points
-      end do
-      
-      do ixi = iPtini,iPtfin
-        if(allocated(allpoints(ixi)%GT_gq)) deallocate(allpoints(ixi)%GT_gq)
-        allocate(allpoints(ixi)%GT_gq(nBpts,2,2)); allpoints(ixi)%GT_gq = 0
-      end do
-      
-      if (makeVideo) then
-        do iXi = mPtini,mPtfin
-        if(allocated(allpoints(ixi)%GT_gq_mov)) deallocate(allpoints(ixi)%GT_gq_mov)
-          allocate(allpoints(ixi)%GT_gq_mov(nBpts,2,2,NxXxMpts))
-          allpoints(ixi)%GT_gq_mov = 0
-        end do
-      end if
-      
-      ! draw the subdivision
-      if (V .ge. 1) then
-       CALL chdir("outs")
-       call system('mkdir subdivs')
-       CALL chdir("subdivs")
-       write(txt,'(a,I0,a)') 'Division_at[J=',iJ,'].pdf'
-       call drawBoundary(txt)
-       CALL chdir("..") !out of subdivs
-       CALL chdir("..") !out of outs
-      end if
-      
-!     stop "subdivideTopo"
-      end subroutine subdivideTopo
-      
-      subroutine punGa (ixi) 
-      ! Coordenadas de los puntos de integración Gaussiana.
-      use glovars, only : verbose
-      use resultVars, only : BouPoints
-      use Gquadrature, only: Gqu_n => Gquad_n, & 
-                             Gqu_t => Gqu_t_3, & 
-                             Gqu_A => Gqu_A_3
-      implicit none
-      integer, intent(in) :: ixi                 
-      real, dimension(:), pointer :: A,B,G_c ! 1:x 2:z
-      real, pointer :: L
-      real, dimension(:,:), pointer :: Gq
-      real, dimension(2) :: norm_comp
-      real, dimension(2) :: ABp !x or y coords of points A and B
-      integer :: i, xory, xoryOtro
-      real :: xA,yA,xB,yB
-      real :: interpol
-      
-      A => Boupoints(ixi)%bord_A(1:2)
-      B => Boupoints(ixi)%bord_B(1:2)
-      L => Boupoints(ixi)%length
-      Gq => Boupoints(ixi)%Gq_xXx_coords(1:Gqu_n,1:2)
-      G_c => Boupoints(ixi)%Gq_xXx_C(1:Gqu_n)
-      
-      norm_comp(1)=abs(B(1)-A(1)) / L
-      norm_comp(2)=abs(B(2)-A(2)) / L
-      
-      if (norm_comp(2) > norm_comp(1)) then
-!           print*," la pendiente es mayormente vertical "
-         xory = 2 
-         xoryOtro = 1
-      else 
-!           print*," la pendiente es mayormente horizontal "
-         xory = 1 
-         xoryOtro = 2
-      end if
-      
-      ABp(1) = A(xory)
-      ABp(2) = B(xory)
-      
-      do i = 1,Gqu_n !ceros de Legendre (una coordenada):
-        Gq(i,xory) = (ABp(2)+ABp(1))/2. + (ABp(2)-ABp(1))/2. * Gqu_t(i)
-        G_c(i) = abs(L)/2. * Gqu_A(i)
-      end do
-      
-      ! la otra coordenada:
-        xA = ABp(1)
-        yA = A(xoryOtro)
-        xB = ABp(2)
-        yB = B(xoryOtro)
-        do i = 1,Gqu_n
-          Gq(i,xoryOtro) = interpol(xA,yA,xB,yB,Gq(i,xory))
-        end do
-      
-        if (verbose .ge. 3) then
-        write(6,'(a,F12.5,a,F12.5,a,F12.5,a,F12.5,a,F12.8,a,F12.6,a,F12.6,a)') & 
-               "[",A(1),",",A(2),"]-[", & 
-                 B(1),",",B(2), & 
-                 "] L:", L, &
-                 " n:[",BouPoints(iXi)%normal(1),",",BouPoints(iXi)%normal(2),"]"
-        if (xory .eq. 1) print*,"mayormente horizontal"
-        if (xory .eq. 2) print*,"mayormente vertical"          
-!       print*,"{",xA,",",yA,"}-{",xB,",",yB,"} Gquad points:"
-        do i = 1,Gqu_n
-          print*,"Gq",i,"[",BouPoints(iXi)%Gq_xXx_coords(i,1), " , ", &
-          BouPoints(iXi)%Gq_xXx_coords(i,2), "] :: ",BouPoints(iXi)%Gq_xXx_C(i)
-        end do
-        print*,""
-        end if
-      
-      end subroutine punGa
 !     subroutine allocintegPoints(iJ)
 !     use soilVars, only : BETA
 !     use resultVars, only : allpoints,BouPoints,npts,nBpts
