@@ -983,6 +983,7 @@
       CALL PAGE(int(W+1200,4),int(H+350,4))
       CALL PAGMOD('NONE')
       CALL DISINI() ! dislin initialize 
+      call errmod ("all", "off")
 !     !CALL PAGERA() ! plots a page border
       CALL COMPLX ! sets a complex font
       CALL HWFONT()
@@ -1066,7 +1067,6 @@
       call legtit('') ! or '' for nothing
       call legend(CBUF,int(3,4))
 !     
-      call errmod ("all", "off") !suppress dislin info
       call disfin()
       
 !     print*,'plotted ',trim(titleN)
@@ -1148,6 +1148,7 @@
       CALL PAGE(int(W+1200,4),int(H+350,4))
       CALL PAGMOD('NONE')
       CALL DISINI() ! dislin initialize 
+      call errmod ("all", "off")
 !     print*,"disini"
 !     CALL PAGERA() ! plots a page border
       CALL COMPLX ! sets a complex font
@@ -1281,6 +1282,7 @@
       CALL PAGE(int(W+1200,4),int(H+350,4))
       CALL PAGMOD('NONE')
       CALL DISINI() ! dislin initialize 
+      call errmod ("all", "off")
 !     print*,"disini"
 !     CALL PAGERA() ! plots a page border
       CALL COMPLX ! sets a complex font
@@ -1335,7 +1337,6 @@
       call legtit('') ! or '' for nothing
       call legend(CBUF,int(1,4))
 
-      call errmod ("protocol", "off") !suppress dislin info
       call disfin()      
       
 !     print*,'plotted ',trim(titleN)
@@ -1443,6 +1444,7 @@
       CALL SCRMOD('REVERS') !fondo blanco
 !     CALL SETPAG('DA4P')
       CALL DISINI()
+      call errmod ("all", "off")
 !     CALL COMPLX() !texto complejo
 !     call incmrk ( 1 )
 !     CALL HWFONT()
@@ -1466,7 +1468,6 @@
                   real(M,4), real(ZLVRAY,4),int(41,4))
       
       CALL HEIGHT(int(50,4))
-      call errmod ("all", "off")
       CALL DISFIN()
       
       end do !iMec
@@ -1524,6 +1525,7 @@
       CALL PAGE(int(1200+300,4),int(800+300,4))
       CALL PAGMOD('NONE')
       CALL DISINI() ! dislin initialize 
+      call errmod ("all", "off")
 !     CALL PAGERA() ! plots a page border
       CALL COMPLX ! sets a complex font
       call incmrk (int(1,4))
@@ -1588,7 +1590,6 @@
       end do
       
 !     call xaxgit() 
-      call errmod ("all", "off")
       call disfin()
       
       end subroutine drawGEOM
@@ -1627,6 +1628,7 @@
       CALL PAGE(int(800+400,4),int(800+300,4))
       CALL PAGMOD('NONE')
       CALL DISINI() ! dislin initialize 
+      call errmod ("all", "off")
 !     CALL PAGERA() ! plots a page border
       CALL COMPLX ! sets a complex font
       call incmrk (int(1,4))
@@ -1670,14 +1672,14 @@
                                                                       !
       call rline(real(Xcoord(1,1),4),real(Xcoord(1,2),4), &           !
                  real(Xcoord(nXI,1),4),real(Xcoord(nXI,2),4))         !
-      ! dibujar topografia                                            !
+      ! dibujar topografia original                                   !
       call color ('FORE')                                             !
-      CALL HSYMBL(int(7,4)) !size of symbols                          !
-      call marker(int(15,4)) !circulitos blancos                      !
+      call marker(int(-1,4)) ! sin marcadores                         !
       call curve(real(Xcoord(:,1),4),real(Xcoord(:,2),4),int(nXI,4))  !
              
       !normales -------------------------------------------------------------
       call color('GREEN')                                                   !
+      CALL HSYMBL(int(7,4)) !size of symbols                                ! 
       do j=1,nXI-1                                                          !
       CALL RLVEC (real(midPoint(j,1),4), real(midPoint(j,2),4), &           !
               real(midPoint(j,1)+normXI(j,1)*xstep*0.2,4), &                !
@@ -1686,12 +1688,17 @@
       
       ! puntos centrales y gaussianos ------------------------------------
       call incmrk(-1) ! -1 : only symbols                                !
+      CALL HSYMBL(int(4,4)) !size of symbols                             !
+      call color('BACK')                                                 !
+      do j=1,nBpts                                                       !
+      !             cuadritos rellenos                                   !
+      CALL RLSYMB (16, real(BP(j)%bord_A(1),4), real(BP(j)%bord_A(2),4)) !
+      end do                                                             !
       CALL HSYMBL(int(7,4)) !size of symbols                             !
-      CALL MRKCLR(int(-1,4)) !color for symbols                          !
       do j=1,nBpts                                                       !
       call color('FORE')                                                 !
-      !             X                                                    !
-      CALL RLSYMB (15, real(BP(j)%center(1),4), real(BP(j)%center(2),4)) !
+      !             circulitos negros                                    !
+      CALL RLSYMB (17, real(BP(j)%center(1),4), real(BP(j)%center(2),4)) !
       call color('ORANGE')                                               !
       call marker(int(4,4)) !tachecitos                                  !
       call curve(real(BP(j)%Gq_xXx_coords(:,1),4), &                     !
@@ -1703,7 +1710,7 @@
       !fuente ------------------------------------------------------------
       CALL HSYMBL(int(10,4)) !size of symbols                            !
       call color('RED')                                                  !
-      CALL RLSYMB (15, real(xfsource,4), real(zfsource,4))                    !
+      CALL RLSYMB (15, real(xfsource,4), real(zfsource,4))               !
       CALL RLVEC (real(xfsource,4), real(zfsource,4), &                  !
               real(xfsource+nxfsource*xstep*0.3,4), &                    !
               real(zfsource+nzfsource*xstep*0.3,4), int(1101,4))         !
@@ -1716,7 +1723,7 @@
         CALL RLSYMB (2, real(IP(j)%center(1),4), real(IP(j)%center(2),4))   !
       end do                                                                !
            
-      call errmod ("all", "off")
+      
       call disfin()
       
       end subroutine drawBoundary
@@ -1775,7 +1782,6 @@
         nIpts=0; nMpts=0; nBpts = 0
         iPtfin = 0; mPtfin = 0
         KtrimIndex = nmax+1
-!     allocate(vout(1,2))
       if (getInquirePointsSol) call getInquirePoints(PrintNum)
       call getVideoPoints(PrintNum)
       call getsource
@@ -1792,8 +1798,8 @@
         ALLOCATE (IPIV(4*N+2)) ! pivote
         allocate (auxKvect(2*Nmax))
         allocate(expK(2*nmax))
-      factor = sqrt(2.*NMAX*2)
-      print*,"here"
+        factor = sqrt(2.*NMAX*2)
+      
       if (getInquirePointsSol) then 
          allpoints(iPtini:iPtfin)= inqPoints !;deallocate(inqPoints)
          end if!
@@ -1850,9 +1856,9 @@
       
       print*,"Pre-prosses took ",tend-tstart,"seconds"
       write(PrintNum,'(A)', ADVANCE = "NO") & 
-                                 "  J              omega                [Hz]   "
+                                 "  J                omega                [Hz]   "
       if(WORKBOUNDARY)then
-      write(PrintNum,'(A)', ADVANCE = "YES") "   minS WL [m]    Nel    t span [s]"
+      write(PrintNum,'(A)', ADVANCE = "YES") "     minS WL [m]    Nel    t span [s]"
       else 
           write(PrintNum,'(A)', ADVANCE = "YES") "    t span"
       end if
@@ -1898,12 +1904,9 @@
         end if
       ! Subsegment the topography if neccesssary
       if (workBoundary) then 
-!       verbose = 3
          call subdivideTopo(J)
          call preparePointerTable(.false.,PrintNum)
-!       verbose = 1
-        trac0vec = 0
-        ibemMat = 0
+         call makelambdaDepths
          stop "1898"
       end if
       ! strata cotinuity conditions matrix A
@@ -2516,10 +2519,10 @@
       real*8 :: l
       real :: m
       real :: XIx, XIy
-      integer :: iXI,e,indice
+      integer :: iXI,e!,indice
       
       
-      real :: nuevoPx,deltaX,deltaZ
+      real :: nuevoPx!,deltaX,deltaZ
      
       character(LEN=100) :: txt
       real     :: errT = 0.001
@@ -2527,8 +2530,8 @@
       logical :: huboCambios!, smallEnough
       real, dimension(:), allocatable :: auxA,auxB
       
-      integer :: status
-      real*8 :: bigN
+!     integer :: status
+!     real*8 :: bigN
       ! min wavelenght = beta / maxFrec
       huboCambios = .false.
       allocate(auxA(1))
@@ -2564,8 +2567,8 @@
       ! topography and an interface
       iXI = 1
       DO WHILE (iXI <= nXI-1)!iXI = 1,nXI-1 !para cada segmento
-     ! we check if there is a change of medium along segment [iXI,iXI+1]
-         if (verbose .ge. 3 ) write(outpf,*) iXI,"of ",nXI
+      ! we check if there is a change of medium along segment [iXI,iXI+1]
+            if (verbose .ge. 3 ) write(outpf,*) iXI,"of ",nXI
          DO e = 2,size(Z) !en cada interfaz (excepto la superficie)
             if (verbose >= 3 ) write(outpf,'(a,F12.8,/,a,F14.6,a,F14.6,a)') & 
                  "Z =",Z(e),"deltaZ of segm: (",y(iXI),",",y(iXI+1),")"
@@ -2676,15 +2679,14 @@
         midPoint(ixi,2) = (y(ixi+1) + y(ixi))/2.
         lengthXI(ixi) = sqrt((x(ixi+1)-x(ixi))**2. + (y(ixi+1)-y(ixi))**2.)
       end do
-      
-      ! estrato
-      allocate (layerXI(nXI-1))
-      allocate (isOnIF(nXI-1)) ; isOnIF = .false.
+     
       
 !     layerxi(:) = N+1
 !     forall(e=1:N, ixi=1:nxi-1, & 
 !     (z(e) < midpoint(ixi,2) .and. midpoint(ixi,2) <= z(e+1))) layerxi(ixi) = e
       
+      ! estrato
+      allocate (layerXI(nXI-1))
       layerxi(:) = N+1
       do e=1,N
         forall(ixi=1:nxi-1, &
@@ -2692,7 +2694,13 @@
           layerxi(ixi) = e
       end do
       
-      
+      allocate (isOnIF(nXI-1)) ; isOnIF = .false.
+      do e=1,N+1
+        forall(ixi=1:nxi-1, &
+          ((Z(e)-errT .lt. midPoint(iXI,2)) & 
+            .and. (midPoint(iXI,2) .lt. Z(e)+errT))) & 
+          isOnIF(iXI) = .true.
+      end do
 !     do ixi=1,nxi-1
 !       e = 0
 !        print*,ixi," --- ",midPoint(ixi,2)
@@ -2991,17 +2999,25 @@
       
 !     end subroutine getTopography
       subroutine preparePointerTable(firstTime,outpf)
-      use resultVars, only : nPts,allpoints,nBpts,BouPoints,auxpota,pota,fixedpota,nZs,Punto
+      use resultVars, only : nPts,allpoints,nBpts,BouPoints,auxpota, & 
+                             pota,fixedpota,nZs,Punto
       use debugstuff
       use Gquadrature, only : Gquad_n
-      use glovars, only : verbose,workBoundary
+      use glovars, only : verbose,workBoundary, multSubdiv ,PI
+      use waveNumVars, only : frec
+      use soilVars, only : N,Z,BETA
       ! tabla con las coordenadas Z (sin repetir).
       implicit none
       logical,intent(in) :: firstTime
       integer,intent(in) :: outpf
-      integer :: i,j,iP
+      integer :: i,j,e,iP
       logical :: nearby,esnueva
       type(Punto), pointer :: PX
+      integer :: min_e,max_e
+      real*8 :: min_z,max_z,h
+      real*8, dimension(:), allocatable :: lambdaDepths_z,auxLD_z
+      integer, dimension(:), allocatable :: lambdaDepths_e,auxLD_e
+      
       ! si es la primera vez que corre sólo agregamos los allpoints 
       if (firstTime) then
        if (verbose .ge. 2) write(outpf,*) "generating master table"
@@ -3012,13 +3028,14 @@
        auxpota(1,1) = 1 !nXs allpoints
 !      auxpota(1,2) = 0 !nXs boupoints
        auxpota(1,3) = 1 !4,5,6 ... allpoints -7,-8,-9 ... boupoints
-       !         '--- el (3) siempre está
+       !         ^--- el (3) siempre está
        ! agregamos los demás sin repetir
        if (nPts>=2) then 
        do iP = 2,nPts
          esnueva = .true.
          do i = 1,nZs
-           if (nearby(allpoints(iP)%center(2),allpoints(auxpota(i,3))%center(2),0.001)) then
+           if (nearby(allpoints(iP)%center(2), & 
+               allpoints(auxpota(i,3))%center(2),0.001)) then
              !agregar a coordenada Z existente
              auxpota(i,1) = 1 + auxpota(i,1)
              auxpota(i,auxpota(i,1) + 2) = iP
@@ -3047,11 +3064,12 @@
        ! Dada la tabla de los puntos fijos.
        ! Agregar los puntos gaussianos de los segmentos cercanos a la
        ! fuerza virtual [zf] y los centros de los segmentos restantes. 
+       if (verbose .ge. 1) write(6,'(A)', ADVANCE = "NO") "updating table"
        if (verbose .ge. 2) write(outpf,*) "updating master table"
        if (allocated(pota)) deallocate(pota)
        if (allocated(auxpota)) deallocate(auxpota)
-!      print*,"max size:  ",nZs + nBpts * Gquad_n," x ",2 + maxval(fixedPota(:,1)) + nBpts * Gquad_n
-       allocate(auxpota(nZs + nBpts * Gquad_n, 2 + maxval(fixedPota(:,1)) + nBpts * Gquad_n))
+       allocate(auxpota(nZs + nBpts * Gquad_n, 2 + & 
+                        maxval(fixedPota(:,1)) + nBpts * Gquad_n))
        auxpota = 0
 !      j = maxval(fixedPota(:,1))
        nZs = size(fixedPota,1)
@@ -3068,23 +3086,22 @@
        do iP = 1,nBpts
 !        print*,"ip:",ip
          esnueva = .true.
-         do i = 1,nZs
+         do i = 1,nZs !para cada profundidad ya identificada en la tabla
           ! diferenciar de que grupo es la coordenda
-           if (associated(PX)) then 
-              nullify(PX)
-           end if!
+           if (associated(PX)) nullify(PX)
            if (auxpota(i,3) .gt. 0) then
              PX => allpoints(auxpota(i,3))!; print*,"allp "
            else
              PX => boupoints(abs(auxpota(i,3)))!; print*,"boup "
            end if
-          ! revisar si existe
+          ! revisar si en la tabla ya hay una profundidad cercana 
            if (nearby(boupoints(iP)%center(2),PX%center(2),0.001)) then
 !            print*,"estan cerca"
-             if (auxpota(i,3) .lt. 0) then 
+             if (auxpota(i,3) .lt. 0) then !negativo => boundary
                if (.not.(nearby(PX%length,boupoints(iP)%length,0.01)) .or. &
-              (.not.(nearby(real(abs(PX%normal(1)),4),real(abs(boupoints(iP)%normal(1)),4),0.01)))) then
-                 esnueva = .true. ;print*," they are different"
+              (.not.(nearby(real(abs(PX%normal(1)),4), & 
+              real(abs(boupoints(iP)%normal(1)),4),0.01)))) then
+                 esnueva = .true. !;print*," they are different"
                  exit
                end if
              end if
@@ -3094,8 +3111,8 @@
              esnueva = .false.
 !            print*,"inscrito. renglon:",i,"(",auxpota(i,1)," ",auxpota(i,2),")"
              exit
-           end if
-         end do ! i
+           end if !nearby
+         end do ! i,nZs
          if (esnueva) then
            !nueva coordenada Z
            nZs = nZs + 1
@@ -3109,11 +3126,49 @@
        allocate(PoTa(nZs,2+j))
        Pota = auxpota(1:nZs,1:2+j)
        deallocate(auxpota)
-      end if
+       
+       min_e = 1000;   min_z = 100000.0_8
+       max_e = 0;      max_z = 0.0_8
+       do i =1,nZs
+           if (auxpota(i,3) .gt. 0) then
+             PX => allpoints(auxpota(i,3))!; print*,"allp "
+           else
+             PX => boupoints(abs(auxpota(i,3)))!; print*,"boup "
+           end if
+           if (PX%center(2) .lt. min_z) then
+             min_z = PX%center(2)
+             min_e = PX%layer
+           end if!
+           if (PX%center(2) .gt. max_z) then
+             max_z = PX%center(2)
+             max_e = PX%layer
+           end if
+       end do
+       sixthofWL = real(minval(real(BETA(:)))/2./pi) / (multSubdiv * frec)
+       allocate(auxLD_z(ceiling((max_z - min_z) / sixthofWL)))
+       allocate(auxLD_e(ceiling((max_z - min_z) / sixthofWL)))
+       auxLD_z = 0.0_8
+       auxLD(1)_z = min_z
+       j = 1
+       do e = min_e,max_e
+         if (e .eq. min_e) then 
+           h = Z(min_e) - min_z 
+         end if!
+         if (e .eq. max_e) then
+           h = 
+         end if
+         
+       end do !e
+       
+      end if !firsttime
       ! done
 !     print*,"nZs=",nZs
-      if (verbose .ge. 2) call showMNmatrixI(nZs,2+j,pota,"po_ta",outpf)
-!     if (firstTime .eqv. .false.) stop "preparePointerTable"
+      if (verbose .ge. 1) write(6,'(A)', ADVANCE = "NO") repeat("\b",14)
+      if (verbose .ge. 1) write(6,'(A)', ADVANCE = "NO") repeat(" ",14)
+      if (verbose .ge. 1) write(6,'(A)', ADVANCE = "NO") repeat("\b",14)
+      if (verbose .ge. 1) call showMNmatrixI(nZs,2+j,pota,"po_ta",outpf)
+!     if (firstTime .eqv. .false.) 
+!     stop "preparePointerTable"
       end subroutine preparePointerTable
       
       function nearby(a,b,bola)
@@ -3148,7 +3203,8 @@
       real*8 :: resi
       real :: deltax,deltaz
       character(LEN=100) :: txt
-      
+      logical :: lexist
+      if(V .ge. 1) write(6,'(A)', ADVANCE = "NO") "segmenting..."
       if (allocated(subdiv)) then
         nsubdivs = size(subdiv)
         do ixi = 1,nsubdivs
@@ -3162,7 +3218,8 @@
       ! dividimos cada elemento original
       do iXI = 1,nXI-1
       if(V .ge. 3) print*,"dividing big segment",iXI
-      sixthofWL = real(real(BETA(origGeom(iXI)%layer))/2./pi) / (multSubdiv * frec)
+      sixthofWL = real(real(BETA(origGeom(iXI)%layer))/2./pi) / & 
+                  (multSubdiv * frec)
       ! delta normalizado y luego del tamaño sixthofWL
       deltaX = (origGeom(iXI)%bord_B(1) - origGeom(iXI)%bord_A(1))
       deltaX = deltaX / origGeom(iXI)%length * real(sixthofWL,4)
@@ -3171,13 +3228,10 @@
       
       nMxDeDivi = ceiling(origGeom(iXI)%length/sixthofWL)
       
-!     print*,"beta at layer ",origGeom(iXI)%layer,"is ", & 
-!     real(BETA(origGeom(iXI)%layer))/2/pi,"i",aimag(BETA(origGeom(iXI)%layer))
-!     print*,""
       if(V .ge. 3) print*,"segm,",iXI,"of L =",origGeom(iXI)%length, & 
       "  wl/6=",sixthofWL,  " nMxDeDivi=", nMxDeDivi
       
-      if (origGeom(iXI)%length .le. sixthofWL ) then ! no hace falta segmentar
+      if (origGeom(iXI)%length .le. sixthofWL ) then! no hace falta segm
         allocate(subdiv(ixi)%x(2));allocate(subdiv(ixi)%z(2))
         subdiv(ixi)%x(1) = origGeom(iXI)%bord_A(1) !x
         subdiv(ixi)%z(1) = origGeom(iXI)%bord_A(2) !z
@@ -3185,7 +3239,7 @@
         subdiv(ixi)%z(2) = origGeom(iXI)%bord_B(2) !z
         nsubdivs = 2
         nSegmeTotal = nSegmeTotal + 1
-      else ! origGeom(iXI)%length .gt. sixthofWL     ! si hace falta segmentar 
+      else ! origGeom(iXI)%length .gt. sixthofWL       ! si hace falta segmentar 
         if (nMxDeDivi .lt. 3) nMxDeDivi = 3
         ! ¿Sólo dividir por la mitad u optimizando?
         if (origGeom(iXI)%length .le. 2.* sixthofWL) then
@@ -3205,7 +3259,7 @@
         resi = origGeom(iXI)%length - 2. * ndivsiguales * sixthofWL
 !       print*,"ndivsiguales", ndivsiguales
 !       print*,"resi", resi
-        if (resi .le. sixthofWL) then
+        if(resi .gt. sixthofWL) then
           ! dividir segmento central por la mitad
           nsubdivs = 2*ndivsiguales + 2 + 1
           allocate(subdiv(ixi)%x(nsubdivs));allocate(subdiv(ixi)%z(nsubdivs))
@@ -3215,7 +3269,7 @@
           subdiv(ixi)%z(ndivsiguales+3) = origGeom(iXI)%bord_B(2) - deltaZ*ndivsiguales 
           subdiv(ixi)%x(ndivsiguales+2) = (subdiv(ixi)%x(ndivsiguales+1) + subdiv(ixi)%x(ndivsiguales+3))/2.
           subdiv(ixi)%z(ndivsiguales+2) = (subdiv(ixi)%z(ndivsiguales+1) + subdiv(ixi)%z(ndivsiguales+3))/2.
-        else
+        else ! es más grande de 2.*sixthofWL
           ! odd number
           nsubdivs = 2*ndivsiguales + 1 + 1
           allocate(subdiv(ixi)%x(nsubdivs));allocate(subdiv(ixi)%z(nsubdivs))
@@ -3225,7 +3279,7 @@
           subdiv(ixi)%z(ndivsiguales+2) = origGeom(iXI)%bord_B(2) - deltaZ*ndivsiguales 
         end if ! resi .le. sixthofWL
         nSegmeTotal = nSegmeTotal + nsubdivs -1
-        do idi = 1, ndivsiguales
+        do idi = 1, ndivsiguales ! los que son iguales a cada lado
             subdiv(ixi)%x(idi) = origGeom(iXI)%bord_A(1) + deltaX *(idi-1)
             subdiv(ixi)%z(idi) = origGeom(iXI)%bord_A(2) + deltaZ *(idi-1)
             subdiv(ixi)%x(nsubdivs +1 - idi) = origGeom(iXI)%bord_B(1) - deltaX *(idi-1)
@@ -3257,8 +3311,8 @@
       if(allocated(trac0vec)) deallocate(trac0vec)
       if(allocated(IPIVbem)) deallocate(IPIVbem)
 !     allocate(Vout(2*nbpts,2))
-      allocate(ibemMat(2*nBpts,2*nBpts))
-      allocate(trac0vec(2*nBpts))
+      allocate(ibemMat(2*nBpts,2*nBpts)); ibemMat = 0.0_8
+      allocate(trac0vec(2*nBpts)); trac0vec = 0.0_8
       allocate(IPIVbem(2*nBpts))
       ! Heredar
       bou_conta_ini = 0
@@ -3308,7 +3362,7 @@
         BouPoints(iXi)%boundaryIndex = iXi
         call punGa(ixi) ! the Gaussian integration points
       end do
-      !
+      
       do ixi = iPtini,iPtfin
         if(allocated(allpoints(ixi)%GT_gq)) deallocate(allpoints(ixi)%GT_gq)
         allocate(allpoints(ixi)%GT_gq(nBpts,2,2)); allpoints(ixi)%GT_gq = 0
@@ -3324,8 +3378,10 @@
       
       ! draw the subdivision
       if (V .ge. 1) then
+       write(6,'(A)', ADVANCE = "NO") repeat("\b",13)
        CALL chdir("outs")
-       call system('mkdir subdivs')
+       inquire(file="subdivs",exist=lexist)
+       if (.not. lexist) call system('mkdir subdivs')
        CALL chdir("subdivs")
        write(txt,'(a,I0,a)') 'Division_at[J=',iJ,'].pdf'
        call drawBoundary(txt)
@@ -3407,6 +3463,47 @@
         end if
       
       end subroutine punGa
+      subroutine makelambdaDepths
+      ! De la superficie a la profundidad máxima espaciado cada lambda/6
+      use gloVars, only : multSubdiv,V => verbose,pi
+      use GeometryVars, only : oG => origGeom,nXI
+      use soilVars, only : N,Z,BETA
+      use resultVars, only : nPts,allpoints,nBpts,BouPoints
+      use waveNumVars, only : frec
+      
+      implicit none
+      real*8 :: sixthofWL,h
+      real :: deepest_of_oG
+      integer :: i,e,howMany,lowest_e_of_oG
+      real*8, dimension(:), allocatable :: lambdaDepths
+      
+      howMany = 0
+      
+      ! el estrato más profundo donde hay fuentes es:
+      lowest_e_of_oG = maxval(oG(1:nXI-1)%layer)
+      deepest_of_oG = max(maxval(oG(1:nXI-1)%bord_A(2)), & 
+                          maxval(oG(1:nXI-1)%bord_B(2)))
+                          
+      ! hacia abajo hasta el estrato más profundo donde hay fuentes virt
+      do e=1,min(lowest_e_of_oG,N)
+        sixthofWL = real(real(BETA(e))/2./pi) / (multSubdiv * frec) ![m]
+        h = Z(e+1) - Z(e) ![m]
+        howMany = howMany + ceiling(h / sixthofWL)
+      end do       
+      ! mas los del semiespacio si hacen falta
+      if (lowest_e_of_oG .ge. N+1) then
+        sixthofWL = real(real(BETA(N+1))/2./pi) / (multSubdiv * frec)
+        h = real(deepest_of_oG,8)- Z(N+1)
+        howMany = howMany + ceiling(h / sixthofWL) + 1
+      end if
+      ! como es para interpolar po_ta, no se incluye la fuente real
+      
+      allocate(lambdaDepths(howMany)); lambdaDepths = 0.0_8
+      do i=1,howMany
+        
+      end do ! i
+      
+      end subroutine makelambdaDepths      
       
       subroutine oldsubdivideTopo(iJ,outpf)
       !Read coordinates of collocation points and fix if there are
