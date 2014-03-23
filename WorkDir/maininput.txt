@@ -6,8 +6,9 @@ Solve topography [logical]
 T
 Plot FK [logical]
 F
-max segment length  = beta / ( wavelength * R)   [int :: R]
+max segment length  = beta / ( wavelength * R)   [int :: R] and for the interpolation
 6
+2
 Threshold to discriminate the method of integration (Simple or Gaussian quadrature)
 [real :: num_of_wavelengths away from source]
 1.0
@@ -22,4 +23,4 @@ F
 plot Module of displacements? [logical]
 F
 max time for the plot in seconds [real]
-0.006
+0.05

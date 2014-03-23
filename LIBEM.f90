@@ -10,6 +10,7 @@
       logical    :: workBoundary
       logical    :: plotFKS
       integer    :: multSubdiv ! Lo ideal es 6 
+      integer    :: multInterpol ! still under investigation, probably < 6
       real       :: periodicdamper
       logical    :: plotStress
       logical    :: plotModule
@@ -1371,7 +1372,7 @@
 !     real :: k
       real :: minX,minY,maxX,maxY,xstep,ystep,miV,maV,Vstep!,x_i,z_i
       real, dimension(41)   :: ZLVRAY
-      real, parameter :: p = 18. ! sharpness parameter
+      real, parameter :: p = 27. ! sharpness parameter
       
       
       if(verbose>=2)write(outpf,'(a,a,a)') "will plot ",trim(tt),"..."
@@ -1906,8 +1907,7 @@
       if (workBoundary) then 
          call subdivideTopo(J)
          call preparePointerTable(.false.,PrintNum)
-         call makelambdaDepths
-         stop "1898"
+!        stop "1898"
       end if
       ! strata cotinuity conditions matrix A
          Ak = 0
@@ -1928,7 +1928,7 @@
       if (verbose .ge. 2) then
         call showMNmatrixZabs(2*nBpts,1, trac0vec ,"tindp",PrintNum)
       end if
-!     stop !stop "only the vector"
+      stop !stop "only the vector"
       do iz = 1,nZs
         if (thereisavirtualsourceat(iz)) then
           call crunch(iz,J,cOME,PrintNum)
@@ -2073,6 +2073,7 @@
       READ(35,'(L1)') plotFKS; print*,"plotFK?",plotFKS
       READ(35,*)
       READ(35,*) multSubdiv; print*,"division multiple = ", multSubdiv
+      READ(35,*) multInterpol; print*,"division multiple = ", multInterpol
       READ(35,*)
       READ(35,*)
       READ(35,*) WLmulti; print*,"integ WL multiple = ", WLmulti
@@ -2140,6 +2141,9 @@
       else
         Npar = .false.
       end if
+      
+!     Npar = .not. Npar 
+      print*,"Even number of  stata = ",Npar 
       
       Z(1)=real(0,8)
       if (verbose >= 1) then
@@ -3003,9 +3007,9 @@
                              pota,fixedpota,nZs,Punto
       use debugstuff
       use Gquadrature, only : Gquad_n
-      use glovars, only : verbose,workBoundary, multSubdiv ,PI
+      use glovars, only : verbose,workBoundary, multInterpol !,PI
       use waveNumVars, only : frec
-      use soilVars, only : N,Z,BETA
+      use soilVars, only : N,Z,BETA => BETA0
       ! tabla con las coordenadas Z (sin repetir).
       implicit none
       logical,intent(in) :: firstTime
@@ -3014,7 +3018,7 @@
       logical :: nearby,esnueva
       type(Punto), pointer :: PX
       integer :: min_e,max_e
-      real*8 :: min_z,max_z,h
+      real*8 :: min_z,max_z,h,sixthofWL
       real*8, dimension(:), allocatable :: lambdaDepths_z,auxLD_z
       integer, dimension(:), allocatable :: lambdaDepths_e,auxLD_e
       
@@ -3129,44 +3133,90 @@
        
        min_e = 1000;   min_z = 100000.0_8
        max_e = 0;      max_z = 0.0_8
-       do i =1,nZs
-           if (auxpota(i,3) .gt. 0) then
-             PX => allpoints(auxpota(i,3))!; print*,"allp "
-           else
-             PX => boupoints(abs(auxpota(i,3)))!; print*,"boup "
-           end if
-           if (PX%center(2) .lt. min_z) then
-             min_z = PX%center(2)
-             min_e = PX%layer
-           end if!
-           if (PX%center(2) .gt. max_z) then
-             max_z = PX%center(2)
-             max_e = PX%layer
-           end if
-       end do
-       sixthofWL = real(minval(real(BETA(:)))/2./pi) / (multSubdiv * frec)
-       allocate(auxLD_z(ceiling((max_z - min_z) / sixthofWL)))
-       allocate(auxLD_e(ceiling((max_z - min_z) / sixthofWL)))
-       auxLD_z = 0.0_8
-       auxLD(1)_z = min_z
-       j = 1
-       do e = min_e,max_e
-         if (e .eq. min_e) then 
-           h = Z(min_e) - min_z 
-         end if!
-         if (e .eq. max_e) then
-           h = 
-         end if
-         
-       end do !e
+       ! de entre los boupoints
+       min_z = min(minval(boupoints(:)%bord_A(2)), &
+                   minval(boupoints(:)%bord_B(2)))
+       max_z = max(maxval(boupoints(:)%bord_A(2)), &
+                   maxval(boupoints(:)%bord_B(2)))
+       min_e = minval(boupoints(:)%layer)
+       max_e = maxval(boupoints(:)%layer)
        
+       if (verbose .ge. 1) then
+         print*,"minz =",min_z," at e=",min_e
+         print*,"maxz =",max_z," at e=",max_e
+       end if
+       
+!      print*,"frec",frec
+!      print*,"minbeta",beta(min_e)
+       
+       sixthofWL = real(minval(BETA(:)),8) / (multInterpol * frec)
+       allocate(auxLD_z(ceiling((max_z - min_z) / sixthofWL)+N))
+       allocate(auxLD_e(ceiling((max_z - min_z) / sixthofWL)+N))
+       auxLD_z = 0.0_8
+       auxLD_z(1) = min_z
+       auxLD_e = 0
+       auxLD_e(1) = min_e
+       j = 1
+       if (min_e .eq. max_e) then !todo esta en un mismo estrato
+         h = max_z - min_z
+         sixthofWL = real(BETA(min_e),8) / (multInterpol * frec)
+!        print*,"current sixthofWL", sixthofWL
+         do while (auxLD_z(j) .lt. auxLD_z(1) + h)
+           j = j + 1
+           auxLD_z(j) = auxLD_z(j-1) + sixthofWL
+           auxLD_e(j) = min_e
+         end do
+         if (min_e .ne. N+1) then !si hay una interfaz abajo
+         if (auxLD_z(j) .gt. z(min_e+1)) then ! y te pasaste al siguiente estrato
+           auxLD_z(j) = z(min_e+1) - 0.1 * sixthofWL
+         end if
+         end if
+       else !esta repartido en varios estratos/ min_e y max_e son distintos
+         do e = min_e,(max_e - 1) !para todos los e menos el último
+           sixthofWL = real(BETA(e),8) / (multInterpol * frec)
+!          print*,"current sixthofWL", sixthofWL
+           do while (auxLD_z(j) .lt. z(e+1)) ! hasta pasarse del estrato actual
+             j = j + 1
+             auxLD_z(j) = auxLD_z(j-1) + sixthofWL
+             auxLD_e(j) = e
+           end do
+           if (auxLD_z(j) .ge. z(e+1)) then ! ya que te pasaste al siguiente e
+             auxLD_z(j) = z(e+1) - 0.1 * sixthofWL
+             j = j + 1 ! y el primer elemento del siguiente estrato
+             auxLD_z(j) = z(e+1) + 0.1 * sixthofWL
+             auxLD_e(j) = e + 1
+           end if
+         end do !e
+         ! par el último cachito
+         e = e + 1
+         sixthofWL = real(BETA(e),8) / (multInterpol * frec)
+!        print*,"current sixthofWL", sixthofWL
+         do while (auxLD_z(j) .lt. max_z)
+           j = j + 1
+           auxLD_z(j) = auxLD_z(j-1) + sixthofWL
+           auxLD_e(j) = e
+         end do
+       end if
+       
+       allocate(lambdaDepths_z(j)); allocate(lambdaDepths_e(j))
+       lambdaDepths_z(1:j) = auxLD_z(1:j)
+       lambdaDepths_e(1:j) = auxLD_e(1:j)
+       deallocate(auxLD_z);deallocate(auxLD_e)
+       
+       if (verbose .ge. 2) then
+           print*,""
+         do i=1,j
+           print*,i, lambdaDepths_z(i), lambdaDepths_e(i)
+         end do
+       end if
+!      stop 3204
       end if !firsttime
       ! done
 !     print*,"nZs=",nZs
       if (verbose .ge. 1) write(6,'(A)', ADVANCE = "NO") repeat("\b",14)
       if (verbose .ge. 1) write(6,'(A)', ADVANCE = "NO") repeat(" ",14)
       if (verbose .ge. 1) write(6,'(A)', ADVANCE = "NO") repeat("\b",14)
-      if (verbose .ge. 1) call showMNmatrixI(nZs,2+j,pota,"po_ta",outpf)
+      if (verbose .ge. 2) call showMNmatrixI(nZs,2+j,pota,"po_ta",outpf)
 !     if (firstTime .eqv. .false.) 
 !     stop "preparePointerTable"
       end subroutine preparePointerTable
@@ -3183,10 +3233,10 @@
       end function nearby 
       subroutine subdivideTopo(iJ)
       !optimized segementation of geometry.
-      use gloVars, only : multSubdiv,V => verbose,pi,makevideo
+      use gloVars, only : multSubdiv,V => verbose,makevideo!,pi
       use GeometryVars, only : origGeom,nXI,subdiv
       use waveNumVars, only : frec
-      use soilVars, only : BETA
+      use soilVars, only : BETA => beta0 !vel m/sec
       
       use resultVars, only : BouPoints, nBpts, & 
                              iPtini,iPtfin,mPtini,mPtfin, & !bPtini,bPtfin,
@@ -3218,7 +3268,7 @@
       ! dividimos cada elemento original
       do iXI = 1,nXI-1
       if(V .ge. 3) print*,"dividing big segment",iXI
-      sixthofWL = real(real(BETA(origGeom(iXI)%layer))/2./pi) / & 
+      sixthofWL = real(BETA(origGeom(iXI)%layer),8) / & 
                   (multSubdiv * frec)
       ! delta normalizado y luego del tamaño sixthofWL
       deltaX = (origGeom(iXI)%bord_B(1) - origGeom(iXI)%bord_A(1))
@@ -3463,47 +3513,6 @@
         end if
       
       end subroutine punGa
-      subroutine makelambdaDepths
-      ! De la superficie a la profundidad máxima espaciado cada lambda/6
-      use gloVars, only : multSubdiv,V => verbose,pi
-      use GeometryVars, only : oG => origGeom,nXI
-      use soilVars, only : N,Z,BETA
-      use resultVars, only : nPts,allpoints,nBpts,BouPoints
-      use waveNumVars, only : frec
-      
-      implicit none
-      real*8 :: sixthofWL,h
-      real :: deepest_of_oG
-      integer :: i,e,howMany,lowest_e_of_oG
-      real*8, dimension(:), allocatable :: lambdaDepths
-      
-      howMany = 0
-      
-      ! el estrato más profundo donde hay fuentes es:
-      lowest_e_of_oG = maxval(oG(1:nXI-1)%layer)
-      deepest_of_oG = max(maxval(oG(1:nXI-1)%bord_A(2)), & 
-                          maxval(oG(1:nXI-1)%bord_B(2)))
-                          
-      ! hacia abajo hasta el estrato más profundo donde hay fuentes virt
-      do e=1,min(lowest_e_of_oG,N)
-        sixthofWL = real(real(BETA(e))/2./pi) / (multSubdiv * frec) ![m]
-        h = Z(e+1) - Z(e) ![m]
-        howMany = howMany + ceiling(h / sixthofWL)
-      end do       
-      ! mas los del semiespacio si hacen falta
-      if (lowest_e_of_oG .ge. N+1) then
-        sixthofWL = real(real(BETA(N+1))/2./pi) / (multSubdiv * frec)
-        h = real(deepest_of_oG,8)- Z(N+1)
-        howMany = howMany + ceiling(h / sixthofWL) + 1
-      end if
-      ! como es para interpolar po_ta, no se incluye la fuente real
-      
-      allocate(lambdaDepths(howMany)); lambdaDepths = 0.0_8
-      do i=1,howMany
-        
-      end do ! i
-      
-      end subroutine makelambdaDepths      
       
       subroutine oldsubdivideTopo(iJ,outpf)
       !Read coordinates of collocation points and fix if there are
@@ -4106,8 +4115,8 @@
       use wavelets !fork
       use meshVars, only: MeshDXmultiplo
       use meshVars, only: DeltaX, MeshDXmultiplo
-      use soilVars, only: Npar
       use dislin
+      use soilVars, only:Npar
       implicit none
       
       interface !porque 'asociar' recibe un puntero como argumento
@@ -4452,21 +4461,33 @@
                         pXi%center,p_x%layer,cOME,mecStart,mecEnd) 
                         
                        p_x%W(J,1) = &
-                       p_x%W(J,1) + ( RW(1) + FF%W) * nf(dir) * Hf(J) ! ok
-                         
-                       if (Npar) then !numero de estratos par
+                       p_x%W(J,1) + ( RW(1) + FF%W) * nf(dir) * Hf(J) ! 
+                       
+!                      p_x%W(J,2) = &
+!                      p_x%W(J,2) + ( RW(2) + FF%U) * nf(dir) * Hf(J) ! 
+                       !             ( - ) si el estrato es par
+                       
+                       if (Npar) then !numero de estratos par 
                          p_x%W(J,2) = &
                          p_x%W(J,2) + ( - RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
-                       else !numero de estratos impar
+                       else !numero de estratos impar 
                          p_x%W(J,2) = &
                          p_x%W(J,2) + (   RW(2) + FF%U) * nf(dir) * Hf(J) ! ok
                        end if
                  else ! no es el estrato de la fueza, sólo el campo difractado
                        p_x%W(J,1) = &
-                       p_x%W(J,1) + (RW(1)) * nf(dir) * Hf(J) ! ok
-
+                       p_x%W(J,1) + (RW(1)) * nf(dir) * Hf(J) ! 
+                       
+!                      if (Npar) then
                        p_x%W(J,2) = &
-                       p_x%W(J,2) - (RW(2)) * nf(dir) * Hf(J) ! ok
+                       p_x%W(J,2) + ( - RW(2)) * nf(dir) * Hf(J) ! 
+!                      else
+!                      p_x%W(J,2) = &
+!                      p_x%W(J,2) + (   RW(2)) * nf(dir) * Hf(J) !
+!                      end if
+                       
+!                      p_x%W(J,2) = &
+!                      p_x%W(J,2) - (RW(2)) * nf(dir) * Hf(J) ! ok
                  end if
                  !
                       
@@ -4700,7 +4721,7 @@
       
           iR= 0
           iC= 0 
-          this_A = cmplx(0.0,0.0,8)
+          this_A = Z0
       !la matriz global se llena por columnas con submatrices de 
       !cada estrato
       DO e = 1,N+1
@@ -4718,7 +4739,7 @@
 !         mukanu2  = 2* amu(e)* k * nu
 !         mukagam2 = 2* amu(e)* k * gamma
 !         l2m = lambda(e) + 2 * amu(e)
-          xi = k**2-nu**2 !(nu**2 - k**2) * amu(e)
+          xi = k**2.0 - nu**2.0 !(nu**2 - k**2) * amu(e)
 !         g2 = gamma**2
 !         k2 = k**2
 !         lk2 = lambda(e)*k2
@@ -4731,8 +4752,8 @@
                                  gamma,-k*UR,-k*UR,-nu /), &
                            (/ 2,4 /))
           subMatD0 = UI * subMatD0 
-          subMatS0 = RESHAPE((/ xi,-2.*k*gamma,-2.*k*nu,-xi,& 
-                               xi,2.*k*gamma,2.*k*nu,-xi /),&
+          subMatS0 = RESHAPE((/ xi,-2.0*k*gamma,-2.0*k*nu,-xi,& 
+                               xi,2.0*k*gamma,2.0*k*nu,-xi /),&
                            (/2,4/)) 
           subMatS0 = amu(e) * subMatS0                  
 !         subMatS0 = RESHAPE((/ l2m*(-1*g2)-lk2 , -mukagam2, &
@@ -4760,8 +4781,8 @@
             egammaP = exp(UI * gamma * (z_i-Z(e+1)))
             enuP = exp(UI * nu * (z_i-Z(e+1)))
           else
-            egammaP = 0.0d0
-            enuP = 0.0d0
+            egammaP = Z0
+            enuP = Z0
           end if
           
             !la matrix diagonal
@@ -4825,23 +4846,25 @@
       end subroutine matrixA_borderCond
       
       
-      subroutine vectorB_force(this_B,z_f,e,fisInterf,direction,cOME,k)
+      subroutine vectorB_force(this_B,z_f4,e,fisInterf,direction,cOME,k)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA,RHO,NPAR
-      use gloVars, only : UR,UI,PI  
+      use gloVars, only : UR,UI,PI,Z0
       use debugStuff   
 !     use resultVars, only : allpoints,NPts
       implicit none
       
       complex*16,    intent(inout), dimension(4*N+2) :: this_B
-      integer,    intent(in)    :: direction,e
-      real,       intent(in)    :: z_f
+      integer,    intent(in)    :: direction,e! 'e' de la fuerza
+      real,       intent(in)    :: z_f4
       real*8,     intent(in)    :: k
       complex*16, intent(in)    :: cOME
       logical,    intent(in)    :: fisInterf
+      real*8  :: z_f
       integer :: iIf,nInterf
+      integer*8 :: sign
       real    :: SGNz
       complex*16 :: gamma,nu,DEN,L2M
-      real     :: errT = 0.001
+      real*8     :: errT = 0.0001_8
       complex*16 :: omeAlf,omeBet!,AUX
       ! una para cada interfaz (la de arriba [1] y la de abajo [2])
       real*8,     dimension(2) :: z_loc
@@ -4851,12 +4874,12 @@
                                   !  1 para Greeni1 (horizontal),
                                   !  3 para Greeni3 (vertical)
       
-      
-      this_B = cmplx(0.0,0.0,8)
+      z_f = real(z_f4,8)
+      this_B = Z0
 !     B(4*N+1,:) = (-UR ) / (2.0 * PI ); return
       
-      G11=0;G31=0;G33=0
-      s111=0;s331=0;s131=0;s113=0;s333=0;s313=0
+      G11=Z0;G31=Z0;G33=Z0
+      s111=Z0;s331=Z0;s131=Z0;s113=Z0;s333=Z0;s313=Z0
       nInterf = 2
       if (fisInterf) then
          nInterf = 1
@@ -4866,12 +4889,15 @@
       if (e .ne. N+1) then
         z_loc(2) = Z(e+1) - z_f !upward (+)
       else
-        z_loc(2) = 0.0
+        z_loc(2) = 0.0_8
       end if
+!     print*,""
+!     print*,"donward",z_loc(1)
+!     print*,"upward",z_loc(2)
       
       DEN = 4.0*PI*RHO(e)*cOME**2.0
-      omeAlf = cOME**2/ALFA(e)**2.0
-      omeBet = cOME**2/BETA(e)**2.0
+      omeAlf = cOME**2.0/ALFA(e)**2.0
+      omeBet = cOME**2.0/BETA(e)**2.0
       L2M = LAMBDA(e) + 2.0*AMU(e)
       
           ! algunas valores constantes para todo el estrato          
@@ -4881,8 +4907,8 @@
           ! vertical debe ser menor que cero. La parte imaginaria contri-
           ! buye a tener ondas planas inhomogéneas con decaimiento expo-
           ! nencial a medida que z crece.
-          if(aimag(gamma).gt.0.0)gamma = -gamma
-          if(aimag(nu).gt.0.0)nu=-nu
+          if(aimag(gamma).gt.0.0_8)gamma = -gamma
+          if(aimag(nu).gt.0.0_8)nu=-nu
           
       ! en cada interfaz (1 arriba) y (2 abajo)
       do iIf = 1,2
@@ -4891,11 +4917,13 @@
           if (abs(z_loc(iIf)) > errT ) then
             SGNz = real(z_loc(iIf) / ABS(z_loc(iIf)),4)
           else
-            SGNz = 0
+            SGNz = 0.0
           end if
           egamz(iIf) = exp(-UI*gamma*ABS(z_loc(iIf)))
           enuz(iIf) = exp(-UI*nu*ABS(z_loc(iIf)))
-      
+!         print*,"SGNz",iIf,"=",SGNz
+          
+          
       G11(iIf) = -UI/DEN * (k**2.0/gamma*egamz(iIf)+nu*enuz(iIf)) 
       G31(iIf) = -UI/DEN * SGNz*k*(egamz(iIf)-enuz(iIf)) 
       G33(iIf) = -UI/DEN * (gamma*egamz(iIf)+k**2.0/nu*enuz(iIf))
@@ -4931,7 +4959,9 @@
                     ) !
       
       end do !iIf interface
-          
+      
+
+           
       
       if (fisInterf) then
       if(direction .eq. 1) then
@@ -4946,42 +4976,62 @@
         G11(1) = 0
       end if
       
+      ! por la forma en como armamos la matriz, es necesario aplicar el  
+      ! vector de fuerza con los signos en función del estrato par o impar
+!     if (mod(e,2) .eq. 0) then
+!       sign = (-1)  !fuerza en estrato par
+!     else
+!       sign = 1   !fuerza en estrato impar
+!     end if
+!     !
+!     if (mod(N,2) .eq. 0) then
+!       sign = sign * 1  !num de estratos par
+!     else
+!       sign = sign * (-1)   !num de estratos impar
+!     end if
+      sign= 1      
+      
+      if (mod(e,2) .eq. 0 .and. mod(N,2) .eq. 0) then
+      sign = -1
+      end if
+      
+      
       ! El vector de términos independientes genera el campo difractado
       if (direction .eq. 1) then ! fuerza HORIZONTAL
       !                     =      (1) interfaz de arriba
        if (e .ne. 1) then
-        this_B(1+4*(e-1)-2) = - G31(1)!  w
-        this_B(1+4*(e-1)-1) = - G11(1)!  u
+        this_B(1+4*(e-1)-2) = - sign * G31(1)!  w
+        this_B(1+4*(e-1)-1) = - sign * G11(1)!  u
        end if 
-        this_B(1+4*(e-1)  ) = - S331(1)! szz
-        this_B(1+4*(e-1)+1) = - S131(1)! szx   ! delta
-    
+        this_B(1+4*(e-1)  ) = - sign * S331(1)! szz
+        this_B(1+4*(e-1)+1) = - sign * S131(1)! szx   ! delta
+      
       if (.not. fisInterf) then ! la fuerza no calló en la interfaz
       !                     =      (2) interfaz de abajo
        if (e .ne. N+1) then
-        this_B(1+4*(e-1)+2) = G31(2)!  w
-        this_B(1+4*(e-1)+3) = G11(2)!  u
-        this_B(1+4*(e-1)+4) = S331(2)! szz
-        this_B(1+4*(e-1)+5) = S131(2)! szx
+        this_B(1+4*(e-1)+2) = sign * G31(2)!  w
+        this_B(1+4*(e-1)+3) = sign * G11(2)!  u
+        this_B(1+4*(e-1)+4) = sign * S331(2)! szz
+        this_B(1+4*(e-1)+5) = sign * S131(2)! szx
        end if
       end if
       
       elseif (direction .eq. 2) then ! fuerza VERTICAL
       !                     =     (1) interfaz de arriba
        if (e .ne. 1) then
-        this_B(1+4*(e-1)-2) = G33(1)!  w 
-        this_B(1+4*(e-1)-1) = G31(1)!  u 
+        this_B(1+4*(e-1)-2) = sign * G33(1)!  w 
+        this_B(1+4*(e-1)-1) = sign * G31(1)!  u 
        end if 
-        this_B(1+4*(e-1)  ) = S333(1)! szz   ! delta
-        this_B(1+4*(e-1)+1) = S313(1)! szx 
+        this_B(1+4*(e-1)  ) = sign * S333(1)! szz   ! delta
+        this_B(1+4*(e-1)+1) = sign * S313(1)! szx 
     
       if (.not. fisInterf) then
-      !                     =      (2) interfaz de abajo
+      !                     =    (2) interfaz de abajo (con F en HS no entra aqui)
        if (e .ne. N+1) then
-        this_B(1+4*(e-1)+2) = - G33(2)!  w 
-        this_B(1+4*(e-1)+3) = - G31(2)!  u
-        this_B(1+4*(e-1)+4) = - S333(2)! szz 
-        this_B(1+4*(e-1)+5) = - S313(2)! szx 
+        this_B(1+4*(e-1)+2) = - sign * G33(2)!  w 
+        this_B(1+4*(e-1)+3) = - sign * G31(2)!  u
+        this_B(1+4*(e-1)+4) = - sign * S333(2)! szz 
+        this_B(1+4*(e-1)+5) = - sign * S313(2)! szx 
        end if
       end if
       end if ! direction
@@ -5010,6 +5060,8 @@
       complex*16, dimension(4,1) :: partOfXX
       complex*16, dimension(2,1) :: resD
       complex*16, dimension(3,1) :: resS
+!     real :: SGNz
+!     real*8     :: errT = 0.0001_8
       
       if (verbose >= 3) then
        write(outpf,'(a,F7.3,a,F12.7,a,F10.2,a,I0)') & 
@@ -5017,8 +5069,8 @@
                     real(cOME_i),"k=",k," {",z_i,"} e=",e
       end if
       ! algunas valores constantes para todo el estrato
-      gamma = sqrt(cOME_i**2. /ALFA(e)**2. - k**2.)
-      nu = sqrt(cOME_i**2. /BETA(e)**2. - k**2.)
+      gamma = sqrt(cOME_i**2.0 /ALFA(e)**2.0 - k**2.0)
+      nu = sqrt(cOME_i**2.0 /BETA(e)**2.0 - k**2.0)
       
       if(aimag(gamma).gt.0.0)gamma = -gamma
       if(aimag(nu).gt.0.0)nu=-nu
@@ -5026,24 +5078,45 @@
 !         mukanu2  = 2* amu(e)* k * nu
 !         mukagam2 = 2* amu(e)* k * gamma
 !         l2m = lambda(e) + 2 * amu(e)
-          xi = k**2.-nu**2.!(nu**2 - k**2) * amu(e)
+          xi = k**2.0 - nu**2.0!(nu**2 - k**2) * amu(e)
 !         g2 = gamma**2
 !         k2 = k**2
 !         lk2 = lambda(e)*k2
 !         lg2 = lambda(e)*g2
-          eta = 2.*gamma**2. - cOME_i**2./BETA(e)**2.
+          eta = 2.0*gamma**2.0 - cOME_i**2.0 / BETA(e)**2.0
           
-      !downward waves
-          egammaN = exp(-UI * gamma * (z_i-Z(e)))
-          enuN = exp(-UI * nu * (z_i-Z(e)))
+          !sign
+!         if (e /= N+1) then
+!         if (abs(z_i-Z(e+1)) > errT ) then
+!           SGNz = real((z_i-Z(e)) / ABS(z_i-Z(e)),4)
+!         else
+!           SGNz = 0.0
+!         end if
+!         print*,"SGNz=",SGNz
+!         if (SGNz .lt. 0) stop "finally"
+!         end if
+
+!         print*,"z_i                         :      ",z_i
+!         print*,"e",e
+!         print*,"Z(e)",Z(e)
+!         if (e /= N+1) print*,"Z(e+1)",Z(e+1)
+          
+          
+          !downward waves
+          egammaN = exp(-UI * gamma * abs(z_i-Z(e)))
+          enuN = exp(-UI * nu * abs(z_i-Z(e)))
           !upward waves 
           if (e /= N+1) then !(radiation condition)
-            egammaP = exp(UI * gamma *(z_i-Z(e+1)))
-            enuP = exp(UI * nu * (z_i-Z(e+1)))
+            egammaP = exp(-UI * gamma * abs(z_i-Z(e+1)))
+            enuP = exp(-UI * nu * abs(z_i-Z(e+1)))
           else
-            egammaP = 0.0d0
-            enuP = 0.0d0
+            egammaP = Z0
+            enuP = Z0
           end if
+!         print*,"egammaN=exp(",-UI * gamma * abs(z_i-Z(e)),")"
+!         if (e /= N+1) print*,"egammaP=exp(",-UI * gamma * abs(z_i-Z(e+1)),")"
+!         print*,"----------------------------------------------------------"
+          
           !la matrix diagonal
           diagMat = RESHAPE((/ egammaN, Z0, Z0, Z0, & 
                               Z0,    enuN, Z0, Z0, & 
@@ -5057,17 +5130,17 @@
           partOfXX(1:2,1) = thisIP_B(4*(e-1)+1 : 4*(e-1)+2)
           partOfXX(3:4,1) = (/z0,z0/)
         end if!
-        if (verbose>=3) then
-          print*,"xx1 ",partOfXX(1,1)
-          print*,"xx2 ",partOfXX(2,1)
-          print*,"xx3 ",partOfXX(3,1)
-          print*,"xx4 ",partOfXX(4,1)
-        end if  
+!       if (verbose>=3) then
+!         print*,"xx1 ",partOfXX(1,1)
+!         print*,"xx2 ",partOfXX(2,1)
+!         print*,"xx3 ",partOfXX(3,1)
+!         print*,"xx4 ",partOfXX(4,1)
+!       end if  
       
       ! desplazamientos
       if (mecStart .eq. 1)then
         subMatD = RESHAPE((/ -gamma,-k*UR,-k*UR,nu, & 
-                            gamma,-k*UR,-k*UR,-nu /), &
+                              gamma,-k*UR,-k*UR,-nu /), &
                            (/ 2,4 /))
         subMatD = UI * subMatD
         subMatD = matmul(subMatD,diagMat)
@@ -5163,7 +5236,7 @@
       omeP = cOME * r / alfa(e)
       omeS = cOME * r / beta(e)
 !     i_4 = cmplx(0.0,0.25,8) ! i/4
-!     b_a_2 = (beta(e)/alfa(e))**2 ! (beta/alfa)**2
+!     b_a_2 = (beta(e)/alfa(e))**2. ! (beta/alfa)**2
       
 !     print*,"(",p_x(1),p_x(2),") - (",pXi(1),pXi(2),") - ",omeP," : ",omeS
       ! funcs de Hankel de segunda especie
@@ -5190,6 +5263,10 @@
       ! U
       i = 1
       FF%U = -UI/8.0/rho(e)*(A*deltaij(i,j)-(2.*gamma(i)*gamma(j)-deltaij(i,j))*B)
+!     print*,""
+!     print*,FF%U
+!     print*,1/amu(e)* (psi * deltaij(1,j) + chi * gamma(1) * gamma(j))
+!     print*,""
 !     FF%U = 1/amu(e)* (psi * deltaij(1,j) + chi * gamma(1) * gamma(j))
 !     print*,"U == ",FF%U, ":",abs(FF%U)
       end if!
@@ -5213,6 +5290,7 @@
 !     print*," Tx == ",FF%Tx, ":",abs(FF%Tx)
       end if
       
+      end subroutine calcFreeField
 !      Kausell
 !     ! psi, Dpsi, chi, Dchi
 !     psi = i_4 * (((H1s/omeS) - b_a_2 * (H1p/omeP)) - H0s)
@@ -5265,7 +5343,6 @@
 !     ! sxx
 !     freef(5) = lambda(e) * (dg3j3 + dg1j1) + 2* amu(e) * dg1j1
 !     end if
-      end subroutine calcFreeField
       
       function deltaij(i,j)
       integer :: i,j
@@ -5587,7 +5664,7 @@
       character(LEN=100) :: titleN
       character(LEN=9)   :: logflag
       integer :: i,iMec,t,n_maxtime
-      real :: x_i,z_i,factor
+      real :: x_i,z_i,factor,this_maxtime
       factor = sqrt(2.*NFREC)
       
       nombre(1)= 'w--'
@@ -5659,10 +5736,10 @@
       !  (2) remover efecto de la frecuencia imaginaria
          S = S * exp(DFREC/periodicdamper * Dt*((/(i,i=0,2*nfrec-1)/)))
          !tiempo maximo para graficar
-         if(maxtime .lt. dt) maxtime = 5*dt
-         if(maxtime .gt. 1/(dfrec)) maxtime = 1/(real(dfrec,4))
-         n_maxtime = int(maxtime/real(dt,4))
-      if (verbose .ge. 2) print*,"maxtime = ",maxtime," segs :: @",dt, & 
+         if(maxtime .lt. dt) this_maxtime = real(5.0_8*dt,4)
+         if(maxtime .gt. 1/(dfrec)) this_maxtime = 1/(real(dfrec,4))
+         n_maxtime = int(this_maxtime/real(dt,4))
+      if (verbose .ge. 2) print*,"maxtime = ", this_maxtime," segs :: @",dt, & 
                                   " : ",n_maxtime," puntos"
       !  (3) plot the damn thing
       if (verbose .ge. 2) then

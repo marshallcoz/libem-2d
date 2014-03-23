@@ -4,7 +4,7 @@ Mesh:
       Mesh Num pixels X
 50
       Mesh Max Z (m)
-5.0
+9.0
       Mesh +-maxX (m)
-2.50
+4.50
 KEEP CALM AND THE FILE FORMAT

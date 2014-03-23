@@ -1,11 +1,68 @@
 N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
+3
+H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
+2.0      5900    3200       7.87
+3.0      5900    3200       7.87
+1.0      5900    3200       7.87
+8888     5900    3200       7.87
+DFREC   nFREC    nK       Q      t0
+80.0    2048     2048   5000.0    0.0
+
+N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
+3
+H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
+2.0      6354    3133       2.7
+3.0      5900    3200       7.87
+1.0      6354    3133       2.7 
+8888     5900    3200       7.87
+DFREC   nFREC    nK       Q      t0
+80.0    2048     2048   5000.0    0.0
+
+N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
 2
 H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
-0.75      6354    3133       2.7
-0.25      6354    3133       2.7 
+1      6354    3133       2.7
+3      5900    3200       7.87
+8888   6354    3133       2.7 
+DFREC   nFREC    nK       Q      t0
+80.0    2048    2048   10000.0    0.0
+
+N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
+1
+H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
+1      6354    3133       2.7
 8888   5900    3200       7.87
 DFREC   nFREC    nK       Q      t0
-80.0    6     4096    1000.0    0.0
+80.0    2048     2048    10000.0    0.0
+
+
+
+N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
+1
+H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
+1      6354    3133       2.7
+8888   5900    3200       7.87
+DFREC   nFREC    nK       Q      t0
+80.0    2048     4096    10000.0    0.0
+
+N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
+2
+H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
+1      6354    3133       2.7
+3      5900    3200       7.87
+8888   6354    3133       2.7
+DFREC   nFREC    nK       Q      t0
+80.0    2048     4096    10000.0    0.0
+
+N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
+3
+H(m) Alfa(m/s) Beta(m/s) Dens(T/m3) 
+2.0      6354    3133       2.7
+3.0      5900    3200       7.87
+1.0      6354    3133       2.7 
+8888     5900    3200       7.87
+DFREC   nFREC    nK       Q      t0
+80.0    2048     4096   10000.0    0.0
 
 N  =  NUMBER OF LAYERS. HALF-SPACE AT THE END
 2
