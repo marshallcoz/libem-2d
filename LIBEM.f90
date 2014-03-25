@@ -179,7 +179,8 @@
       complex*16 :: cOME  
       complex*16, save, allocatable :: B(:,:)
       complex*16, dimension(:,:,:), allocatable :: Ak
-      complex*16, dimension(:), allocatable :: this_B                             
+      complex*16, dimension(:,:), allocatable :: Binter
+!     complex*16, dimension(:), allocatable :: this_B                             
       integer, dimension(:), allocatable :: IPIV
       integer :: info    
       end module refSolMatrixVars
@@ -337,6 +338,8 @@
       !type (pointerTable), pointer :: PoTa(:),auxPoTa(:)
       integer, allocatable, dimension(:,:), save :: fixedPoTa,pota,auxpota
       integer :: nZs
+      real*8, dimension(:), allocatable :: lambdaDepths_z
+      integer, dimension(:), allocatable :: lambdaDepths_e
 
       end module resultVars
               
@@ -1094,8 +1097,8 @@
 !     integer :: Modo,nx,ny
       character(LEN=100) :: dumb
       CHARACTER(LEN=30) :: CBUF
-      character(LEN=60) :: CTIT
-      integer*4 :: lentitle
+!     character(LEN=60) :: CTIT
+!     integer*4 :: lentitle
 !     character(LEN=100),parameter :: f1='(F50.16,2x,F50.16)'
       
       
@@ -1106,19 +1109,24 @@
       nPow10x = 0
       if (Dt *(n-1) < 0.6) then
         do i = 1,10
-          if (Dt *(n-1)*(10**i) > 1.0) then
+          if (Dt *(n-1)*(10.0**i) > 1.0) then
             exit
           end if 
         end do 
         nPow10x = i
+        
+      elseif (Dt * (n-1) > 6000.) then  
+        do i = 1,10
+          if (Dt *(n-1)*(10.0**(-i)) < 1000.0) then
+            exit
+          end if
+        end do
+        nPow10x = -i
       end if
-
       DO i = 1,n
-        x(i) = Dt*(i-1)*(10**nPow10x)
+        x(i) = Dt*(i-1)*(10.0**(nPow10x))
         y(i) = cmplx(real(y_in(i)),aimag(y_in(i)),4) 
-!       write(6,*) x(i), y(i)
       END DO
-      
       
       minY=MINVAL(real(y(:)),1)
 !     write(6,*)"MinReal Val= ",minY
@@ -1150,14 +1158,13 @@
       CALL PAGMOD('NONE')
       CALL DISINI() ! dislin initialize 
       call errmod ("all", "off")
-!     print*,"disini"
 !     CALL PAGERA() ! plots a page border
       CALL COMPLX ! sets a complex font
       CALL HWFONT()
       CALL axspos (int(370,4) ,int(H+100,4)) !the position of an axis system. Lower left corner
-      call axslen (int(W,4) ,int(H,4)) !size of the axis system.
+      call axslen (int(W+650,4) ,int(H,4)) !size of the axis system.
       if (nPow10x .ne. 0) then
-       write(dumb,'(a,a,I0)') trim(xAx),'x10^-',nPow10x
+       write(dumb,'(a,a,I0)') trim(xAx),'x10^',(nPow10x *(-1))
        call name(trim(dumb),'X')
       else
        call name(trim(xAx),'X') 
@@ -1204,7 +1211,8 @@
  !     ny = nyposn(minY + (maxY-minY)*0.7)
  !     print*,nx
  !     print*,ny
-      call legpos(int(1600,4),int(320,4))
+      if (maxval(abs(aimag(y))) .gt. 0.01*maxval(abs(real(y))) ) then
+      call legpos(int(1840,4),int(720,4))
       write(dumb,'(a)') 'Re(z)'
  !     print*,dumb
       call leglin(CBUF,dumb,int(1,4))
@@ -1213,16 +1221,11 @@
       call leglin(CBUF,dumb,int(2,4))
       call legtit('') ! or '' for nothing
       call legend(CBUF,int(2,4))
+      end if
       
-!     if (nPow10x .ne. 0) then
-!     write(dumb,'(a,E9.5,a,I0,a)') 'dt=',Dt*(10**nPow10x),'x10^-',nPow10x,' seg'
-!     write(CTIT,'(a)') trim(dumb)
-!     else
-!     write(CTIT,'(a,F9.5,a)') 'dt=',Dt,' seg'
-!     end if
-      write(CTIT,'(a,ES11.4E2,a)') 'dt=',Dt,' seg'
-      lentitle = NLMESS(CTIT)
-      CALL MESSAG(CTIT,int((1700),4),int(200,4))
+!     write(CTIT,'(a,ES11.4E2,a)') 'dt=',Dt,' seg'
+!     lentitle = NLMESS(CTIT)
+!     CALL MESSAG(CTIT,int((1700),4),int(200,4))
 
       call errmod ("protocol", "off") !suppress dislin info
       call disfin()      
@@ -1743,6 +1746,7 @@
       use sourceVars
       use wavelets
       use MeshVars
+      use fitting
 !     use Gquadrature, only: Gquad_n
 !     use waveVars, only : Uo!,Escala
       
@@ -1753,7 +1757,7 @@
       !Loop Counters
       integer :: J  ! frequency loop
       integer :: l,m,iP,iPxi,iP_x,i,ik,iz !small loop counter
-      integer :: status 
+      integer :: status,dir,dirStart,dirEnd,nDepths
       CHARACTER(len=400) :: path
       character(LEN=100) :: titleN
       character(LEN=10) :: tt
@@ -1762,6 +1766,9 @@
       character(10) :: time
       real :: startT,finishT,tstart,tend
       logical :: thereisavirtualsourceat
+      real :: zf
+      integer :: ef
+      logical :: intf
       
       call cpu_time(startT)
       call cpu_time(tstart)
@@ -1786,10 +1793,15 @@
       if (getInquirePointsSol) call getInquirePoints(PrintNum)
       call getVideoPoints(PrintNum)
       call getsource
-      if (verbose .ge. 1) then
-        write(PrintNum,'(a,F8.2,a,F8.2,a)') & 
-                            "source is at (",xfsource,",",zfsource,")"
-      end if!
+      dirStart = 1; dirEnd = 2
+      !ahorramos si la fuente tiene un componente nulo
+        if (abs(Po%normal(1)) .lt. 0.001) then
+          dirStart = 2
+        end if!
+        if (abs(Po%normal(2)) .lt. 0.001) then
+          dirEnd = 1
+        end if!      
+      if (verbose .ge. 2) print*,"dirs", dirStart," -> ",dirEnd
       if (workBoundary) call getTopography(PrintNum)
         NPts = nIpts + nMpts
         write(PrintNum,'(a,I0)') 'Number of fixed receptors: ',npts
@@ -1904,9 +1916,11 @@
       'w(',J,') ',REAL(COME),aimag(COME),'i | ',FREC
         end if
       ! Subsegment the topography if neccesssary
+      nDepths = 0
       if (workBoundary) then 
          call subdivideTopo(J)
          call preparePointerTable(.false.,PrintNum)
+         nDepths = size(lambdaDepths_z)
 !        stop "1898"
       end if
       ! strata cotinuity conditions matrix A
@@ -1921,6 +1935,34 @@
          call matrixA_borderCond(Ak(:,:,ik),k,cOME,PrintNum)
          call inverseA(Ak(:,:,ik),4*N+2)
       end do ! ik
+      
+      if (allocated(Binter)) deallocate(Binter)
+      ALLOCATE (Binter(4*N+2, nDepths +1)) !1 fza real 2,3... virtuales
+      do dir = dirStart,dirEnd
+       do ik = 1, KtrimIndex
+         k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
+         Binter = Z0
+         do iz = 1, nDepths +1
+           if (iz .eq. 1) then !la fuente real
+             zf = Po%center(2)
+             ef = Po%layer
+             intf = Po%isOnInterface
+           else !una profundidad para interpolar las fuerzas virtuales
+             zf = lambdaDepths_z(iz-1)
+             ef = lambdaDepths_e(iz-1)
+             intf = .false.
+           end if !i_zfuente 
+           call vectorB_force(Binter(:,iz),zf,ef,intf,dir,cOME,k)
+           Binter(:,iz) = matmul(AK(:,:,ik),Binter(:,iz))
+         end do !iz
+         ! guardar lo de la fuente real iz = 1
+         B(:,ik) = Binter(:,1)
+         ! Polyfit cada onda en B de iz = 2 ...
+         
+       end do !ik
+        
+        ! resultados para cada Z donde hay receptores ....................
+      end do ! dir   
       
       call crunch(0,J,cOME,PrintNum)
       !           ^--- the real source
@@ -2055,6 +2097,7 @@
       implicit none
       logical :: lexist
       
+      CALL chdir("ins")
       inquire(file="maininput.txt",exist=lexist)
       if (lexist) then
         OPEN(35,FILE="maininput.txt",FORM="FORMATTED")
@@ -2090,6 +2133,7 @@
       READ(35,*)
       READ(35,*) maxtime; print*,"seismograms will be plotted up to", maxtime,"secs"
       close(35)
+      CALL chdir("..")
       if (plotStress) then 
        imecMax = 4 ! dos desps , dos tracs
       else 
@@ -2110,7 +2154,7 @@
       integer :: J
       
       ! vemos si existen los archivos
-      
+      CALL chdir("ins")
       inquire(file="HVDEPTH.txt",exist=lexist)
       if (lexist) then
         OPEN(7,FILE="HVDEPTH.txt",FORM="FORMATTED")
@@ -2186,7 +2230,7 @@
       READ(7,*)
       READ(7,*)DFREC,NFREC,nmax,Qq,t0 
       close(7)
-      
+      CALL chdir("..")
       ! estimamos dk para que con nmax dado se vea la onda de Rayligh incluso
       ! en la frec más alta
       DK = (DFREC * NFREC)/(beta0(1) * nmax / 1.1)
@@ -2248,7 +2292,7 @@
       integer :: i,thelayeris
       logical :: lexist, tellisoninterface
       integer :: auxGuardarFK
-      
+      CALL chdir("ins")
       ! read file
       inquire(file="interestingPoints.txt", exist=lexist)
       if(lexist)then
@@ -2292,6 +2336,8 @@
            
            inqPoints(i)%isOnInterface = tellisoninterface(real(inqPoints(i)%center(2)))
       end do
+      close(7)
+      CALL chdir("..")
 !     stop 0
       end subroutine getInquirePoints   
       
@@ -2328,10 +2374,11 @@
       use wavevars, only: Escala,Ts,Tp, tipoPulso, sigGaus
       use sourceVars
       use resultvars, only:Po
+      use glovars, only:verbose
       implicit none
       integer :: thelayeris
       logical :: lexist, tellisoninterface
-      
+      CALL chdir("ins")
       inquire(file="source.txt",exist=lexist)
       if (lexist) then
         OPEN(77,FILE="source.txt",FORM="FORMATTED")
@@ -2353,7 +2400,7 @@
       READ(77,*) sigGaus
       
       close(77)
-      
+      CALL chdir("..")
       efsource = thelayeris(real(zfsource))
       intfsource = tellisoninterface(real(zfsource))
       
@@ -2366,6 +2413,10 @@
       allocate(Po%Gq_xXx_coords(1,2))
       Po%Gq_xXx_coords(1,1) = xfsource
       Po%Gq_xXx_coords(1,2) = zfsource
+      
+      if (verbose .ge. 1) write(6,'(a,F8.2,a,F8.2,a,/,a,F9.2,a,F9.2,a)') & 
+                   "source is at (",xfsource,",",zfsource,")", &
+                   "n=[",nxfsource,",",nzfsource,"]"
       end subroutine getsource
       subroutine getVideoPoints(outpf)
       use resultVars, only : moviePoints, nMpts, & 
@@ -2383,13 +2434,13 @@
       integer                      :: iz,iP,e,currentLayer
       real                         :: errT = 0.001
       logical :: lexist
-      
-      inquire(file="íncidenceParameters.txt",exist=lexist)
+      CALL chdir("ins")
+      inquire(file="plotparameters.txt",exist=lexist)
       if (lexist) then
-        OPEN(7,FILE="íncidenceParameters.txt",FORM="FORMATTED")
+        OPEN(7,FILE="plotparameters.txt",FORM="FORMATTED")
       else
         write(outpf,'(a)') 'There is a missing input file. '
-        stop 'Check "íncidenceParameters.txt" on Working directory' 
+        stop 'Check "plotparameters.txt" on Working directory' 
       end if
       
       READ(7,*)
@@ -2413,7 +2464,7 @@
 !     READ(7,*)
 !     READ(7,*) maxtime
       close(7)
-      
+      CALL chdir("..")
       if (makeVideo .eqv. .false.) return 
         
         write(outpf,'(a,F12.2,a)') "Lfrec = 2*pi/DK = ",2*PI/DK, "m"
@@ -2540,7 +2591,7 @@
       huboCambios = .false.
       allocate(auxA(1))
       allocate(auxB(1))
-      
+      CALL chdir("ins")
       !Read Surface topography
       inquire(file="surface.txt",exist=lexist)
       if (lexist) then
@@ -2561,7 +2612,7 @@
          Xcoord(iXI,1) = XIx ; Xcoord(iXI,2) = XIy
       END DO
       close(77)
-      
+      CALL chdir("..")
       ! cortar en intersección con estratos y determinar estrato de cada segemento
       ! Fit Polynomial so we can find more points along the surface.
       x = Xcoord(:,1)
@@ -3004,7 +3055,8 @@
 !     end subroutine getTopography
       subroutine preparePointerTable(firstTime,outpf)
       use resultVars, only : nPts,allpoints,nBpts,BouPoints,auxpota, & 
-                             pota,fixedpota,nZs,Punto
+                             pota,fixedpota,nZs,Punto, &
+                             lambdaDepths_z,lambdaDepths_e
       use debugstuff
       use Gquadrature, only : Gquad_n
       use glovars, only : verbose,workBoundary, multInterpol !,PI
@@ -3019,8 +3071,8 @@
       type(Punto), pointer :: PX
       integer :: min_e,max_e
       real*8 :: min_z,max_z,h,sixthofWL
-      real*8, dimension(:), allocatable :: lambdaDepths_z,auxLD_z
-      integer, dimension(:), allocatable :: lambdaDepths_e,auxLD_e
+      real*8, dimension(:), allocatable :: auxLD_z
+      integer, dimension(:), allocatable :: auxLD_e
       
       ! si es la primera vez que corre sólo agregamos los allpoints 
       if (firstTime) then
@@ -3197,7 +3249,9 @@
            auxLD_e(j) = e
          end do
        end if
-       
+       !
+       if (allocated(lambdaDepths_z)) deallocate(lambdaDepths_z)
+       if (allocated(lambdaDepths_e)) deallocate(lambdaDepths_e)
        allocate(lambdaDepths_z(j)); allocate(lambdaDepths_e(j))
        lambdaDepths_z(1:j) = auxLD_z(1:j)
        lambdaDepths_e(1:j) = auxLD_e(1:j)
@@ -4102,6 +4156,40 @@
 !     stop 0
 !     ! ................................................................
       end subroutine waveAmplitude
+      subroutine coeff_ondas_estratos(i_zfuente,dir,cOME)
+      ! dada una profundidad de fuente en una dirección
+      use resultVars, only:Punto,Po,lambdaDepths_z,lambdaDepths_e
+      use waveNumVars, only : KtrimIndex,dK
+      use refSolMatrixVars, only : B,Ak
+      implicit none
+      
+      integer, intent(in) :: i_zfuente,dir
+      complex*16, intent(in)  :: cOME
+      real :: zf
+      integer :: ef
+      logical :: intf
+      integer :: ik
+      real*8 :: k
+      
+      if (i_zfuente .eq. 0) then !la fuente real
+        zf = Po%center(2)
+        ef = Po%layer
+        intf = Po%isOnInterface
+      else !una profundidad para interpolar las fuerzas virtuales
+        zf = lambdaDepths_z(i_zfuente)
+        ef = lambdaDepths_e(i_zfuente)
+        intf = .false.
+      end if !i_zfuente      
+      
+      ! amplitud de ondas planas dada fuente en Z .......
+       do ik = 1,KtrimIndex
+        k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
+        call vectorB_force(B(:,ik),zf,ef,intf,dir,cOME,k)  
+        B(:,ik) = matmul(AK(:,:,ik),B(:,ik))
+       end do ! ik
+       
+      ! se devuelve los coeficientes para todos los k
+      end subroutine coeff_ondas_estratos
       subroutine crunch(i_zfuente,J,cOME,outpf)
       ! esta función es llamada con cada profundidad donde hay
       ! por lo menos una fuente.
