@@ -172,6 +172,7 @@
       real              :: KmagnitudeChange
       integer,save      :: lapse, KtrimIndex !contadores
       logical,save      :: trimKplease
+      real, dimension(:,:), allocatable :: wavesPoly
       end module waveNumVars
       
       module refSolMatrixVars
@@ -180,7 +181,7 @@
       complex*16, save, allocatable :: B(:,:)
       complex*16, dimension(:,:,:), allocatable :: Ak
       complex*16, dimension(:,:), allocatable :: Binter
-!     complex*16, dimension(:), allocatable :: this_B                             
+!     complex*16, dimension(:), allocatable :: this_B
       integer, dimension(:), allocatable :: IPIV
       integer :: info    
       end module refSolMatrixVars
@@ -204,8 +205,8 @@
       ! polynomial fit parameters:
 !     use gloVars, only: dp
       use resultVars
-      integer,  parameter :: degree = 1 !recta
-      real,  dimension(degree+1) :: surf_poly 
+!     integer,  parameter :: degree = 1 !recta
+      real,  dimension(1+1) :: surf_poly 
       
       !integer, save :: numberOffixedBoundaryPoints
       integer, save :: nXI !number of original segment nodes
@@ -229,6 +230,17 @@
       !                                 ,--- 1:nXI-1 (cada segmento original)
       type (segemntedcoords), dimension(:), allocatable :: subdiv
       end module GeometryVars
+      
+      module interpolPlaneWavesOfStratification
+      integer, parameter :: degree_interpol = 8
+      real*8,  dimension(:), allocatable :: lambdaDepths_z
+      integer, dimension(:), allocatable :: lambdaDepths_e
+      
+      !                  ,--- N + 1 ; range indexes every stratum
+      integer, dimension(:), allocatable :: iStart_atE
+      integer, dimension(:), allocatable :: iEnd_atE
+      integer, parameter :: Npts_por_estrato = 8 
+      end module interpolPlaneWavesOfStratification
       
       module resultVars
        type FFres
@@ -337,9 +349,7 @@
       !end type pointerTable
       !type (pointerTable), pointer :: PoTa(:),auxPoTa(:)
       integer, allocatable, dimension(:,:), save :: fixedPoTa,pota,auxpota
-      integer :: nZs
-      real*8, dimension(:), allocatable :: lambdaDepths_z
-      integer, dimension(:), allocatable :: lambdaDepths_e
+      integer :: nZs ! depths at pota
 
       end module resultVars
               
@@ -735,17 +745,15 @@
       ! http://rosettacode.org/wiki/Polynomial_regression#Fortran
       function polyfit(vx,vy,Ln,d,verbose,outpf)
       implicit none
-      integer, intent(in)             :: verbose,outpf
-      integer, intent(in)                   :: Ln, d
-!     integer, parameter             :: dp = selected_real_kind(15, 307)
+      integer, intent(in)               :: verbose,outpf
+      integer, intent(in)               :: Ln, d
       real, dimension(d+1)              :: polyfit
-      real,     dimension(:), intent(in)    :: vx, vy
-!     real(dp), dimension(Ln)               :: vx, vy
+      real, dimension(:), intent(in)    :: vx, vy
       real, dimension(:,:), allocatable :: X
       real, dimension(:,:), allocatable :: XT
       real, dimension(:,:), allocatable :: XTX
       integer :: i, j
-      integer     :: n, lda, lwork
+      integer :: n, lda, lwork
       integer :: info
       integer, dimension(:), allocatable :: ipiv
       real, dimension(:), allocatable :: work
@@ -834,7 +842,7 @@
       ! coefficients are orthered from the lower power: A0 A1 A2 .. AN
        write(outpf,'(a)', ADVANCE = "NO") "0 ="
        do i=1,d+1
-          write(outpf,'(ES12.3,a,i0)', ADVANCE = "NO") polyfit(i),"x^",i-1
+          write(outpf,'(ES12.3,a,I0)', ADVANCE = "NO") polyfit(i),"x^",i-1
        end do
       end if
       end function
@@ -1747,6 +1755,7 @@
       use wavelets
       use MeshVars
       use fitting
+      use interpolPlaneWavesOfStratification
 !     use Gquadrature, only: Gquad_n
 !     use waveVars, only : Uo!,Escala
       
@@ -1769,6 +1778,7 @@
       real :: zf
       integer :: ef
       logical :: intf
+!     real, dimension(degree+1) :: polyfit
       
       call cpu_time(startT)
       call cpu_time(tstart)
@@ -1835,20 +1845,11 @@
          allpoints(iP)%WmovieSiblings = 0
       end do; end if!
       
-!     if (workBoundary) then
-!     ! G para resolver el campo difractado por topografía
-!      do iP_x = iPtini,iPtfin
-!        allocate(allpoints(iP_x)%GT_gq(nBpts,2,2)); allpoints(iP_x)%GT_gq = 0
-!      end do
-!      if (makeVideo) then
-!        do iP_x = mPtini,mPtfin
-!          allocate(allpoints(iP_x)%GT_gq_mov(nBpts,2,2,NxXxMpts))
-!          allpoints(iP_x)%GT_gq_mov = 0
-!        end do
-!      end if
-!     end if
-      
-      
+      if (workBoundary) then ! para la interpolación
+         allocate(wavesPoly(1+1,nmax+1))
+         allocate(iStart_atE(N+1)); iStart_atE = 0
+         allocate(iEnd_atE(N+1)); iEnd_atE = 0
+      end if
       
       ! draw the initial geometry
       if(.not. workboundary) then
@@ -1923,6 +1924,7 @@
          nDepths = size(lambdaDepths_z)
 !        stop "1898"
       end if
+      
       ! strata cotinuity conditions matrix A
          Ak = 0
          ik = 1
@@ -1937,8 +1939,9 @@
       end do ! ik
       
       if (allocated(Binter)) deallocate(Binter)
-      ALLOCATE (Binter(4*N+2, nDepths +1)) !1 fza real 2,3... virtuales
-      do dir = dirStart,dirEnd
+      ALLOCATE (Binter(4*N+2, nDepths +1)) !1 fza real; 2,3... virtuales
+      wavesPoly = 0.0
+      do dir = dirStart,dirEnd !componente horizontal y vertical
        do ik = 1, KtrimIndex
          k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
          Binter = Z0
@@ -1957,8 +1960,12 @@
          end do !iz
          ! guardar lo de la fuente real iz = 1
          B(:,ik) = Binter(:,1)
-         ! Polyfit cada onda en B de iz = 2 ...
-         
+         ! Polyfit cada onda en B de iz = 2 ... ndeptsh+1
+           do l = 1,4*N+2
+!            wavesPoly(l,ik) = polyfit(lambdaDepths_z, & 
+!                                      Binter(l,2:nDepths+1), &
+!                                      nZs,degree,verbose,PrintNum)
+           end do
        end do !ik
         
         ! resultados para cada Z donde hay receptores ....................
@@ -2617,24 +2624,23 @@
       ! Fit Polynomial so we can find more points along the surface.
       x = Xcoord(:,1)
       y = Xcoord(:,2)
-      
       ! we need to add a point at every intersection of the 
       ! topography and an interface
       iXI = 1
       DO WHILE (iXI <= nXI-1)!iXI = 1,nXI-1 !para cada segmento
       ! we check if there is a change of medium along segment [iXI,iXI+1]
-            if (verbose .ge. 3 ) write(outpf,*) iXI,"of ",nXI
+            if (verbose .ge. 3 ) write(outpf,*) "element",iXI,"of ",nXI
          DO e = 2,size(Z) !en cada interfaz (excepto la superficie)
             if (verbose >= 3 ) write(outpf,'(a,F12.8,/,a,F14.6,a,F14.6,a)') & 
-                 "Z =",Z(e),"deltaZ of segm: (",y(iXI),",",y(iXI+1),")"
+              "interfaceZ =",Z(e),"deltaZ of segm: (",y(iXI),",",y(iXI+1),")"
           if (abs(anint(y(iXI) * 1000) - anint(Z(e) * 1000)) < errT) then
-            if (verbose >= 1) write(outpf,*)"already sliced here"
+            if (verbose >= 2) write(outpf,*)"already sliced here"
           else 
       ! si es un segmento que se forma recorriendo los puntos hacia Z+
             if (y(iXI) < Z(e)  .AND. y(iXI+1) > Z(e)) then
-               !hay un cambio de estrato
+              if (verbose >= 2) write(outpf,*)"hay un cambio de estrato hacia z+"
                if (abs(x(ixi+1) - x(ixi)) .le. 0.001) then ! es vertical
-                 nuevoPx = real(z(e),4)
+                 nuevoPx = x(ixi)
                else ! es inclinado
                  m = (y(ixi+1) - y(ixi))/(x(ixi+1) - x(ixi))
                  surf_poly = (/y(ixi) - x(ixi)*m , m /)
@@ -2659,7 +2665,7 @@
                deallocate(auxVector)
                allocate(auxVector(size(y)+1))
                auxVector(1:iXI) = y(1:iXI)
-               auxVector(iXI+1) = polyVal(surf_poly,degree,nuevoPx)
+               auxVector(iXI+1) = Z(e)
                auxVector(iXI+2 : size(auxVector)) = y(iXI+1:size(y))
                deallocate(y)
                allocate(y(size(auxVector)))
@@ -2669,9 +2675,9 @@
             end if 
       ! si es un segmento que se forma recorriendo los puntos hacia Z-
             if (y(iXI) > Z(e)  .AND. y(iXI+1) < Z(e)) then
-               !hay un cambio de estrato
+              if (verbose >= 2) write(outpf,*)"hay un cambio de estrato hacia z-"
                if (abs(x(ixi+1) - x(ixi)) .le. 0.001) then ! es vertical
-                 nuevoPx = real(z(e),4)
+                 nuevoPx = x(ixi)
                else ! es inclinado
                  m = (y(ixi+1) - y(ixi))/(x(ixi+1) - x(ixi))
                  surf_poly = (/y(ixi) - x(ixi)*m , m /)
@@ -2695,7 +2701,7 @@
                deallocate(auxVector)
                allocate(auxVector(size(y)+1))
                auxVector(1:iXI) = y(1:iXI)
-               auxVector(iXI+1) = polyVal(surf_poly,degree,nuevoPx)
+               auxVector(iXI+1) = z(e)
                auxVector(iXI+2 : size(auxVector)) = y(iXI+1:size(y))
                deallocate(y)
                allocate(y(size(auxVector)))
@@ -2734,7 +2740,6 @@
         midPoint(ixi,2) = (y(ixi+1) + y(ixi))/2.
         lengthXI(ixi) = sqrt((x(ixi+1)-x(ixi))**2. + (y(ixi+1)-y(ixi))**2.)
       end do
-     
       
 !     layerxi(:) = N+1
 !     forall(e=1:N, ixi=1:nxi-1, & 
@@ -2824,7 +2829,7 @@
        CALL chdir("..") !out of outs
       end if
       
-!     stop "right the wrongs"
+!     stop "topo"
       end subroutine getTopography
       
       
@@ -3055,13 +3060,13 @@
 !     end subroutine getTopography
       subroutine preparePointerTable(firstTime,outpf)
       use resultVars, only : nPts,allpoints,nBpts,BouPoints,auxpota, & 
-                             pota,fixedpota,nZs,Punto, &
-                             lambdaDepths_z,lambdaDepths_e
+                             pota,fixedpota,nZs,Punto
       use debugstuff
       use Gquadrature, only : Gquad_n
       use glovars, only : verbose,workBoundary, multInterpol !,PI
       use waveNumVars, only : frec
       use soilVars, only : N,Z,BETA => BETA0
+      use interpolPlaneWavesOfStratification
       ! tabla con las coordenadas Z (sin repetir).
       implicit none
       logical,intent(in) :: firstTime
@@ -3070,7 +3075,7 @@
       logical :: nearby,esnueva
       type(Punto), pointer :: PX
       integer :: min_e,max_e
-      real*8 :: min_z,max_z,h,sixthofWL
+      real*8 :: min_z,max_z,h,oneWL,step
       real*8, dimension(:), allocatable :: auxLD_z
       integer, dimension(:), allocatable :: auxLD_e
       
@@ -3198,56 +3203,74 @@
          print*,"maxz =",max_z," at e=",max_e
        end if
        
-!      print*,"frec",frec
-!      print*,"minbeta",beta(min_e)
+       ! Podemos interpolar las ondas en cada estrato, usando pocos puntos
+       ! [nNodes_per_e] 
        
-       sixthofWL = real(minval(BETA(:)),8) / (multInterpol * frec)
-       allocate(auxLD_z(ceiling((max_z - min_z) / sixthofWL)+N))
-       allocate(auxLD_e(ceiling((max_z - min_z) / sixthofWL)+N))
+       
+       oneWL = real(minval(BETA(:)),8) / frec
+       allocate(auxLD_z(Npts_por_estrato * (max_e - min_e + 1)+ 2*N))
+       print*, Npts_por_estrato
+       print*,max_e,".",min_e
+       print*,"size auxLD_z",size(auxLD_z)
+       allocate(auxLD_e(size(auxLD_z)))
+       iStart_atE = 0
+       iEnd_atE = 0
        auxLD_z = 0.0_8
-       auxLD_z(1) = min_z
+       auxLD_z(1) = min_z ! el primer elemento es el más somero
        auxLD_e = 0
        auxLD_e(1) = min_e
        j = 1
        if (min_e .eq. max_e) then !todo esta en un mismo estrato
          h = max_z - min_z
-         sixthofWL = real(BETA(min_e),8) / (multInterpol * frec)
-!        print*,"current sixthofWL", sixthofWL
+         step = h / (Npts_por_estrato - 1)
          do while (auxLD_z(j) .lt. auxLD_z(1) + h)
            j = j + 1
-           auxLD_z(j) = auxLD_z(j-1) + sixthofWL
+           auxLD_z(j) = auxLD_z(j-1) + step
            auxLD_e(j) = min_e
          end do
          if (min_e .ne. N+1) then !si hay una interfaz abajo
          if (auxLD_z(j) .gt. z(min_e+1)) then ! y te pasaste al siguiente estrato
-           auxLD_z(j) = z(min_e+1) - 0.1 * sixthofWL
+           auxLD_z(j) = z(min_e+1) - 0.1 * step
          end if
          end if
+         iStart_atE(min_e) = 1
+         iEnd_atE(min_e) = j
        else !esta repartido en varios estratos/ min_e y max_e son distintos
          do e = min_e,(max_e - 1) !para todos los e menos el último
-           sixthofWL = real(BETA(e),8) / (multInterpol * frec)
-!          print*,"current sixthofWL", sixthofWL
+           ! menor(espesor del estrato; de min_e a la interfaz)
+           h = z(e+1) - z(e)
+           if (e .eq. min_e) h = z(e+1) - min_z
+           step = h / (Npts_por_estrato - 1)
+           iStart_atE(e) = j
            do while (auxLD_z(j) .lt. z(e+1)) ! hasta pasarse del estrato actual
              j = j + 1
-             auxLD_z(j) = auxLD_z(j-1) + sixthofWL
+             auxLD_z(j) = auxLD_z(j-1) + step
              auxLD_e(j) = e
            end do
+           iEnd_atE(e) = j
            if (auxLD_z(j) .ge. z(e+1)) then ! ya que te pasaste al siguiente e
-             auxLD_z(j) = z(e+1) - 0.1 * sixthofWL
-             j = j + 1 ! y el primer elemento del siguiente estrato
-             auxLD_z(j) = z(e+1) + 0.1 * sixthofWL
-             auxLD_e(j) = e + 1
-           end if
+             auxLD_z(j) = z(e+1) - 0.1 * step ! te regresas
+             if ((e+1) <= max_e) then
+               j = j + 1 ! y el primer elemento del siguiente estrato
+               auxLD_z(j) = z(e+1) + 0.1 * step
+               auxLD_e(j) = e + 1
+             end if
+           end if 
          end do !e
-         ! par el último cachito
-         e = e + 1
-         sixthofWL = real(BETA(e),8) / (multInterpol * frec)
-!        print*,"current sixthofWL", sixthofWL
-         do while (auxLD_z(j) .lt. max_z)
-           j = j + 1
-           auxLD_z(j) = auxLD_z(j-1) + sixthofWL
-           auxLD_e(j) = e
-         end do
+         ! para el último cachito en el estrato max_e
+         if ((max_z - z(max_e)) > 0.001) then 
+           h = max_z - z(max_e)
+           step = h / (Npts_por_estrato - 1)
+!        sixthofWL = real(BETA(e),8) / (multInterpol * frec)
+ !        print*,"current sixthofWL", sixthofWL
+           iStart_atE(e) = j
+           do while (auxLD_z(j) .lt. max_z)
+             j = j + 1
+             auxLD_z(j) = auxLD_z(j-1) + step
+             auxLD_e(j) = max_e
+           end do
+           iEnd_atE(e) = j
+         end if
        end if
        !
        if (allocated(lambdaDepths_z)) deallocate(lambdaDepths_z)
@@ -3257,22 +3280,97 @@
        lambdaDepths_e(1:j) = auxLD_e(1:j)
        deallocate(auxLD_z);deallocate(auxLD_e)
        
-       if (verbose .ge. 2) then
+       if (verbose .ge. 1) then
            print*,""
          do i=1,j
            print*,i, lambdaDepths_z(i), lambdaDepths_e(i)
+         end do!
+         do i=1,N+1
+           print*,i, iStart_atE(i), iEnd_atE(i)
          end do
        end if
-!      stop 3204
+       
+!      
+!      sixthofWL = real(minval(BETA(:)),8) / (multInterpol * frec)
+!      allocate(auxLD_z(ceiling((max_z - min_z) / sixthofWL)+N))
+!      allocate(auxLD_e(ceiling((max_z - min_z) / sixthofWL)+N))
+!      iStart_atE = 0
+!      iEnd_atE = 0
+!      auxLD_z = 0.0_8
+!      auxLD_z(1) = min_z
+!      auxLD_e = 0
+!      auxLD_e(1) = min_e
+!      j = 1
+!      if (min_e .eq. max_e) then !todo esta en un mismo estrato
+!        h = max_z - min_z
+!        sixthofWL = real(BETA(min_e),8) / (multInterpol * frec)
+!!        print*,"current sixthofWL", sixthofWL
+!        do while (auxLD_z(j) .lt. auxLD_z(1) + h)
+!          j = j + 1
+!          auxLD_z(j) = auxLD_z(j-1) + sixthofWL
+!          auxLD_e(j) = min_e
+!        end do
+!        if (min_e .ne. N+1) then !si hay una interfaz abajo
+!        if (auxLD_z(j) .gt. z(min_e+1)) then ! y te pasaste al siguiente estrato
+!          auxLD_z(j) = z(min_e+1) - 0.1 * sixthofWL
+!        end if
+!        end if
+!        iStart_atE(min_e) = 1
+!        iEnd_atE(min_e) = j
+!      else !esta repartido en varios estratos/ min_e y max_e son distintos
+!        do e = min_e,(max_e - 1) !para todos los e menos el último
+!          sixthofWL = real(BETA(e),8) / (multInterpol * frec)
+!!          print*,"current sixthofWL", sixthofWL
+!          iStart_atE(e) = j
+!          do while (auxLD_z(j) .lt. z(e+1)) ! hasta pasarse del estrato actual
+!            j = j + 1
+!            auxLD_z(j) = auxLD_z(j-1) + sixthofWL
+!            auxLD_e(j) = e
+!          end do
+!          iEnd_atE(e) = j
+!          if (auxLD_z(j) .ge. z(e+1)) then ! ya que te pasaste al siguiente e
+!            auxLD_z(j) = z(e+1) - 0.1 * sixthofWL ! te regresas
+!            j = j + 1 ! y el primer elemento del siguiente estrato
+!            auxLD_z(j) = z(e+1) + 0.1 * sixthofWL
+!            auxLD_e(j) = e + 1
+!          end if 
+!        end do !e
+!        ! para el último cachito
+!        e = e + 1
+!        sixthofWL = real(BETA(e),8) / (multInterpol * frec)
+!!        print*,"current sixthofWL", sixthofWL
+!        iStart_atE(e) = j
+!        do while (auxLD_z(j) .lt. max_z)
+!          j = j + 1
+!          auxLD_z(j) = auxLD_z(j-1) + sixthofWL
+!          auxLD_e(j) = e
+!        end do
+!        iEnd_atE(e) = j
+!      end if
+!      !
+!      if (allocated(lambdaDepths_z)) deallocate(lambdaDepths_z)
+!      if (allocated(lambdaDepths_e)) deallocate(lambdaDepths_e)
+!      allocate(lambdaDepths_z(j)); allocate(lambdaDepths_e(j))
+!      lambdaDepths_z(1:j) = auxLD_z(1:j)
+!      lambdaDepths_e(1:j) = auxLD_e(1:j)
+!      deallocate(auxLD_z);deallocate(auxLD_e)
+!      
+!      if (verbose .ge. 2) then
+!          print*,""
+!        do i=1,j
+!          print*,i, lambdaDepths_z(i), lambdaDepths_e(i)
+!        end do
+!        do i=1,N+1
+!          print*,i, iStart_atE(i), iEnd_atE(i)
+!        end do
+!      end if
+!      stop 3280
       end if !firsttime
       ! done
-!     print*,"nZs=",nZs
       if (verbose .ge. 1) write(6,'(A)', ADVANCE = "NO") repeat("\b",14)
       if (verbose .ge. 1) write(6,'(A)', ADVANCE = "NO") repeat(" ",14)
       if (verbose .ge. 1) write(6,'(A)', ADVANCE = "NO") repeat("\b",14)
       if (verbose .ge. 2) call showMNmatrixI(nZs,2+j,pota,"po_ta",outpf)
-!     if (firstTime .eqv. .false.) 
-!     stop "preparePointerTable"
       end subroutine preparePointerTable
       
       function nearby(a,b,bola)
@@ -3821,7 +3919,7 @@
          y(iXI+1) = Xcoord(indice+1,2)
          indice = indice + 1
       end do
-      surf_poly = polyfit(x,y,size(x),degree,verbose,outpf)
+      surf_poly = polyfit(x,y,size(x),1,verbose,outpf)
 
       !normal vector componts at midPoints of BigSegments
       deallocate(normXI)
@@ -4158,9 +4256,10 @@
       end subroutine waveAmplitude
       subroutine coeff_ondas_estratos(i_zfuente,dir,cOME)
       ! dada una profundidad de fuente en una dirección
-      use resultVars, only:Punto,Po,lambdaDepths_z,lambdaDepths_e
+      use resultVars, only:Punto,Po
       use waveNumVars, only : KtrimIndex,dK
       use refSolMatrixVars, only : B,Ak
+      use interpolPlaneWavesOfStratification, only : lambdaDepths_z,lambdaDepths_e
       implicit none
       
       integer, intent(in) :: i_zfuente,dir
