@@ -1520,7 +1520,7 @@
       
       minX = vHorz(1)
       maxX = vHorz(size(vHorz))
-      xstep = maxX / 10.
+      xstep = maxX / 5.
       
 !     nIP = size(thisFK,4)
 !     if(verbose>=1)write(outpf,'(a,I0)')"number of points: ",nIP
@@ -1738,10 +1738,10 @@
 !     maxY = max(maxval(BP(:)%bord_A(2)),maxval(BP(:)%bord_B(2)))
 !     maxY = max(maxY,maxval(IP(:)%center(2)))
 !     minY = MIN(MINVAL(BP(:)%center(2)), -0.05*maxY)
-      minX = -1.1 * MeshMaxX
-      maxX = 1.1 * MeshMaxX
-      maxY = 1.05 * MeshMaxZ
-      minY = -0.05 * MeshMaxZ
+      minX = -1.0 * MeshMaxX! -1.1 * MeshMaxX
+      maxX = 1.0 * MeshMaxX!1.1 * MeshMaxX
+      maxY = 1.0 * MeshMaxZ!1.05 * MeshMaxZ
+      minY = -0.0 * MeshMaxZ!-0.05 * MeshMaxZ
       
       ! Dislin plotting routines 
       CALL METAFL('PDF') ! define intended display  XWIN,PS,EPS,PDF
@@ -1883,7 +1883,7 @@
       character(LEN=100) :: titleN
       character(LEN=10) :: tt
       character(LEN=9)  :: xAx,yAx
-      real*8 :: factor,k
+      real*8 :: factor,k,sca
       character(10) :: time
       real :: startT,finishT,tstart,tend
       logical :: thereisavirtualsourceat
@@ -1994,7 +1994,7 @@
       else 
           write(PrintNum,'(A)', ADVANCE = "YES") "    t span"
       end if
-      DO J = NFREC+1,1,-204
+      DO J = NFREC+1,1,-1!,-204
       ! complex frecuency for avoiding poles and provide damping
         FREC=DFREC*real(J-1) ! Hz
         if (J .eq. 1)  FREC = DFREC*0.01
@@ -2038,7 +2038,7 @@
       
       ! Subsegment the topography if neccesssary
       nDepths = 0
-      workBoundary = .true.
+!     workBoundary = .true.
       if (workBoundary) then 
          call subdivideTopo(J)
          call preparePointerTable(.false.,PrintNum)
@@ -2057,12 +2057,24 @@
          call matrixA_borderCond(Ak(:,:,ik),k,cOME,PrintNum)
          call inverseA(Ak(:,:,ik),4*N+2)
       end do ! ik
-      CALL chdir("coeff")
+      
+      go to 897
       if (allocated(Binter)) deallocate(Binter)
       ALLOCATE (Binter(4*N+2, nDepths +1)) !1 fza real; 2,3... virtuales
       wavesPoly = 0.0
-      do dir = 1,2 !componente horizontal y vertical !# quitar una dirección cuando fuente real
-       do ik = 1, KtrimIndex, int(KtrimIndex/10) ! número de onda horizontal
+     
+      CALL chdir("coeff")
+      open(7771,FILE= "f1024_onda1.txt")
+      open(7772,FILE= "f1024_onda2.txt")
+      open(7773,FILE= "f1024_onda3.txt")
+      open(7774,FILE= "f1024_onda4.txt")
+      open(7775,FILE= "f1024_onda5.txt")
+      open(7776,FILE= "f1024_onda6.txt")
+!     open(7777,FILE= "f1024_onda7.txt")
+!     open(7778,FILE= "f1024_onda8.txt")
+      
+      do dir = 1,1 !componente horizontal y vertical !# quitar una dirección cuando fuente real
+       do ik = 1, KtrimIndex!, int(KtrimIndex/10) ! número de onda horizontal
          k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
          
          ! Para las fuentes virtuale en lugar de evaluar la fuente a cada profundidad
@@ -2090,7 +2102,7 @@
          B0(:) = Binter(1:4*N+2,1) ! en este K
          
          ! guardar Poly de cada onda en B de iz = 2 ... ndeptsh+1
-          do e = topo_min_e,topo_max_e ! estrato donde hay topografia
+!         do e = topo_min_e,topo_max_e ! estrato donde hay topografia
              
              ! polynomial coefficients: A0 A1 A2...An son complejos; real para
              ! el poly de la parte real de las ondas e imag para el poly de 
@@ -2098,64 +2110,92 @@
 !            Bpoly(e,l,:) = Zpolyfit(lambdaDepths_z, & 
 !                                   Binter(l,2:nDepths+1), &
 !                                   nDepths, degree_interpol,verbose,PrintNum)
+          sca = 10.0_8**13.0
+          write(7771,*) real(Binter(1,2:nDepths+1)*sca,4)
+          write(7772,*) real(Binter(2,2:nDepths+1)*sca,4)
+          write(7773,*) real(Binter(3,2:nDepths+1)*sca,4)
+          write(7774,*) real(Binter(4,2:nDepths+1)*sca,4)
+          write(7775,*) real(Binter(5,2:nDepths+1)*sca,4)
+          write(7776,*) real(Binter(6,2:nDepths+1)*sca,4)
+          cycle !ik
 
                    CALL METAFL ('PDF')
-                   write(titleN,'(a,I0,a,I0,a,I0,a,I0,a)') "f",J,"_e",e,"_k",ik,"_dir",dir,"R.pdf"
+                   write(titleN,'(a,I0,a,I0,a,I0,a)') "f",J,"_k",ik,"_dir",dir,".pdf"
                    CALL SETFIL(trim(adjustl(titleN)))
                    CALL DISINI
-                   call labels('EXP','Y')
+!                  call labels('EXP','Y')
                    call errmod ("all", "off")
                    !el maximo
-                   factor = maxval(abs(real(Binter(1,2:nDepths+1))))
+                   factor = max(maxval(abs(real(Binter(1,2:nDepths+1)))), &
+                                   maxval(abs(real(aimag(Binter(1,2:nDepths+1))))))
                    m = 1
                    do l=2,4*N+2
-                    if (maxval(abs(real(Binter(l,2:nDepths+1)))) .gt. factor) then
+                    sca = max(maxval(abs(real(Binter(l,2:nDepths+1)))), &
+                                   maxval(abs(real(aimag(Binter(l,2:nDepths+1))))))
+                    if (sca .gt. factor) then
                       m = l
-                      factor = maxval(abs(real(Binter(l,2:nDepths+1))))
+                      factor = max(maxval(abs(real(Binter(l,2:nDepths+1)))), &
+                                   maxval(abs(real(aimag(Binter(l,2:nDepths+1))))))
                     end if
                    end do
+                   sca = 10.0_8**13.0
+!                  print*,factor
+!                  print*,sca
                    CALL SETRGB (real(0.0,4), real(0.0,4), real(0.0,4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(m,2:nDepths+1),4), nDepths,"FIRST")
+                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(m,2:nDepths+1)*sca,4), nDepths,"FIRST")
            do l = 1,4*N+2-1 !cada onda en el medio (igual y ni se usan todas)
                    CALL SETRGB (real(l,4)/real((4*N+2),4), real(0.0,4), real(0.0,4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(l,2:nDepths+1),4), nDepths,"NEXT")
+                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(l,2:nDepths+1)*sca,4), nDepths,"NEXT")
+                   
+                   CALL SETRGB (real(0.0,4), real(0.0,4), real(l,4)/real((4*N+2),4))
+                   CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1))*sca,4), nDepths,"NEXT")
+                   
            end do !l        
                    l = 4*N+2
                    CALL SETRGB (real(1.0,4), real(0.0,4), real(0.0,4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(l,2:nDepths+1),4), nDepths,"LAST")
+                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(l,2:nDepths+1)*sca,4), nDepths,"NEXT")
+                   
+                   CALL SETRGB (real(0.0,4), real(0.0,4), real(1.0,4))
+                   CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1))*sca,4), nDepths,"LAST")
                    call disfin
                   
-                   CALL METAFL ('PDF')
-                   write(titleN,'(a,I0,a,I0,a,I0,a,I0,a)') "f",J,"_e",e,"_k",ik,"_dir",dir,"I.pdf"
-                   CALL SETFIL(trim(adjustl(titleN)))
-                   CALL DISINI
-                   call labels('EXP','Y')
-                   call errmod ("all", "off")
-                   factor = maxval(abs(real(aimag(Binter(1,2:nDepths+1)))))
-                   m = 1
-                   do l=2,4*N+2
-                    if (maxval(abs(real(aimag(Binter(l,2:nDepths+1))))) .gt. factor) then
-                      m = l
-                      factor = maxval(abs(real(aimag(Binter(l,2:nDepths+1)))))
-                    end if
-                   end do
-                   CALL SETRGB (real(0.0,4), real(0.0,4), real(0.0,4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(m,2:nDepths+1)),4), nDepths,"FIRST")
-           do l = 1,4*N+2 - 1 !cada onda en el medio (igual y ni se usan todas)
-                   CALL SETRGB (real(0.0,4), real(0.0,4), real(l,4)/real((4*N+2),4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1)),4), nDepths,"NEXT")
-           end do !l            
-                   l = 4*N+2
-                   CALL SETRGB (real(0.0,4), real(0.0,4), real(1.0,4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1)),4), nDepths,"LAST")    
-                   call disfin
-          end do !e
+!                  CALL METAFL ('PDF')
+!                  write(titleN,'(a,I0,a,I0,a,I0,a)') "f",J,"_k",ik,"_dir",dir,"I.pdf"
+!                  CALL SETFIL(trim(adjustl(titleN)))
+!                  CALL DISINI
+!                  call labels('EXP','Y')
+!                  call errmod ("all", "off")
+!                  factor = maxval(abs(real(aimag(Binter(1,2:nDepths+1)))))
+!                  m = 1
+!                  do l=2,4*N+2
+!                   if (maxval(abs(real(aimag(Binter(l,2:nDepths+1))))) .gt. factor) then
+!                     m = l
+!                     factor = maxval(abs(real(aimag(Binter(l,2:nDepths+1)))))
+!                   end if
+!                  end do
+!                  CALL SETRGB (real(0.0,4), real(0.0,4), real(0.0,4))
+!                  CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(m,2:nDepths+1)),4), nDepths,"FIRST")
+!          do l = 1,4*N+2 - 1 !cada onda en el medio (igual y ni se usan todas)
+!                  CALL SETRGB (real(0.0,4), real(0.0,4), real(l,4)/real((4*N+2),4))
+!                  CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1)),4), nDepths,"NEXT")
+!          end do !l            
+!                  l = 4*N+2
+!                  CALL SETRGB (real(0.0,4), real(0.0,4), real(1.0,4))
+!                  CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1)),4), nDepths,"LAST")    
+!                  call disfin
+!         end do !e
        end do !ik
         
         ! resultados para cada Z donde hay receptores ....................
       end do ! dir   
+      close(7771)
+      close(7772)
+      close(7773)
+      close(7774)
+      close(7775)
+      close(7776)
       CALL chdir("..")
-      workBoundary = .false.
+  897 workBoundary = .false.
       call crunch(0,J,cOME,PrintNum)
       !           ^--- the real source
       if (workboundary) then
