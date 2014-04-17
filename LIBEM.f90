@@ -179,7 +179,9 @@
       !reference solution variables:
       complex*16 :: cOME  
       complex*16, save, allocatable :: B(:,:)
+      complex*16, save, allocatable :: Bsh(:,:)
       complex*16, dimension(:,:,:), allocatable :: Ak
+      complex*16, dimension(:,:,:), allocatable :: AkSH
       complex*16, dimension(:,:), allocatable :: Binter
       complex*16, dimension(:), allocatable :: B0
       
@@ -187,6 +189,7 @@
       complex*16, dimension(:,:,:), allocatable :: Bpoly
 !     complex*16, dimension(:), allocatable :: this_B
       integer, dimension(:), allocatable :: IPIV
+      integer, dimension(:), allocatable :: IPIVsh
       integer :: info    
       end module refSolMatrixVars
       
@@ -260,6 +263,7 @@
        type MecaElem
         type (Pointe) :: center
         complex*16, dimension(5) :: Rw !u1,u3,s33,s31,s11
+        complex*16, dimension(2) :: Rw_SH !u2,s22
        end type MecaElem
        
        type tipo_qlmk
@@ -372,7 +376,7 @@
       integer, save :: nx,nz
 !      real, dimension(4,2), save :: colorBounds
       end module meshVars
-                  
+                   
       module wavelets
       contains 
       
@@ -1520,7 +1524,7 @@
       
       minX = vHorz(1)
       maxX = vHorz(size(vHorz))
-      xstep = maxX / 10.
+      xstep = maxX / 5.
       
 !     nIP = size(thisFK,4)
 !     if(verbose>=1)write(outpf,'(a,I0)')"number of points: ",nIP
@@ -1738,10 +1742,10 @@
 !     maxY = max(maxval(BP(:)%bord_A(2)),maxval(BP(:)%bord_B(2)))
 !     maxY = max(maxY,maxval(IP(:)%center(2)))
 !     minY = MIN(MINVAL(BP(:)%center(2)), -0.05*maxY)
-      minX = -1.1 * MeshMaxX
-      maxX = 1.1 * MeshMaxX
-      maxY = 1.05 * MeshMaxZ
-      minY = -0.05 * MeshMaxZ
+      minX = -1.0 * MeshMaxX! -1.1 * MeshMaxX
+      maxX = 1.0 * MeshMaxX!1.1 * MeshMaxX
+      maxY = 1.0 * MeshMaxZ!1.05 * MeshMaxZ
+      minY = -0.0 * MeshMaxZ!-0.05 * MeshMaxZ
       
       ! Dislin plotting routines 
       CALL METAFL('PDF') ! define intended display  XWIN,PS,EPS,PDF
@@ -1877,21 +1881,21 @@
       integer, parameter :: PrintNum = 6
       !Loop Counters
       integer :: J  ! frequency loop
-      integer :: e,l,m,iP,iPxi,iP_x,i,ik,iz !small loop counter
+      integer :: l,m,iP,iPxi,iP_x,i,ik,iz !small loop counter
       integer :: status,dir,dirStart,dirEnd
       CHARACTER(len=400) :: path
       character(LEN=100) :: titleN
       character(LEN=10) :: tt
       character(LEN=9)  :: xAx,yAx
-      real*8 :: factor,k
+      real*8 :: factor,k,sca
       character(10) :: time
       real :: startT,finishT,tstart,tend
       logical :: thereisavirtualsourceat
       real*8 :: zf
       integer :: ef
       logical :: intf
-!     real, dimension(degree+1) :: polyfit
       
+      ! preparar los directorios de trabajo y resultados
       call cpu_time(startT)
       call cpu_time(tstart)
       if (PrintNum /= 6) open(PrintNum,FILE= "GlayerOUT.txt")
@@ -1934,9 +1938,12 @@
         write(PrintNum,'(a,I0)') 'Number of fixed receptors: ',npts
         allocate (allpoints(Npts))
         allocate (Ak(4*N+2,4*N+2,nmax+1))
+        allocate (AkSH(2*N+1,2*N+1,nmax+1))
         ALLOCATE (B (4*N+2,nmax+1)) ! una sola fuente
+        ALLOCATE (Bsh (2*N+1,nmax+1)) ! una sola fuente
         allocate (B0(4*N+2))
         ALLOCATE (IPIV(4*N+2)) ! pivote
+        ALLOCATE (IPIVsh(2*N+1)) ! pivote
         allocate (auxKvect(2*Nmax))
         allocate(expK(2*nmax))
         factor = sqrt(2.*NMAX*2)
@@ -1994,7 +2001,7 @@
       else 
           write(PrintNum,'(A)', ADVANCE = "YES") "    t span"
       end if
-      DO J = NFREC+1,1,-204
+      DO J = NFREC+1,1,-1
       ! complex frecuency for avoiding poles and provide damping
         FREC=DFREC*real(J-1) ! Hz
         if (J .eq. 1)  FREC = DFREC*0.01
@@ -2038,7 +2045,7 @@
       
       ! Subsegment the topography if neccesssary
       nDepths = 0
-      workBoundary = .true.
+!     workBoundary = .true.
       if (workBoundary) then 
          call subdivideTopo(J)
          call preparePointerTable(.false.,PrintNum)
@@ -2050,19 +2057,35 @@
          Ak = 0
          ik = 1
          k = real(dk * 0.01,8)
-         call matrixA_borderCond(Ak(:,:,ik),k,cOME,PrintNum)
+         call globalmatrix_PSV(Ak(:,:,ik),k,cOME,PrintNum)
          call inverseA(Ak(:,:,ik),4*N+2)
+         call globalmatrix_SH(AkSH(:,:,ik),k,cOME,PrintNum)
+         call inverseA(AkSH(:,:,ik),2*N+1)
       Do ik=2, KtrimIndex
          k = real(ik-1,8) * dK
-         call matrixA_borderCond(Ak(:,:,ik),k,cOME,PrintNum)
+         call globalmatrix_PSV(Ak(:,:,ik),k,cOME,PrintNum)
          call inverseA(Ak(:,:,ik),4*N+2)
+         call globalmatrix_SH(AkSH(:,:,ik),k,cOME,PrintNum)
+         call inverseA(AkSH(:,:,ik),2*N+1)
       end do ! ik
-      CALL chdir("coeff")
+      
+      go to 897
       if (allocated(Binter)) deallocate(Binter)
       ALLOCATE (Binter(4*N+2, nDepths +1)) !1 fza real; 2,3... virtuales
       wavesPoly = 0.0
-      do dir = 1,2 !componente horizontal y vertical !# quitar una dirección cuando fuente real
-       do ik = 1, KtrimIndex, int(KtrimIndex/10) ! número de onda horizontal
+     
+      CALL chdir("coeff")
+      open(7771,FILE= "f1024_onda1.txt")
+      open(7772,FILE= "f1024_onda2.txt")
+      open(7773,FILE= "f1024_onda3.txt")
+      open(7774,FILE= "f1024_onda4.txt")
+      open(7775,FILE= "f1024_onda5.txt")
+      open(7776,FILE= "f1024_onda6.txt")
+!     open(7777,FILE= "f1024_onda7.txt")
+!     open(7778,FILE= "f1024_onda8.txt")
+      
+      do dir = 1,1 !componente horizontal y vertical !# quitar una dirección cuando fuente real
+       do ik = 1, KtrimIndex!, int(KtrimIndex/10) ! número de onda horizontal
          k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
          
          ! Para las fuentes virtuale en lugar de evaluar la fuente a cada profundidad
@@ -2076,13 +2099,13 @@
              zf = Po%center(2)
              ef = Po%layer
              intf = Po%isOnInterface
-             call vectorB_force(Binter(:,iz),zf,ef,intf,dir,cOME,k)
+             call PSVvectorB_force(Binter(:,iz),zf,ef,intf,dir,cOME,k)
              Binter(:,iz) = matmul(AK(:,:,ik),Binter(:,iz))
            else !una profundidad para interpolar las fuerzas virtuales
              zf = lambdaDepths_z(iz-1)
              ef = lambdaDepths_e(iz-1)
              intf = lambdaDepths_interf(iz-1)
-             call vectorB_force(Binter(:,iz),zf,ef,intf,dir,cOME,k)
+             call PSVvectorB_force(Binter(:,iz),zf,ef,intf,dir,cOME,k)
              Binter(:,iz) = matmul(AK(:,:,ik),Binter(:,iz))
            end if !i_zfuente
          end do !iz
@@ -2090,7 +2113,7 @@
          B0(:) = Binter(1:4*N+2,1) ! en este K
          
          ! guardar Poly de cada onda en B de iz = 2 ... ndeptsh+1
-          do e = topo_min_e,topo_max_e ! estrato donde hay topografia
+!         do e = topo_min_e,topo_max_e ! estrato donde hay topografia
              
              ! polynomial coefficients: A0 A1 A2...An son complejos; real para
              ! el poly de la parte real de las ondas e imag para el poly de 
@@ -2098,64 +2121,92 @@
 !            Bpoly(e,l,:) = Zpolyfit(lambdaDepths_z, & 
 !                                   Binter(l,2:nDepths+1), &
 !                                   nDepths, degree_interpol,verbose,PrintNum)
+          sca = 10.0_8**13.0
+          write(7771,*) real(Binter(1,2:nDepths+1)*sca,4)
+          write(7772,*) real(Binter(2,2:nDepths+1)*sca,4)
+          write(7773,*) real(Binter(3,2:nDepths+1)*sca,4)
+          write(7774,*) real(Binter(4,2:nDepths+1)*sca,4)
+          write(7775,*) real(Binter(5,2:nDepths+1)*sca,4)
+          write(7776,*) real(Binter(6,2:nDepths+1)*sca,4)
+          cycle !ik
 
                    CALL METAFL ('PDF')
-                   write(titleN,'(a,I0,a,I0,a,I0,a,I0,a)') "f",J,"_e",e,"_k",ik,"_dir",dir,"R.pdf"
+                   write(titleN,'(a,I0,a,I0,a,I0,a)') "f",J,"_k",ik,"_dir",dir,".pdf"
                    CALL SETFIL(trim(adjustl(titleN)))
                    CALL DISINI
-                   call labels('EXP','Y')
+!                  call labels('EXP','Y')
                    call errmod ("all", "off")
                    !el maximo
-                   factor = maxval(abs(real(Binter(1,2:nDepths+1))))
+                   factor = max(maxval(abs(real(Binter(1,2:nDepths+1)))), &
+                                   maxval(abs(real(aimag(Binter(1,2:nDepths+1))))))
                    m = 1
                    do l=2,4*N+2
-                    if (maxval(abs(real(Binter(l,2:nDepths+1)))) .gt. factor) then
+                    sca = max(maxval(abs(real(Binter(l,2:nDepths+1)))), &
+                                   maxval(abs(real(aimag(Binter(l,2:nDepths+1))))))
+                    if (sca .gt. factor) then
                       m = l
-                      factor = maxval(abs(real(Binter(l,2:nDepths+1))))
+                      factor = max(maxval(abs(real(Binter(l,2:nDepths+1)))), &
+                                   maxval(abs(real(aimag(Binter(l,2:nDepths+1))))))
                     end if
                    end do
+                   sca = 10.0_8**13.0
+!                  print*,factor
+!                  print*,sca
                    CALL SETRGB (real(0.0,4), real(0.0,4), real(0.0,4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(m,2:nDepths+1),4), nDepths,"FIRST")
+                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(m,2:nDepths+1)*sca,4), nDepths,"FIRST")
            do l = 1,4*N+2-1 !cada onda en el medio (igual y ni se usan todas)
                    CALL SETRGB (real(l,4)/real((4*N+2),4), real(0.0,4), real(0.0,4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(l,2:nDepths+1),4), nDepths,"NEXT")
+                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(l,2:nDepths+1)*sca,4), nDepths,"NEXT")
+                   
+                   CALL SETRGB (real(0.0,4), real(0.0,4), real(l,4)/real((4*N+2),4))
+                   CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1))*sca,4), nDepths,"NEXT")
+                   
            end do !l        
                    l = 4*N+2
                    CALL SETRGB (real(1.0,4), real(0.0,4), real(0.0,4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(l,2:nDepths+1),4), nDepths,"LAST")
+                   CALL QPLCRV (real(lambdaDepths_z,4), real(Binter(l,2:nDepths+1)*sca,4), nDepths,"NEXT")
+                   
+                   CALL SETRGB (real(0.0,4), real(0.0,4), real(1.0,4))
+                   CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1))*sca,4), nDepths,"LAST")
                    call disfin
                   
-                   CALL METAFL ('PDF')
-                   write(titleN,'(a,I0,a,I0,a,I0,a,I0,a)') "f",J,"_e",e,"_k",ik,"_dir",dir,"I.pdf"
-                   CALL SETFIL(trim(adjustl(titleN)))
-                   CALL DISINI
-                   call labels('EXP','Y')
-                   call errmod ("all", "off")
-                   factor = maxval(abs(real(aimag(Binter(1,2:nDepths+1)))))
-                   m = 1
-                   do l=2,4*N+2
-                    if (maxval(abs(real(aimag(Binter(l,2:nDepths+1))))) .gt. factor) then
-                      m = l
-                      factor = maxval(abs(real(aimag(Binter(l,2:nDepths+1)))))
-                    end if
-                   end do
-                   CALL SETRGB (real(0.0,4), real(0.0,4), real(0.0,4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(m,2:nDepths+1)),4), nDepths,"FIRST")
-           do l = 1,4*N+2 - 1 !cada onda en el medio (igual y ni se usan todas)
-                   CALL SETRGB (real(0.0,4), real(0.0,4), real(l,4)/real((4*N+2),4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1)),4), nDepths,"NEXT")
-           end do !l            
-                   l = 4*N+2
-                   CALL SETRGB (real(0.0,4), real(0.0,4), real(1.0,4))
-                   CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1)),4), nDepths,"LAST")    
-                   call disfin
-          end do !e
+!                  CALL METAFL ('PDF')
+!                  write(titleN,'(a,I0,a,I0,a,I0,a)') "f",J,"_k",ik,"_dir",dir,"I.pdf"
+!                  CALL SETFIL(trim(adjustl(titleN)))
+!                  CALL DISINI
+!                  call labels('EXP','Y')
+!                  call errmod ("all", "off")
+!                  factor = maxval(abs(real(aimag(Binter(1,2:nDepths+1)))))
+!                  m = 1
+!                  do l=2,4*N+2
+!                   if (maxval(abs(real(aimag(Binter(l,2:nDepths+1))))) .gt. factor) then
+!                     m = l
+!                     factor = maxval(abs(real(aimag(Binter(l,2:nDepths+1)))))
+!                   end if
+!                  end do
+!                  CALL SETRGB (real(0.0,4), real(0.0,4), real(0.0,4))
+!                  CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(m,2:nDepths+1)),4), nDepths,"FIRST")
+!          do l = 1,4*N+2 - 1 !cada onda en el medio (igual y ni se usan todas)
+!                  CALL SETRGB (real(0.0,4), real(0.0,4), real(l,4)/real((4*N+2),4))
+!                  CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1)),4), nDepths,"NEXT")
+!          end do !l            
+!                  l = 4*N+2
+!                  CALL SETRGB (real(0.0,4), real(0.0,4), real(1.0,4))
+!                  CALL QPLCRV (real(lambdaDepths_z,4), real(aimag(Binter(l,2:nDepths+1)),4), nDepths,"LAST")    
+!                  call disfin
+!         end do !e
        end do !ik
         
         ! resultados para cada Z donde hay receptores ....................
       end do ! dir   
+      close(7771)
+      close(7772)
+      close(7773)
+      close(7774)
+      close(7775)
+      close(7776)
       CALL chdir("..")
-      workBoundary = .false.
+  897 workBoundary = .false.
       call crunch(0,J,cOME,PrintNum)
       !           ^--- the real source
       if (workboundary) then
@@ -3930,42 +3981,6 @@
 !     stop 0
 !     ! ................................................................
       end subroutine waveAmplitude
-      
-      subroutine coeff_ondas_estratos(i_zfuente,dir,cOME)
-      ! dada una profundidad de fuente en una dirección
-      use resultVars, only:Punto,Po
-      use waveNumVars, only : KtrimIndex,dK
-      use refSolMatrixVars, only : B,Ak
-      use interpolPlaneWavesOfStratification, only : lambdaDepths_z,lambdaDepths_e
-      implicit none
-      
-      integer, intent(in) :: i_zfuente,dir
-      complex*16, intent(in)  :: cOME
-      real*8 :: zf
-      integer :: ef
-      logical :: intf
-      integer :: ik
-      real*8 :: k
-      
-      if (i_zfuente .eq. 0) then !la fuente real
-        zf = Po%center(2)
-        ef = Po%layer
-        intf = Po%isOnInterface
-      else !una profundidad para interpolar las fuerzas virtuales
-        zf = lambdaDepths_z(i_zfuente)
-        ef = lambdaDepths_e(i_zfuente)
-        intf = .false.
-      end if !i_zfuente      
-      
-      ! amplitud de ondas planas dada fuente en Z .......
-       do ik = 1,KtrimIndex
-        k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
-        call vectorB_force(B(:,ik),zf,ef,intf,dir,cOME,k)  
-        B(:,ik) = matmul(AK(:,:,ik),B(:,ik))
-       end do ! ik
-       
-      ! se devuelve los coeficientes para todos los k
-      end subroutine coeff_ondas_estratos
       subroutine crunch(i_zfuente,J,cOME,outpf)
       ! esta función es llamada con cada profundidad donde hay
       ! por lo menos una fuente.
@@ -3974,7 +3989,7 @@
                              MecaElem,Hf,Hk, NxXxMpts, & 
                              trac0vec,ibemMat, NxXxMpts,FFres
       use Gquadrature, only : Gquad_n
-      use refSolMatrixVars, only : B,Ak
+      use refSolMatrixVars, only : B,Ak,Bsh,AkSH
       use waveNumVars, only : NMAX,DK,KmagnitudeChange,lapse, KtrimIndex,trimKplease
       use wavelets !fork
       use meshVars, only: MeshDXmultiplo
@@ -4028,6 +4043,7 @@
       real*8, dimension(2) :: nf
       type(MecaElem)  :: calcMecaAt_k_zi, Meca_diff!, Meca_ff,calcff
       complex*16, dimension(2*nmax,5), target :: auxK,savedAuxK
+      complex*16, dimension(2*nmax,2), target :: auxKsh,savedAuxKsh
       integer, dimension(5,2) :: sign
       complex*16, dimension (:), pointer :: RW
       type(FFres),target :: FF
@@ -4084,8 +4100,10 @@
        
        do ik = 1,KtrimIndex ! amplitud de ondas planas dada fuente en Z .......
         k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
-        call vectorB_force(B(:,ik),zf,ef,intf,dir,cOME,k)  
-        B(:,ik) = matmul(AK(:,:,ik),B(:,ik))
+        call PSVvectorB_force(B(:,ik),zf,ef,intf,dir,cOME,k)  
+        B(:,ik) = matmul(Ak(:,:,ik),B(:,ik))
+        call SHvectorB_force(Bsh(:,ik),zf,ef,intf,cOME,k)
+        Bsh(:,ik) = matmul(AkSH(:,:,ik),Bsh(:,ik))
        end do ! ik
      
       ! resultados para cada Z donde hay receptores ..............................
@@ -4117,11 +4135,13 @@
             
           do ik = 1,KtrimIndex ! k loop : campo difractado por estratos
             k = real(ik-1,8) * dK; if (ik .eq. 1) k = real(dk * 0.01,8)
-            Meca_diff = calcMecaAt_k_zi(B(:,ik),&  
+            Meca_diff = calcMecaAt_k_zi(B(:,ik),Bsh(:,ik),&  
                      zi,ei,cOME,k, & 
                      mecStart,mecEnd,outpf)
             auxK(ik,mecStart:mecEnd) = Meca_diff%Rw(mecStart:mecEnd) 
- 
+            
+            auxKsh(ik,1:2) = Meca_diff%Rw_SH(1:2)
+            
         ! trim K integration 
             !local max
             localmaxW = max(localmaxW,abs(auxK(ik,mecStart)))
@@ -4152,6 +4172,10 @@
          auxK(nmax+2:nmax*2,iMec) = sign(iMec,dir)* auxK(nmax:2:-1,iMec)         
         end do !iMec
         savedAuxK(1:2*nmax,mecStart:mecEnd) = auxK(1:2*nmax,mecStart:mecEnd)
+        
+        do iMec = 1,2
+         auxKsh(nmax+2:nmax*2,iMec) = sign(iMec,dir)* auxK(nmax:2:-1,iMec)
+        end do !iMec
         
         ! Coordenada X ....................
         if (i_zfuente .eq. 0) then
@@ -4561,7 +4585,7 @@
         end if
 !      print*,"sucess asociar"
       end subroutine asociar
-      subroutine matrixA_borderCond(this_A,k,cOME_i,outpf)
+      subroutine globalmatrix_PSV(this_A,k,cOME_i,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
       use gloVars, only : verbose,UI,UR,Z0!,PI!,dp
 !     use waveVars, only : Theta     
@@ -4708,10 +4732,107 @@
              call showMNmatrixZ(4*N+2,4*N+2,this_A,"A    ",outpf) 
           end if
       
-      end subroutine matrixA_borderCond
+      end subroutine globalmatrix_PSV
       
       
-      subroutine vectorB_force(this_B,z_f4,e,fisInterf,direction,cOME,k)
+      subroutine globalmatrix_SH(this_A,k,cOME_i,outpf)
+      use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
+      use gloVars, only : verbose,UI,UR,Z0!,PI!,dp
+      use debugStuff  
+      implicit none
+      
+      complex*16,    intent(inout), dimension(2*N+1,2*N+1) :: this_A
+      real*8               :: z_i
+      real*8,     intent(in)     :: k
+      complex*16, intent(in)     :: cOME_i  
+      
+      integer, intent(in) :: outpf
+
+      complex*16, dimension(1,2) :: subMatD, subMatS, subMatD0, subMatS0
+      complex*16, dimension(2,2) :: diagMat
+      complex*16 :: nu
+      complex*16 :: enuN,enuP
+      integer    :: iR,iC,e,bord
+      
+          iR= 0
+          iC= 0 
+          this_A = Z0
+      !la matriz global se llena por columnas con submatrices de
+      DO e = 1,N+1!cada estrato
+          
+          ! algunas valores constantes para todo el estrato
+          nu =((cOME_i/BETA(e))**2.0_8 - k**2.0_8)**0.5_8
+          ! Se debe cumplir que la parte imaginaria del número de onda 
+          ! vertical debe ser menor que cero. La parte imaginaria contri-
+          ! buye a tener ondas planas inhomogéneas con decaimiento expo-
+          ! nencial a medida que z es mayor que cero.
+          if(aimag(nu).gt.0.0)nu=-nu
+
+          ! en fortran los elementos se indican por columnas:
+          subMatD0 = RESHAPE((/ UR,UR /), (/ 1,2 /))
+           
+          subMatS0 = RESHAPE((/ -UI*nu,UI*nu /),(/1,2/)) 
+          subMatS0 = amu(e) * subMatS0                  
+          
+          ! la profundidad z de la frontera superior del estrato
+!         z_i = Z(e)   ! e=1  ->  z = z0 = 0
+!         z_f = Z(e+1) ! e=1  ->  z = z1 
+        do bord = 0,1
+          if (e+bord > N+1) then ! si 1+0;1+1;2+0;[2+1] > 2
+            exit
+          end if                           
+          ! la profundidad z de la frontera superior del estrato
+                z_i = Z(e+bord)   ! e=1 , bord=0  ->  z = z0 = 0
+                                  ! e=1 , bord=1  ->  z = Z1 = h1
+          
+          !downward waves
+          enuN = exp(-UI * nu * (z_i-Z(e)))
+          !upward waves    
+          if (e /= N+1) then !(radiation condition)
+            enuP = exp(UI * nu * (z_i-Z(e+1)))
+          else
+            enuP = Z0
+          end if
+          diagMat = RESHAPE((/ enuN, Z0,   & 
+                               Z0,   enuP /), &
+                              (/ 2,2 /))
+          
+          subMatD = matmul(subMatD0,diagMat)
+          subMatS = matmul(subMatS0,diagMat)
+          
+        !ensamble de la macro columna i
+          !evaluadas en el borde SUPERIOR del layer i
+          if (bord == 0) then 
+           if (e /= N+1) then !(radiation condition)
+            if (e/=1) then !(only stress bound.cond. in the surface
+             this_A( iR   : iR   , iC+1 : iC+2 ) = -subMatD
+            end if !(e==2,3,...)
+             this_A( iR+1 : iR+1 , iC+1 : iC+2 ) = -subMatS
+           else
+             this_A( iR   : iR   , iC+1 : iC+1 ) = -subMatD(:,1:1)
+             this_A( iR+1 : iR+1 , iC+1 : iC+1 ) = -subMatS(:,1:1)
+             exit
+           end if
+          end if
+          
+          !evaluadas en el borde INFERIOR del layer i
+          if (bord == 1 .AND. e /= N+1 ) then ! cond de radiación en HS
+            this_A( iR+2 : iR+2 , iC+1 : iC+2 ) = subMatD
+            this_A( iR+3 : iR+3 , iC+1 : iC+2 ) = subMatS
+          end if
+          
+        end do !bord loop del borde i superior o nferior
+          iR= iR+2 
+          iC= iC+2
+          
+      END DO !{e} loop de las macro columnas para cada estrato
+          
+          if (verbose >= 3) then
+             call showMNmatrixZ(2*N+1,2*N+1,this_A,"Ash  ",outpf) 
+          end if
+      
+      end subroutine globalmatrix_SH
+      subroutine PSVvectorB_force(this_B,z_f4,e,fisInterf,direction,cOME,k)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA,RHO,NPAR
       use gloVars, only : UR,UI,PI,Z0
       use debugStuff   
@@ -4904,8 +5025,93 @@
       
 !     print*,""
 !     print*,this_B; stop "B"
-      end subroutine vectorB_force
-      function calcMecaAt_k_zi(thisIP_B,z_i,e,cOME_i,k,mecStart,mecEnd,outpf)
+      end subroutine PSVvectorB_force
+      subroutine SHvectorB_force(this_B,z_f4,e_f,fisInterf,cOME,k)
+      use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA,RHO,NPAR
+      use gloVars, only : UR,UI,PI,Z0
+      use debugStuff   
+      implicit none
+      
+      complex*16,    intent(inout), dimension(2*N+1) :: this_B
+      integer,    intent(in)    :: e_f! 'e' de la fuerza
+      real*8,       intent(in)  :: z_f4
+      real*8,     intent(in)    :: k
+      complex*16, intent(in)    :: cOME
+      logical,    intent(in)    :: fisInterf
+      real*8  :: z_f
+      integer :: iIf,nInterf
+      integer*8 :: sign
+      real    :: SGNz
+      complex*16 :: nu,DEN
+      real*8     :: errT = 0.0001_8
+      complex*16 :: omeBet
+      ! una para cada interfaz (la de arriba [1] y la de abajo [2])
+      real*8,     dimension(2) :: z_loc
+      complex*16, dimension(2) :: enuz
+      complex*16, dimension(2) :: G22,S22
+      
+      z_f = real(z_f4,8)
+      this_B = Z0
+      nInterf = 2
+      if (fisInterf) then
+         nInterf = 1
+      end if   
+      
+      z_loc(1) = Z(e_f) - z_f !downward (-)
+      if (e_f .ne. N+1) then
+        z_loc(2) = Z(e_f+1) - z_f !upward (+)
+      else
+        z_loc(2) = 0.0_8
+      end if
+      DEN = (4.0*AMU(e_f)*UI*PI)
+      
+      omeBet = cOME**2.0/BETA(e_f)**2.0
+      nu = sqrt(omeBet - k**2.0)
+      if(aimag(nu).gt.0.0_8)nu=-nu
+      
+      ! en cada interfaz (1 arriba) y (2 abajo)
+      do iIf = 1, nInterf
+          if (abs(z_loc(iIf)) > errT ) then
+            SGNz = real(z_loc(iIf) / ABS(z_loc(iIf)),4)
+          else
+            SGNz = 0.0
+          end if
+          
+          enuz(iIf) = exp(-UI*nu*ABS(z_loc(iIf)))
+          
+          G22(iIf) = UR/DEN * enuz(iIf) / nu
+          S22(iIf) = -UR / (4*pi) * enuz(iIf) * SGNz
+          
+          
+          if (fisInterf) then
+            S22(1) = + cmplx(1.0 / (2.0 * PI ),0.0,8)
+            G22(1) = 0
+          end if
+      end do !iIf
+      
+      sign= 1      
+      if (mod(e_f,2) .eq. 0 .and. mod(N,2) .eq. 0) then
+      sign = -1
+      end if
+      
+      
+      ! El vector de términos independientes genera el campo difractado
+      !                     =      (1) interfaz de arriba
+       if (e_f .ne. 1) then
+        this_B(1+2*(e_f-1)-1) = - sign * G22(1)
+       end if 
+        this_B(1+2*(e_f-1)  ) = - sign * S22(1)
+      
+      if (.not. fisInterf) then ! la fuerza no calló en la interfaz
+      !                     =      (2) interfaz de abajo
+       if (e_f .ne. N+1) then
+        this_B(1+2*(e_f-1)+1) = sign * G22(2)
+        this_B(1+2*(e_f-1)+2) = sign * S22(2)
+       end if
+      end if
+      end subroutine SHvectorB_force
+      function calcMecaAt_k_zi(coefOndas_PSV,coefOndas_SH, & 
+                               z_i,e,cOME_i,k,mecStart,mecEnd,outpf)
       use soilVars !N,Z,AMU,BETA,ALFA,LAMBDA
       use gloVars, only : verbose,UI,UR,Z0!,PI
 !     use waveVars, only : Theta
@@ -4916,15 +5122,22 @@
       real*8, intent(in)           :: k
       complex*16, intent(in)       :: cOME_i  
       integer, intent(in)          :: e,outpf,mecStart,mecEnd
-      complex*16, dimension(4*N+2),intent(in) :: thisIP_B
+      complex*16, dimension(4*N+2),intent(in) :: coefOndas_PSV
+      complex*16, dimension(2*N+1),intent(in) :: coefOndas_SH
       complex*16 :: gamma,nu,xi,eta!,mukanu2,mukagam2,l2m,g2,k2,lk2,lg2
       complex*16 :: egammaN,enuN,egammaP,enuP
       complex*16, dimension(2,4) :: subMatD
       complex*16, dimension(3,4) :: subMatS
+      complex*16, dimension(1,2) :: subMatDsh
+      complex*16, dimension(1,2) :: subMatSsh
       complex*16, dimension(4,4) :: diagMat
-      complex*16, dimension(4,1) :: partOfXX
+      complex*16, dimension(2,2) :: diagMatSH
+      complex*16, dimension(4,1) :: coeffsPSV
+      complex*16, dimension(2,1) :: coeffsSH
       complex*16, dimension(2,1) :: resD
       complex*16, dimension(3,1) :: resS
+      complex*16, dimension(1,1) :: resDsh
+      complex*16, dimension(1,1) :: resSsh
 !     real :: SGNz
 !     real*8     :: errT = 0.0001_8
       
@@ -4939,34 +5152,8 @@
       
       if(aimag(gamma).gt.0.0)gamma = -gamma
       if(aimag(nu).gt.0.0)nu=-nu
-      
-!         mukanu2  = 2* amu(e)* k * nu
-!         mukagam2 = 2* amu(e)* k * gamma
-!         l2m = lambda(e) + 2 * amu(e)
           xi = k**2.0 - nu**2.0!(nu**2 - k**2) * amu(e)
-!         g2 = gamma**2
-!         k2 = k**2
-!         lk2 = lambda(e)*k2
-!         lg2 = lambda(e)*g2
           eta = 2.0*gamma**2.0 - cOME_i**2.0 / BETA(e)**2.0
-          
-          !sign
-!         if (e /= N+1) then
-!         if (abs(z_i-Z(e+1)) > errT ) then
-!           SGNz = real((z_i-Z(e)) / ABS(z_i-Z(e)),4)
-!         else
-!           SGNz = 0.0
-!         end if
-!         print*,"SGNz=",SGNz
-!         if (SGNz .lt. 0) stop "finally"
-!         end if
-
-!         print*,"z_i                         :      ",z_i
-!         print*,"e",e
-!         print*,"Z(e)",Z(e)
-!         if (e /= N+1) print*,"Z(e+1)",Z(e+1)
-          
-          
           !downward waves
           egammaN = exp(-UI * gamma * abs(z_i-Z(e)))
           enuN = exp(-UI * nu * abs(z_i-Z(e)))
@@ -4988,12 +5175,19 @@
                               Z0, Z0, egammaP, Z0, & 
                               Z0, Z0, Z0, enuP /), &
                            (/ 4,4 /))
+                           
+          diagMatSH = RESHAPE((/ enuN, Z0,   & 
+                                 Z0,   enuP /), &
+                              (/ 2,2 /))
       !coeficientes de las ondas en el estrato
         if (e /= N+1) then
-          partOfXX(1:4,1) = thisIP_B(4*(e-1)+1 : 4*(e-1)+4)
+          coeffsPSV(1:4,1) = coefOndas_PSV(4*(e-1)+1 : 4*(e-1)+4)
+          coeffsSH(1:2,1) = coefOndas_SH(2*(e-1)+1 : 2*(e-1)+2)
         else !( condición de radiación)
-          partOfXX(1:2,1) = thisIP_B(4*(e-1)+1 : 4*(e-1)+2)
-          partOfXX(3:4,1) = (/z0,z0/)
+          coeffsPSV(1:2,1) = coefOndas_PSV(4*(e-1)+1 : 4*(e-1)+2)
+          coeffsPSV(3:4,1) = (/z0,z0/)
+          coeffsSH(1:1,1) = coefOndas_SH(2*(e-1)+1 : 2*(e-1)+1)
+          coeffsSH(2:2,1) = z0
         end if!
 !       if (verbose>=3) then
 !         print*,"xx1 ",partOfXX(1,1)
@@ -5002,6 +5196,9 @@
 !         print*,"xx4 ",partOfXX(4,1)
 !       end if  
       
+      !SH
+      
+      !PSV
       ! desplazamientos
       if (mecStart .eq. 1)then
         subMatD = RESHAPE((/ -gamma,-k*UR,-k*UR,nu, & 
@@ -5009,50 +5206,42 @@
                            (/ 2,4 /))
         subMatD = UI * subMatD
         subMatD = matmul(subMatD,diagMat)
-        resD = matmul(subMatD,partOfXX)
+        resD = matmul(subMatD, coeffsPSV)
         
         calcMecaAt_k_zi%Rw(1) = resD(1,1) !W
         calcMecaAt_k_zi%Rw(2) = resD(2,1) !U
-!       if (dir .eq. 2) then !vertical
-!         calcMecaAt_k_zi%Rw(1) = resD(1,1) !W
-!         calcMecaAt_k_zi%Rw(2) = - resD(2,1) !U 
-!       else ! dir eq. 1 !horizontal
-!         calcMecaAt_k_zi%Rw(1) = - resD(1,1) !W
-!         calcMecaAt_k_zi%Rw(2) = resD(2,1) !U 
-!       end if
+        
+        subMatDsh = RESHAPE((/ UR,UR /), (/ 1,2 /))
+        subMatDsh = matmul(subMatDsh,diagMatSH)
+        resDsh = matmul(subMatDsh, coeffsSH)
+        calcMecaAt_k_zi%Rw_sh(1) = resDsh(1,1)
       end if ! desplazamientos
       
       ! esfuerzos
       if (mecEnd .eq. 5) then
      
-      subMatS = RESHAPE((/ xi,      -2.0*k*gamma,     eta,     &
+        subMatS = RESHAPE((/ xi,      -2.0*k*gamma,     eta,     &
                           -2.0*k*nu,     -xi,        2.0*k*nu,   &
                            xi,       2.0*k*gamma,     eta,     &
                            2.0*k*nu,     -xi,       -2.0*k*nu /),&
                            (/3,4/))      
      
-      subMatS = amu(e) * subMatS
-!       subMatS = RESHAPE((/ l2m*(-1*g2)-lk2 , -mukagam2, l2m*(-1*k2)-lg2, &
-!                              -mukanu2        , xi   , mukanu2, &
-!                              l2m*(-1*g2)-lk2 , mukagam2, l2m*(-1*k2)-lg2, & 
-!                              mukanu2         , xi   , -mukanu2 /),&
-!                          (/3,4/))
+        subMatS = amu(e) * subMatS
         subMatS = matmul(subMatS,diagMat)
-        resS = matmul(subMatS,partOfXX)
+        resS = matmul(subMatS, coeffsPSV)
         
         calcMecaAt_k_zi%Rw(3) = resS(1,1) !s33
         calcMecaAt_k_zi%Rw(4) = resS(2,1) !s31
         calcMecaAt_k_zi%Rw(5) = resS(3,1) !s11 
-!       if (dir .eq. 2) then ! vertical
-!         calcMecaAt_k_zi%Rw(3) = resS(1,1) !s33
-!         calcMecaAt_k_zi%Rw(4) = - resS(2,1) !s31
-!         calcMecaAt_k_zi%Rw(5) = resS(3,1) !s11
-!       else ! dir eq. 1 !horizontal
-!         calcMecaAt_k_zi%Rw(3) = - resS(1,1) !s33
-!         calcMecaAt_k_zi%Rw(4) = resS(2,1) !s31
-!         calcMecaAt_k_zi%Rw(5) = - resS(3,1) !s11
-!       end if
+
+        subMatSsh = RESHAPE((/ -UI*nu,UI*nu /),(/1,2/)) 
+        subMatSsh = amu(e) * subMatSsh 
         
+        subMatSsh = RESHAPE((/ -UI*nu,UI*nu /),(/1,2/)) 
+        subMatSsh = amu(e) * subMatSsh
+        subMatSsh = matmul(subMatSsh,diagMatSH)
+        resSsh = matmul(subMatSsh, coeffsSH)
+        calcMecaAt_k_zi%Rw_sh(2:2) = resSsh(1,1)
         
       end if ! esfuerzos
           
@@ -5333,12 +5522,9 @@
       complex*16, dimension(:),allocatable :: work
       integer :: info
       
-      allocate(ipiv(n+1))
+      allocate(ipiv(n))
       lwork = n*n
       allocate(work(lwork))
-      
-!     call dpsv
-      
       
       call zgetrf(n,n,A,n,ipiv,info)
       if(info .ne. 0) stop "Problem at LU factorization of matrix "

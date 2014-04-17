@@ -3,9 +3,9 @@ verbose [int]
 make a video [logical]
 F
 Solve topography [logical]
-T
-Plot FK de medio sin topografia [logical]
 F
+Plot FK de medio sin topografia [logical]
+T
 max segment length  = beta / ( wavelength * R)   [int :: R] and for the interpolation
 6
 2
